@@ -1,0 +1,76 @@
+{
+  "version": 1,
+  "author": "SmartFarm AI",
+  "editor": "wokwi",
+  "parts": [
+    { "type": "board-esp32-devkit-c-v4", "id": "esp", "top": 0, "left": 0, "attrs": {} },
+    { "type": "wokwi-dht22", "id": "dht1", "top": -150, "left": 150, "attrs": {} },
+    {
+      "type": "wokwi-photoresistor-sensor",
+      "id": "ldr1",
+      "top": -150,
+      "left": 300,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-potentiometer",
+      "id": "pot1",
+      "top": -150,
+      "left": -150,
+      "attrs": { "label": "Soil Moisture" }
+    },
+    {
+      "type": "wokwi-potentiometer",
+      "id": "pot2",
+      "top": 50,
+      "left": -150,
+      "attrs": { "label": "Soil pH" }
+    },
+    {
+      "type": "wokwi-slide-switch",
+      "id": "sw1",
+      "top": 150,
+      "left": -150,
+      "attrs": { "label": "Rainfall" }
+    },
+    { "type": "wokwi-relay-module", "id": "relay1", "top": 200, "left": 150, "attrs": {} },
+    { "type": "wokwi-led", "id": "led1", "top": 200, "left": 300, "attrs": { "color": "blue" } },
+    { "type": "wokwi-resistor", "id": "r1", "top": 250, "left": 300, "attrs": { "value": "220" } },
+    { "type": "wokwi-ssd1306", "id": "oled1", "top": 0, "left": 400, "attrs": {} }
+  ],
+  "connections": [
+    [ "esp:3V3", "dht1:VCC", "red", [ "v0" ] ],
+    [ "esp:GND", "dht1:GND", "black", [ "v0" ] ],
+    [ "esp:15", "dht1:SDA", "green", [ "v0" ] ],
+    
+    [ "esp:3V3", "ldr1:VCC", "red", [ "v0" ] ],
+    [ "esp:GND", "ldr1:GND", "black", [ "v0" ] ],
+    [ "esp:32", "ldr1:AO", "green", [ "v0" ] ],
+    
+    [ "esp:3V3", "pot1:VCC", "red", [ "v0" ] ],
+    [ "esp:GND", "pot1:GND", "black", [ "v0" ] ],
+    [ "esp:34", "pot1:SIG", "yellow", [ "v0" ] ],
+    
+    [ "esp:3V3", "pot2:VCC", "red", [ "v0" ] ],
+    [ "esp:GND", "pot2:GND", "black", [ "v0" ] ],
+    [ "esp:35", "pot2:SIG", "yellow", [ "v0" ] ],
+    
+    [ "esp:GND", "sw1:1", "black", [ "v0" ] ],
+    [ "esp:33", "sw1:2", "green", [ "v0" ] ],
+    
+    [ "esp:GND", "relay1:GND", "black", [ "v0" ] ],
+    [ "esp:3V3", "relay1:VCC", "red", [ "v0" ] ],
+    [ "esp:26", "relay1:IN", "green", [ "v0" ] ],
+    
+    [ "esp:3V3", "relay1:COM", "red", [ "v0" ] ],
+    [ "relay1:NO", "led1:A", "blue", [ "v0" ] ],
+    [ "led1:C", "r1:1", "black", [ "v0" ] ],
+    [ "r1:2", "esp:GND", "black", [ "v0" ] ],
+    
+    [ "esp:3V3", "oled1:VCC", "red", [ "v0" ] ],
+    [ "esp:GND", "oled1:GND", "black", [ "v0" ] ],
+    [ "esp:21", "oled1:SDA", "green", [ "v0" ] ],
+    [ "esp:22", "oled1:SCL", "blue", [ "v0" ] ]
+  ],
+  "dependencies": {}
+}
