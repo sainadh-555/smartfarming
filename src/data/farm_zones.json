@@ -1,0 +1,30 @@
+[
+  {
+    "zoneId": "ZONE-A",
+    "name": "Zone A",
+    "cropType": "Tomato",
+    "status": "Healthy",
+    "coordinates": { "x": 0, "y": 0 }
+  },
+  {
+    "zoneId": "ZONE-B",
+    "name": "Zone B",
+    "cropType": "Chili",
+    "status": "Attention",
+    "coordinates": { "x": 1, "y": 0 }
+  },
+  {
+    "zoneId": "ZONE-C",
+    "name": "Zone C",
+    "cropType": "Paddy",
+    "status": "Healthy",
+    "coordinates": { "x": 0, "y": 1 }
+  },
+  {
+    "zoneId": "ZONE-D",
+    "name": "Zone D",
+    "cropType": "Groundnut",
+    "status": "Critical",
+    "coordinates": { "x": 1, "y": 1 }
+  }
+]

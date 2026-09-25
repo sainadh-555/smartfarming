@@ -1,0 +1,62 @@
+{
+  "ZONE-A": {
+    "deviceId": "ESP32-FARM-01",
+    "farmId": "FARM-001",
+    "zoneId": "ZONE-A",
+    "timestamp": "2023-10-25T10:00:00Z",
+    "soilMoisture": 28.0,
+    "soilTemperature": 31.0,
+    "airTemperature": 34.0,
+    "humidity": 44.0,
+    "soilPH": 6.5,
+    "lightIntensity": 850,
+    "rainfall": 0,
+    "plantHealthScore": 68,
+    "imageUrl": "https://images.unsplash.com/photo-1592841200221-a6898f307baa?auto=format&fit=crop&w=400&q=80"
+  },
+  "ZONE-B": {
+    "deviceId": "ESP32-FARM-02",
+    "farmId": "FARM-001",
+    "zoneId": "ZONE-B",
+    "timestamp": "2023-10-25T10:00:00Z",
+    "soilMoisture": 35.0,
+    "soilTemperature": 27.5,
+    "airTemperature": 29.5,
+    "humidity": 55.0,
+    "soilPH": 6.8,
+    "lightIntensity": 780,
+    "rainfall": 0,
+    "plantHealthScore": 82,
+    "imageUrl": "https://images.unsplash.com/photo-1588613254350-13f9d501c565?auto=format&fit=crop&w=400&q=80"
+  },
+  "ZONE-C": {
+    "deviceId": "ESP32-FARM-03",
+    "farmId": "FARM-001",
+    "zoneId": "ZONE-C",
+    "timestamp": "2023-10-25T10:00:00Z",
+    "soilMoisture": 75.0,
+    "soilTemperature": 24.0,
+    "airTemperature": 26.0,
+    "humidity": 72.0,
+    "soilPH": 6.2,
+    "lightIntensity": 900,
+    "rainfall": 5,
+    "plantHealthScore": 95,
+    "imageUrl": "https://images.unsplash.com/photo-1627914407886-5d6c8b030438?auto=format&fit=crop&w=400&q=80"
+  },
+  "ZONE-D": {
+    "deviceId": "ESP32-FARM-04",
+    "farmId": "FARM-001",
+    "zoneId": "ZONE-D",
+    "timestamp": "2023-10-25T10:00:00Z",
+    "soilMoisture": 15.0,
+    "soilTemperature": 35.0,
+    "airTemperature": 38.0,
+    "humidity": 30.0,
+    "soilPH": 5.5,
+    "lightIntensity": 950,
+    "rainfall": 0,
+    "plantHealthScore": 45,
+    "imageUrl": "https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?auto=format&fit=crop&w=400&q=80"
+  }
+}
