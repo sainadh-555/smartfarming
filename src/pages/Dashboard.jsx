@@ -1,7 +1,7 @@
 import React from 'react';
 import { useFarmData } from '../context/FarmContext';
 import { generateFarmHealthScore } from '../ai/farmDecisionEngine';
-import { Droplets, Thermometer, Wind, Activity, CheckCircle, AlertTriangle } from 'lucide-react';
+import { Droplets, Thermometer, Wind, Activity, CheckCircle, AlertTriangle, Bell, Brain } from 'lucide-react';
 
 const KPICard = ({ title, value, status, icon: Icon, colorClass }) => (
   <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm flex items-start gap-4">
