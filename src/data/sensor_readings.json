@@ -42,7 +42,7 @@
     "lightIntensity": 900,
     "rainfall": 5,
     "plantHealthScore": 95,
-    "imageUrl": "https://images.unsplash.com/photo-1627914407886-5d6c8b030438?auto=format&fit=crop&w=400&q=80"
+    "imageUrl": "https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=400&q=80"
   },
   "ZONE-D": {
     "deviceId": "ESP32-FARM-04",
