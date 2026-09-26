@@ -10,6 +10,7 @@ import DataSources from './pages/DataSources';
 import AIInsights from './pages/AIInsights';
 import Analytics from './pages/Analytics';
 import Settings from './pages/Settings';
+import Inventory from './pages/Inventory';
 
 // Simple placeholder for pages not fully implemented yet to ensure routing works
 const Placeholder = ({ title }) => (
@@ -29,6 +30,7 @@ function App() {
             <Route path="vision" element={<PlantVision />} />
             <Route path="insights" element={<AIInsights />} />
             <Route path="analytics" element={<Analytics />} />
+            <Route path="inventory" element={<Inventory />} />
             <Route path="alerts" element={<Alerts />} />
             <Route path="data-sources" element={<DataSources />} />
             <Route path="settings" element={<Settings />} />

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
-import { LayoutDashboard, Map, Sprout, Brain, BarChart3, Bell, Database, Settings, Menu, X } from 'lucide-react';
+import { LayoutDashboard, Map, Sprout, Brain, BarChart3, Bell, Database, Settings, Menu, X, Package } from 'lucide-react';
 import { useFarmData } from '../context/FarmContext';
 
 export default function Layout() {
@@ -15,6 +15,7 @@ export default function Layout() {
     { name: 'Plant Vision', path: '/vision', icon: Sprout },
     { name: 'AI Insights', path: '/insights', icon: Brain },
     { name: 'Analytics', path: '/analytics', icon: BarChart3 },
+    { name: 'Inventory', path: '/inventory', icon: Package },
     { name: 'Alerts', path: '/alerts', icon: Bell, badge: activeAlertsCount },
     { name: 'Data Sources', path: '/data-sources', icon: Database },
     { name: 'Settings', path: '/settings', icon: Settings },
