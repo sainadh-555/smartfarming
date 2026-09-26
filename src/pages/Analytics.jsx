@@ -1,6 +1,7 @@
 import React from 'react';
 import { useFarmData } from '../context/FarmContext';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { BrainCircuit } from 'lucide-react';
 
 // Generate mock historical data for the charts
 const generateMockHistory = () => {
