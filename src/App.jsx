@@ -9,6 +9,7 @@ import Alerts from './pages/Alerts';
 import DataSources from './pages/DataSources';
 import AIInsights from './pages/AIInsights';
 import Analytics from './pages/Analytics';
+import Settings from './pages/Settings';
 
 // Simple placeholder for pages not fully implemented yet to ensure routing works
 const Placeholder = ({ title }) => (
@@ -30,7 +31,7 @@ function App() {
             <Route path="analytics" element={<Analytics />} />
             <Route path="alerts" element={<Alerts />} />
             <Route path="data-sources" element={<DataSources />} />
-            <Route path="settings" element={<Placeholder title="Settings" />} />
+            <Route path="settings" element={<Settings />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>
