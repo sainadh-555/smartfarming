@@ -7,6 +7,8 @@ import FarmMap from './pages/FarmMap';
 import PlantVision from './pages/PlantVision';
 import Alerts from './pages/Alerts';
 import DataSources from './pages/DataSources';
+import AIInsights from './pages/AIInsights';
+import Analytics from './pages/Analytics';
 
 // Simple placeholder for pages not fully implemented yet to ensure routing works
 const Placeholder = ({ title }) => (
@@ -24,8 +26,8 @@ function App() {
             <Route index element={<Dashboard />} />
             <Route path="map" element={<FarmMap />} />
             <Route path="vision" element={<PlantVision />} />
-            <Route path="insights" element={<Placeholder title="AI Insights" />} />
-            <Route path="analytics" element={<Placeholder title="Analytics" />} />
+            <Route path="insights" element={<AIInsights />} />
+            <Route path="analytics" element={<Analytics />} />
             <Route path="alerts" element={<Alerts />} />
             <Route path="data-sources" element={<DataSources />} />
             <Route path="settings" element={<Placeholder title="Settings" />} />
