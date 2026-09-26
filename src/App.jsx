@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { FarmProvider } from './context/FarmContext';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
@@ -18,7 +18,7 @@ const Placeholder = ({ title }) => (
 function App() {
   return (
     <FarmProvider>
-      <BrowserRouter>
+      <Router>
         <Routes>
           <Route path="/" element={<Layout />}>
             <Route index element={<Dashboard />} />
@@ -32,7 +32,7 @@ function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>
-      </BrowserRouter>
+      </Router>
     </FarmProvider>
   );
 }
