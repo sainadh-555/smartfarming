@@ -47,6 +47,7 @@ export default function ZoneDetailModal({ zoneId, onClose, onSelectZone }) {
   if (!zone) return null;
 
   const { sensorData, analysis, agronomy } = zone;
+  const cropType = zone.cropType || agronomy?.crop?.name || 'Crop';
   const crop = agronomy?.crop || {};
   const pesticideUsage = agronomy?.pesticideUsage || { treatments: [] };
   const fertilizerUsage = agronomy?.fertilizerUsage || { treatments: [] };

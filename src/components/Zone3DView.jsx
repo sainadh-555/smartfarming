@@ -6,20 +6,14 @@ import {
   Eye, 
   Droplets, 
   Flame, 
-  Sun, 
-  Wind, 
-  Maximize2, 
-  Layers, 
-  Sparkles,
-  Info
+  Sun
 } from 'lucide-react';
 
 export default function Zone3DView({ zone, onSimulateIrrigate }) {
   const mountRef = useRef(null);
-  const [viewMode, setViewMode] = useState('realistic'); // 'realistic' | 'thermal' | 'soil'
+  const [viewMode, setViewMode] = useState('realistic'); // 'realistic' | 'thermal'
   const [isAutoRotating, setIsAutoRotating] = useState(true);
   const [isDripActive, setIsDripActive] = useState(false);
-  const [selectedHotspot, setSelectedHotspot] = useState(null);
 
   // References to keep across renders
   const sceneRef = useRef(null);
