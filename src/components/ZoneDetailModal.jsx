@@ -19,13 +19,15 @@ import {
   CheckCircle2, 
   Layers,
   MapPin,
-  ChevronRight
+  ChevronRight,
+  Box
 } from 'lucide-react';
 import { useFarmData } from '../context/FarmContext';
+import Zone3DView from './Zone3DView';
 
 export default function ZoneDetailModal({ zoneId, onClose, onSelectZone }) {
   const { zones, simulateAction, logPesticideSpray } = useFarmData();
-  const [activeTab, setActiveTab] = useState('pesticides'); // 'pesticides' | 'telemetry' | 'crop' | 'ai'
+  const [activeTab, setActiveTab] = useState('3d'); // '3d' | 'pesticides' | 'crop' | 'telemetry' | 'ai'
   const [isLoggingSpray, setIsLoggingSpray] = useState(false);
   const [spraySuccessMsg, setSpraySuccessMsg] = useState('');
 
@@ -334,6 +336,21 @@ export default function ZoneDetailModal({ zoneId, onClose, onSelectZone }) {
         <div className="px-6 border-b border-slate-200 bg-white flex items-center justify-between overflow-x-auto">
           <div className="flex gap-2">
             <button
+              onClick={() => setActiveTab('3d')}
+              className={`py-3.5 px-4 text-xs font-bold border-b-2 transition-all flex items-center gap-2 whitespace-nowrap ${
+                activeTab === '3d'
+                  ? 'border-emerald-600 text-emerald-700 bg-emerald-50/50'
+                  : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'
+              }`}
+            >
+              <Box className="w-4 h-4 text-emerald-600 animate-pulse" />
+              <span>Live 3D Field View</span>
+              <span className="bg-emerald-100 text-emerald-800 text-[10px] px-2 py-0.5 rounded-full font-extrabold uppercase">
+                3D Twin
+              </span>
+            </button>
+
+            <button
               onClick={() => setActiveTab('pesticides')}
               className={`py-3.5 px-4 text-xs font-bold border-b-2 transition-all flex items-center gap-2 whitespace-nowrap ${
                 activeTab === 'pesticides'
@@ -388,6 +405,50 @@ export default function ZoneDetailModal({ zoneId, onClose, onSelectZone }) {
 
         {/* Tab Content Body */}
         <div className="flex-1 overflow-y-auto p-6 bg-slate-50/50 space-y-6">
+
+          {/* TAB 0: LIVE 3D FIELD VIEW */}
+          {activeTab === '3d' && (
+            <div className="space-y-4 animate-fadeIn">
+              <Zone3DView zone={zone} onSimulateIrrigate={handleIrrigate} />
+              
+              {/* 3D Scene Condition Insights */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs space-y-1">
+                  <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
+                    <span className="w-3 h-3 rounded-full bg-amber-700" />
+                    <span>Live Soil Surface Condition</span>
+                  </div>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    {sensorData.soilMoisture < 25
+                      ? 'Parched dusty soil texture reflects severe moisture deficit (15%). Low specular sheen.'
+                      : sensorData.soilMoisture > 65
+                      ? 'Waterlogged: Shimmering shallow water layer with wave reflection physics.'
+                      : 'Moist rich loam: Optimal moisture retention with balanced nutrient absorption.'}
+                  </p>
+                </div>
+
+                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs space-y-1">
+                  <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
+                    <span className="w-3 h-3 rounded-full bg-emerald-600" />
+                    <span>3D Crop Phenology & Wind Physics</span>
+                  </div>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    Procedural 3D <strong>{cropType}</strong> vegetation ({crop.variety || 'Hybrid'}) in <strong>{crop.growthStage || 'active development'}</strong> with gentle wind physics.
+                  </p>
+                </div>
+
+                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs space-y-1">
+                  <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
+                    <span className="w-3 h-3 rounded-full bg-blue-500" />
+                    <span>IoT Sensor Station & Drip Lateral</span>
+                  </div>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    ESP32 wireless node with solar panel, buried soil probe, and black lateral drip lines with clickable animated emitter testing.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* TAB 1: PESTICIDE & CHEMICAL USAGE */}
           {activeTab === 'pesticides' && (

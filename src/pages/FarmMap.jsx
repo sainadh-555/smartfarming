@@ -172,8 +172,9 @@ export default function FarmMap() {
 
                 {/* Bottom Call-to-Action Bar */}
                 <div className="mt-3 text-center">
-                  <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-white/90 group-hover:bg-emerald-600 group-hover:text-white px-3.5 py-1.5 rounded-xl shadow-xs border border-emerald-200 group-hover:border-emerald-600 transition-all duration-200">
-                    <span>Click for Temperature, Moisture & Spray Usage</span>
+                  <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-white/95 group-hover:bg-emerald-600 group-hover:text-white px-3.5 py-1.5 rounded-xl shadow-xs border border-emerald-200 group-hover:border-emerald-600 transition-all duration-200">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 group-hover:bg-white animate-ping" />
+                    <span>Click for Live 3D Field, Moisture & Pesticide Data</span>
                     <span className="text-xs group-hover:translate-x-0.5 transition-transform">→</span>
                   </span>
                 </div>
