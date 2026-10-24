@@ -26,6 +26,7 @@ export const FarmProvider = ({ children }) => {
     startSimulation: () => apiService.startSimulation(),
     stopSimulation: () => apiService.stopSimulation(),
     simulateAction: (action, zoneId) => apiService.simulateAction(action, zoneId),
+    logPesticideSpray: (zoneId, entry) => apiService.logPesticideSpray(zoneId, entry),
     resolveAlert: (id) => apiService.resolveAlert(id)
   };
 

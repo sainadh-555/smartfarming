@@ -1,11 +1,13 @@
 import initialSensorReadings from '../data/sensor_readings.json';
 import initialZones from '../data/farm_zones.json';
+import initialAgronomy from '../data/zone_agronomy.json';
 import { analyzeFarmData } from '../ai/farmDecisionEngine';
 
 class MockApiService {
   constructor() {
     this.sensorData = { ...initialSensorReadings };
     this.zones = [...initialZones];
+    this.agronomyData = JSON.parse(JSON.stringify(initialAgronomy));
     this.alerts = [];
     this.history = [];
     this.isSimulationRunning = false;
@@ -27,10 +29,12 @@ class MockApiService {
     const enrichedZones = this.zones.map(zone => {
       const sensorReading = this.sensorData[zone.zoneId];
       const analysis = analyzeFarmData({ ...sensorReading, cropType: zone.cropType });
+      const agronomy = this.agronomyData[zone.zoneId] || null;
       return {
         ...zone,
         sensorData: sensorReading,
-        analysis
+        analysis,
+        agronomy
       };
     });
 
@@ -155,6 +159,42 @@ class MockApiService {
     
     this.checkAlerts(zoneId);
     this.notify();
+  }
+
+  logPesticideSpray(zoneId, spray) {
+    const zoneAgronomy = this.agronomyData[zoneId];
+    if (!zoneAgronomy) return;
+
+    const newTreatment = {
+      id: `PST-${Date.now()}`,
+      date: spray.date || new Date().toISOString().split('T')[0],
+      pesticideName: spray.pesticideName,
+      type: spray.type || 'Bio-Pesticide',
+      targetPest: spray.targetPest || 'General Prevention',
+      dosage: spray.dosage,
+      carrierVolume: spray.carrierVolume || '50 Liters Water',
+      method: spray.method || 'Foliar Spray',
+      operator: spray.operator || 'Farm Operator (You)',
+      status: 'Applied',
+      effectiveness: 'Target suppression verified'
+    };
+
+    zoneAgronomy.pesticideUsage.treatments.unshift(newTreatment);
+    zoneAgronomy.pesticideUsage.totalApplications = (zoneAgronomy.pesticideUsage.totalApplications || 0) + 1;
+    zoneAgronomy.pesticideUsage.lastAppliedDate = newTreatment.date;
+
+    this.alerts.unshift({
+      id: Date.now().toString(),
+      zoneId,
+      zoneName: zoneAgronomy.name,
+      timestamp: new Date().toISOString(),
+      severity: 'Information',
+      message: `Pesticide applied to ${zoneAgronomy.name} (${zoneAgronomy.crop.name}): ${spray.pesticideName} (${spray.dosage}) for ${spray.targetPest}.`,
+      resolved: false
+    });
+
+    this.notify();
+    return newTreatment;
   }
 }
 

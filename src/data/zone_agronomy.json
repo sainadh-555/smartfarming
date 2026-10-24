@@ -1,0 +1,378 @@
+{
+  "ZONE-A": {
+    "zoneId": "ZONE-A",
+    "name": "Zone A",
+    "quadrant": "North-West Quadrant",
+    "acreage": 0.25,
+    "acreageDisplay": "0.25 Acre (10,890 sq ft)",
+    "totalFarmAcreage": "1.00 Acre",
+    "crop": {
+      "name": "Tomato",
+      "scientificName": "Solanum lycopersicum",
+      "variety": "Arka Rakshak F1 Hybrid",
+      "growthStage": "Flowering & Fruit Setting",
+      "stagePercent": 55,
+      "daysAfterSowing": 48,
+      "totalCropCycleDays": 90,
+      "plantingDate": "2026-09-06",
+      "expectedHarvest": "2026-11-20",
+      "targetYield": "3,200 kg / 0.25 acre",
+      "soilType": "Red Sandy Loam with Organic Mulch",
+      "dripLine": "Drip Lateral 16mm, 2.0 LPH emitters @ 30cm",
+      "optimalMoistureRange": "40% - 60%",
+      "optimalTempRange": "22°C - 30°C",
+      "npk": {
+        "n": { "value": "140 ppm", "level": "Medium", "status": "Adequate" },
+        "p": { "value": "35 ppm", "level": "High", "status": "Optimal" },
+        "k": { "value": "180 ppm", "level": "High", "status": "Optimal" }
+      }
+    },
+    "pesticideUsage": {
+      "totalChemicalUsed": "550 ml",
+      "totalApplications": 2,
+      "lastAppliedDate": "2026-10-18",
+      "nextScheduledDate": "2026-10-27",
+      "activePestThreat": "Fruit Borer (Helicoverpa) & Early Leaf Blight",
+      "safetyInterval": "7 Days (Safe for harvest in 1 day)",
+      "treatments": [
+        {
+          "id": "PST-A1",
+          "date": "2026-10-18",
+          "pesticideName": "NeemAzal-T/S (Azadirachtin 1% EC)",
+          "type": "Bio-Pesticide (Organic)",
+          "targetPest": "Whiteflies & Aphids",
+          "dosage": "250 ml / 0.25 acre",
+          "carrierVolume": "50 Liters Water",
+          "method": "High-Pressure Foliar Spray",
+          "operator": "Ramesh K. (Certified)",
+          "status": "Applied",
+          "effectiveness": "94% Pest Suppression"
+        },
+        {
+          "id": "PST-A2",
+          "date": "2026-10-10",
+          "pesticideName": "Copper Oxychloride 50% WP",
+          "type": "Protective Fungicide",
+          "targetPest": "Early Leaf Blight",
+          "dosage": "300 g / 0.25 acre",
+          "carrierVolume": "60 Liters Water",
+          "method": "Knapsack Sprayer",
+          "operator": "Suresh P.",
+          "status": "Applied",
+          "effectiveness": "88% Blight Control"
+        }
+      ]
+    },
+    "fertilizerUsage": {
+      "totalUsed": "22.5 kg",
+      "lastAppliedDate": "2026-10-15",
+      "treatments": [
+        {
+          "id": "FRT-A1",
+          "date": "2026-10-15",
+          "fertilizerName": "Water Soluble NPK (19:19:19)",
+          "amount": "12.5 kg",
+          "method": "Drip Fertigation",
+          "target": "Fruit Enlargement & Vigor"
+        },
+        {
+          "id": "FRT-A2",
+          "date": "2026-10-02",
+          "fertilizerName": "Micronutrient Formulation (Zinc + Boron + Fe)",
+          "amount": "10.0 kg",
+          "method": "Soil Drenching",
+          "target": "Blossom End Rot Prevention"
+        }
+      ]
+    },
+    "irrigationSummary": {
+      "mode": "Automated Drip Scheduling",
+      "dailyWaterConsumed": "650 Gallons",
+      "weeklyWaterConsumed": "4,200 Gallons",
+      "pumpPressure": "2.1 Bar",
+      "lastRun": "18 hours ago"
+    }
+  },
+  "ZONE-B": {
+    "zoneId": "ZONE-B",
+    "name": "Zone B",
+    "quadrant": "North-East Quadrant",
+    "acreage": 0.25,
+    "acreageDisplay": "0.25 Acre (10,890 sq ft)",
+    "totalFarmAcreage": "1.00 Acre",
+    "crop": {
+      "name": "Chili",
+      "scientificName": "Capsicum annuum",
+      "variety": "Guntur Sannam / Teja (Hot)",
+      "growthStage": "Vegetative & Pre-Flowering",
+      "stagePercent": 40,
+      "daysAfterSowing": 35,
+      "totalCropCycleDays": 120,
+      "plantingDate": "2026-09-19",
+      "expectedHarvest": "2027-01-15",
+      "targetYield": "1,800 kg / 0.25 acre",
+      "soilType": "Well-Drained Black Loam",
+      "dripLine": "Inline Drip with Silver Mulch Film",
+      "optimalMoistureRange": "35% - 50%",
+      "optimalTempRange": "24°C - 32°C",
+      "npk": {
+        "n": { "value": "125 ppm", "level": "Optimal", "status": "Optimal" },
+        "p": { "value": "42 ppm", "level": "High", "status": "Optimal" },
+        "k": { "value": "160 ppm", "level": "Optimal", "status": "Optimal" }
+      }
+    },
+    "pesticideUsage": {
+      "totalChemicalUsed": "600 ml / g",
+      "totalApplications": 2,
+      "lastAppliedDate": "2026-10-14",
+      "nextScheduledDate": "2026-10-28",
+      "activePestThreat": "Chili Thrips & Leaf Curl Mites",
+      "safetyInterval": "5 Days (Safe for harvest)",
+      "treatments": [
+        {
+          "id": "PST-B1",
+          "date": "2026-10-14",
+          "pesticideName": "Imidacloprid 17.8% SL",
+          "type": "Systemic Insecticide",
+          "targetPest": "Chili Thrips & Leaf Curl",
+          "dosage": "100 ml / 0.25 acre",
+          "carrierVolume": "50 Liters Water",
+          "method": "Ultra-Low Volume Foliar Spray",
+          "operator": "Ramesh K.",
+          "status": "Applied",
+          "effectiveness": "96% Vector Suppression"
+        },
+        {
+          "id": "PST-B2",
+          "date": "2026-10-02",
+          "pesticideName": "Trichoderma viride Bio-Fungicide",
+          "type": "Bio-Control Agent",
+          "targetPest": "Damping Off & Fusarium Wilt",
+          "dosage": "500 g / 0.25 acre",
+          "carrierVolume": "100 Liters Water",
+          "method": "Root Zone Drenching",
+          "operator": "Suresh P.",
+          "status": "Applied",
+          "effectiveness": "100% Preventive Success"
+        }
+      ]
+    },
+    "fertilizerUsage": {
+      "totalUsed": "23.0 kg",
+      "lastAppliedDate": "2026-10-12",
+      "treatments": [
+        {
+          "id": "FRT-B1",
+          "date": "2026-10-12",
+          "fertilizerName": "Diammonium Phosphate (DAP)",
+          "amount": "15.0 kg",
+          "method": "Basal Furrow Placement",
+          "target": "Vigorous Root Architecture"
+        },
+        {
+          "id": "FRT-B2",
+          "date": "2026-10-05",
+          "fertilizerName": "Neem Coated Urea (46% N)",
+          "amount": "8.0 kg",
+          "method": "Side Dressing",
+          "target": "Vegetative Branching"
+        }
+      ]
+    },
+    "irrigationSummary": {
+      "mode": "Moisture-Triggered Drip",
+      "dailyWaterConsumed": "500 Gallons",
+      "weeklyWaterConsumed": "3,400 Gallons",
+      "pumpPressure": "2.0 Bar",
+      "lastRun": "8 hours ago"
+    }
+  },
+  "ZONE-C": {
+    "zoneId": "ZONE-C",
+    "name": "Zone C",
+    "quadrant": "South-West Quadrant",
+    "acreage": 0.25,
+    "acreageDisplay": "0.25 Acre (10,890 sq ft)",
+    "totalFarmAcreage": "1.00 Acre",
+    "crop": {
+      "name": "Paddy",
+      "scientificName": "Oryza sativa",
+      "variety": "Basmati 1509 / BPT 5204",
+      "growthStage": "Active Tillering & Stem Elongation",
+      "stagePercent": 45,
+      "daysAfterSowing": 40,
+      "totalCropCycleDays": 115,
+      "plantingDate": "2026-09-14",
+      "expectedHarvest": "2027-01-08",
+      "targetYield": "1,400 kg / 0.25 acre",
+      "soilType": "Clay Loam with Controlled Standing Water",
+      "dripLine": "Low-Head Basin Valve Inflow (Submerged)",
+      "optimalMoistureRange": "70% - 90%",
+      "optimalTempRange": "22°C - 32°C",
+      "npk": {
+        "n": { "value": "160 ppm", "level": "High", "status": "Optimal" },
+        "p": { "value": "30 ppm", "level": "Medium", "status": "Optimal" },
+        "k": { "value": "145 ppm", "level": "Optimal", "status": "Optimal" }
+      }
+    },
+    "pesticideUsage": {
+      "totalChemicalUsed": "1.68 kg / L",
+      "totalApplications": 2,
+      "lastAppliedDate": "2026-10-12",
+      "nextScheduledDate": "2026-10-26",
+      "activePestThreat": "Yellow Stem Borer & Sheath Blight",
+      "safetyInterval": "14 Days",
+      "treatments": [
+        {
+          "id": "PST-C1",
+          "date": "2026-10-12",
+          "pesticideName": "Cartap Hydrochloride 4G",
+          "type": "Systemic Granular Insecticide",
+          "targetPest": "Paddy Stem Borer & Leaf Folder",
+          "dosage": "1.5 kg granules / 0.25 acre",
+          "carrierVolume": "Sand Broadcast",
+          "method": "Standing Water Surface Broadcast",
+          "operator": "K. Naidu",
+          "status": "Applied",
+          "effectiveness": "91% Borer Control"
+        },
+        {
+          "id": "PST-C2",
+          "date": "2026-10-05",
+          "pesticideName": "Hexaconazole 5% SC",
+          "type": "Systemic Fungicide",
+          "targetPest": "Rhizoctonia Sheath Blight",
+          "dosage": "180 ml / 0.25 acre",
+          "carrierVolume": "50 Liters Water",
+          "method": "Base Foliar Spray",
+          "operator": "Ramesh K.",
+          "status": "Applied",
+          "effectiveness": "95% Fungus Control"
+        }
+      ]
+    },
+    "fertilizerUsage": {
+      "totalUsed": "30.0 kg",
+      "lastAppliedDate": "2026-10-16",
+      "treatments": [
+        {
+          "id": "FRT-C1",
+          "date": "2026-10-16",
+          "fertilizerName": "Neem Coated Urea (46% N)",
+          "amount": "20.0 kg",
+          "method": "Top Dressing (Broadcast)",
+          "target": "Tillering & Biomass Vigor"
+        },
+        {
+          "id": "FRT-C2",
+          "date": "2026-10-01",
+          "fertilizerName": "Muriate of Potash (MOP 60% K2O)",
+          "amount": "10.0 kg",
+          "method": "Basal Incorporation",
+          "target": "Culm Strength & Lodging Resistance"
+        }
+      ]
+    },
+    "irrigationSummary": {
+      "mode": "Alternate Wetting & Drying (AWD)",
+      "dailyWaterConsumed": "1,200 Gallons",
+      "weeklyWaterConsumed": "8,500 Gallons",
+      "pumpPressure": "1.5 Bar",
+      "lastRun": "Continuous Flow Ponding"
+    }
+  },
+  "ZONE-D": {
+    "zoneId": "ZONE-D",
+    "name": "Zone D",
+    "quadrant": "South-East Quadrant",
+    "acreage": 0.25,
+    "acreageDisplay": "0.25 Acre (10,890 sq ft)",
+    "totalFarmAcreage": "1.00 Acre",
+    "crop": {
+      "name": "Groundnut",
+      "scientificName": "Arachis hypogaea",
+      "variety": "Kadiri-6 (Bold Seeded)",
+      "growthStage": "Peg Penetration & Pod Formation",
+      "stagePercent": 60,
+      "daysAfterSowing": 55,
+      "totalCropCycleDays": 105,
+      "plantingDate": "2026-08-30",
+      "expectedHarvest": "2026-12-15",
+      "targetYield": "900 kg / 0.25 acre",
+      "soilType": "Red Sandy Soil (Severe Moisture Deficit)",
+      "dripLine": "Micro-Sprinklers / Drip Lines",
+      "optimalMoistureRange": "45% - 65%",
+      "optimalTempRange": "25°C - 30°C",
+      "npk": {
+        "n": { "value": "95 ppm", "level": "Low", "status": "Deficient" },
+        "p": { "value": "22 ppm", "level": "Low", "status": "Sub-optimal" },
+        "k": { "value": "120 ppm", "level": "Adequate", "status": "Adequate" }
+      }
+    },
+    "pesticideUsage": {
+      "totalChemicalUsed": "450 ml / g",
+      "totalApplications": 2,
+      "lastAppliedDate": "2026-10-08",
+      "nextScheduledDate": "Urgent (Pending Soil Moisture Fix)",
+      "activePestThreat": "White Grub (Holotrichia) & Tikka Leaf Spot",
+      "safetyInterval": "10 Days",
+      "treatments": [
+        {
+          "id": "PST-D1",
+          "date": "2026-10-08",
+          "pesticideName": "Chlorpyrifos 20% EC",
+          "type": "Soil Insecticide",
+          "targetPest": "Subterranean White Grub & Termites",
+          "dosage": "200 ml / 0.25 acre",
+          "carrierVolume": "Soil Drenching",
+          "method": "Root Zone Drenching",
+          "operator": "Suresh P.",
+          "status": "Applied",
+          "effectiveness": "87% Pest Suppression"
+        },
+        {
+          "id": "PST-D2",
+          "date": "2026-09-28",
+          "pesticideName": "Mancozeb 75% WP",
+          "type": "Broad-Spectrum Contact Fungicide",
+          "targetPest": "Tikka Leaf Spot (Cercospora)",
+          "dosage": "250 g / 0.25 acre",
+          "carrierVolume": "50 Liters Water",
+          "method": "Foliar Mist Spray",
+          "operator": "Ramesh K.",
+          "status": "Applied",
+          "effectiveness": "84% Spot Reduction"
+        }
+      ]
+    },
+    "fertilizerUsage": {
+      "totalUsed": "75.0 kg",
+      "lastAppliedDate": "2026-10-04",
+      "treatments": [
+        {
+          "id": "FRT-D1",
+          "date": "2026-10-04",
+          "fertilizerName": "Agricultural Gypsum (CaSO4)",
+          "amount": "50.0 kg",
+          "method": "Surface Broadcast at Pegging",
+          "target": "Pod Calcium & Shell Hardening"
+        },
+        {
+          "id": "FRT-D2",
+          "date": "2026-09-15",
+          "fertilizerName": "Single Super Phosphate (SSP 16% P2O5)",
+          "amount": "25.0 kg",
+          "method": "Basal Row Placement",
+          "target": "Nodule Formation & Root Strength"
+        }
+      ]
+    },
+    "irrigationSummary": {
+      "mode": "CRITICAL SHUTDOWN (Dry Soil)",
+      "dailyWaterConsumed": "0 Gallons (Deficit)",
+      "weeklyWaterConsumed": "800 Gallons",
+      "pumpPressure": "0.0 Bar (Valve Closed)",
+      "lastRun": "48 hours ago (Overdue)"
+    }
+  }
+}
