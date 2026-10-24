@@ -24,41 +24,49 @@ export const analyzeFarmData = (data) => {
   let recommendation = "Conditions are optimal. No immediate action required.";
   let actionType = "MONITOR";
   
+  const hasMoisture = typeof soilMoisture === 'number' && !isNaN(soilMoisture);
+  const hasTemp = typeof airTemperature === 'number' && !isNaN(airTemperature);
+  const hasHumidity = typeof humidity === 'number' && !isNaN(humidity);
+
   // Basic Rule Engine based on thresholds
   
   // Heat stress logic
-  if (airTemperature > 32) {
-    heatStress = true;
-    riskLevel = "MEDIUM";
-  } else if (airTemperature > 36) {
-    heatStress = true;
-    riskLevel = "HIGH";
+  if (hasTemp) {
+    if (airTemperature > 36) {
+      heatStress = true;
+      riskLevel = "HIGH";
+    } else if (airTemperature > 32) {
+      heatStress = true;
+      riskLevel = "MEDIUM";
+    }
   }
 
   // Water stress logic
-  if (soilMoisture < 35 && rainfall === 0) {
-    waterStress = true;
-    irrigationRecommendation = true;
-    
-    if (airTemperature > 32) {
-      riskLevel = "HIGH";
-      recommendation = `Irrigation is recommended for this zone. Soil moisture is below the preferred range (${soilMoisture}%) and the current temperature (${airTemperature}°C) is increasing plant water demand.`;
+  if (hasMoisture) {
+    if (soilMoisture < 20) {
+      waterStress = true;
+      riskLevel = "CRITICAL";
+      irrigationRecommendation = true;
+      recommendation = `CRITICAL: Immediate irrigation required. Soil moisture is dangerously low (${soilMoisture}%).`;
       actionType = "IRRIGATE";
-    } else {
-      riskLevel = "MEDIUM";
-      recommendation = `Consider irrigation soon. Soil moisture is dropping (${soilMoisture}%).`;
-      actionType = "IRRIGATE";
+    } else if (soilMoisture < 35 && (rainfall === 0 || !rainfall)) {
+      waterStress = true;
+      irrigationRecommendation = true;
+      
+      if (hasTemp && airTemperature > 32) {
+        riskLevel = "HIGH";
+        recommendation = `Irrigation is recommended for this zone. Soil moisture is below the preferred range (${soilMoisture}%) and the current temperature (${airTemperature}°C) is increasing plant water demand.`;
+        actionType = "IRRIGATE";
+      } else {
+        riskLevel = "MEDIUM";
+        recommendation = `Consider irrigation soon. Soil moisture is dropping (${soilMoisture}%).`;
+        actionType = "IRRIGATE";
+      }
     }
-  } else if (soilMoisture < 20) {
-    waterStress = true;
-    riskLevel = "CRITICAL";
-    irrigationRecommendation = true;
-    recommendation = `CRITICAL: Immediate irrigation required. Soil moisture is dangerously low (${soilMoisture}%).`;
-    actionType = "IRRIGATE";
   }
 
   // Disease Risk (High humidity + moderate/high temp)
-  if (humidity > 70 && airTemperature > 25 && airTemperature < 32 && rainfall > 0) {
+  if (hasHumidity && hasTemp && humidity > 70 && airTemperature > 25 && airTemperature < 32 && rainfall > 0) {
     diseaseRisk = true;
     if (riskLevel !== "HIGH" && riskLevel !== "CRITICAL") {
       riskLevel = "MEDIUM";
@@ -89,7 +97,7 @@ export const analyzeFarmData = (data) => {
     waterStress,
     heatStress,
     diseaseRisk,
-    soilStatus: soilMoisture < 30 ? "Dry" : (soilMoisture > 70 ? "Wet" : "Optimal"),
+    soilStatus: hasMoisture ? (soilMoisture < 30 ? "Dry" : (soilMoisture > 70 ? "Wet" : "Optimal")) : "Unavailable",
     confidence: Math.round(confidence * 100),
     explanation: recommendation,
     recommendedAction: actionType,

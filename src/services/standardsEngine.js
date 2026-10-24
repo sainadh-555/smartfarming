@@ -28,8 +28,10 @@ export const CROP_KC_FACTORS = {
  * @returns {number} ET0 in mm/day
  */
 export function calculateFAO56_ET0(tempC, humidityPct, windSpeedMs = 2.2, solarRadiation = 21.5) {
-  const T = Math.max(5, Math.min(48, tempC));
-  const RH = Math.max(10, Math.min(100, humidityPct));
+  const safeTemp = (typeof tempC === 'number' && !isNaN(tempC)) ? tempC : 27.0;
+  const safeHum = (typeof humidityPct === 'number' && !isNaN(humidityPct)) ? humidityPct : 60.0;
+  const T = Math.max(5, Math.min(48, safeTemp));
+  const RH = Math.max(10, Math.min(100, safeHum));
   
   // Slope of vapor pressure curve (kPa/°C)
   const delta = (4098 * (0.6108 * Math.exp((17.27 * T) / (T + 237.3)))) / Math.pow(T + 237.3, 2);
@@ -309,6 +311,9 @@ export function generateAuditCSV(zones) {
 export const UnitConverters = {
   // Temperature: °C to °F
   temp: (valC, unit = 'metric') => {
+    if (valC === null || valC === undefined || isNaN(valC)) {
+      return { value: 'Unavailable', symbol: '' };
+    }
     if (unit === 'imperial') {
       return { value: Number(((valC * 9) / 5 + 32).toFixed(1)), symbol: '°F' };
     }

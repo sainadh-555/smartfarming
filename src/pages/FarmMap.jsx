@@ -138,7 +138,7 @@ export default function FarmMap() {
                         <span>Moisture</span>
                       </span>
                       <strong className="text-slate-800 font-bold font-mono">
-                        {zone.sensorData.soilMoisture.toFixed(0)}%
+                        {typeof zone.sensorData?.soilMoisture === 'number' ? `${zone.sensorData.soilMoisture.toFixed(0)}%` : 'Unavailable'}
                       </strong>
                     </div>
 
@@ -148,7 +148,7 @@ export default function FarmMap() {
                         <span>Canopy</span>
                       </span>
                       <strong className="text-slate-800 font-bold font-mono">
-                        {formatTemp(zone.sensorData.airTemperature).value}{formatTemp(zone.sensorData.airTemperature).symbol}
+                        {formatTemp(zone.sensorData?.airTemperature).value}{formatTemp(zone.sensorData?.airTemperature).symbol}
                       </strong>
                     </div>
                   </div>

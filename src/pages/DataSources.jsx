@@ -13,35 +13,67 @@ import {
   Radio, 
   Layers, 
   Binary,
-  Zap
+  Zap,
+  Cable,
+  Activity,
+  AlertTriangle,
+  CheckCircle2,
+  AlertCircle,
+  Terminal,
+  RefreshCw,
+  ExternalLink,
+  Droplets,
+  Thermometer,
+  Sun
 } from 'lucide-react';
 import { useFarmData } from '../context/FarmContext';
 import { ISOBUS_PGN_DEFINITIONS, generateIsoBusTelemetryFrame } from '../services/standardsEngine';
 
 export default function DataSources() {
-  const { zones, isSimulationRunning } = useFarmData();
+  const { 
+    zones, 
+    isSimulationRunning,
+    dataMode,
+    setDataMode,
+    bridgeUrl,
+    setBridgeUrl,
+    usbStatus,
+    usbPort,
+    usbLastSync,
+    usbRawReadings,
+    usbError,
+    testBridgeConnection
+  } = useFarmData();
+
   const [selectedZoneId, setSelectedZoneId] = useState('ZONE-A');
   const [selectedPgn, setSelectedPgn] = useState('PGN_65488');
   const [copied, setCopied] = useState(false);
+  const [testingBridge, setTestingBridge] = useState(false);
+  const [bridgeTestResult, setBridgeTestResult] = useState(null);
+  const [inputBridgeUrl, setInputBridgeUrl] = useState(bridgeUrl || 'http://127.0.0.1:5000');
 
   const activeZone = zones.find(z => z.zoneId === selectedZoneId) || zones[0];
   const isoFrame = generateIsoBusTelemetryFrame(activeZone.zoneId, activeZone.sensorData);
 
   const samplePayload = {
     standard: "ISO 11783-10:2025 (ISOBUS)",
+    telemetrySource: dataMode === 'usb_hardware' ? "ESP32 USB Serial (115200 baud)" : "Virtual Simulation Engine",
+    activePort: usbPort || "None",
+    hardwareStatus: usbStatus,
     controllerUnit: `ECU-${activeZone.zoneId}-ESP32`,
     sourceAddress: isoFrame.sourceAddress,
-    busSpeedKbps: 250,
     timestamp: new Date().toISOString(),
     zoneId: activeZone.zoneId,
     cropType: activeZone.cropType,
-    pgnFrames: isoFrame.pgnFrames,
-    hardwareDiagnostics: {
-      batteryVoltage: "3.78 V (LiFePO4 Solar)",
-      rssi: "-64 dBm (LoRaWAN 868 MHz)",
-      firmwareVersion: "ESP-IDF v5.2.1 / ISOBUS-Stack 3.4",
-      sensorBus: "RS-485 Modbus RTU (9600-8-N-1)"
-    }
+    liveSensorTelemetry: {
+      temperatureC: activeZone.sensorData.airTemperature,
+      humidityPct: activeZone.sensorData.humidity,
+      soilMoisturePct: activeZone.sensorData.soilMoisture,
+      rawMoistureAdc: activeZone.sensorData.soilRaw || null,
+      rawLdrAdc: activeZone.sensorData.lightRaw || null,
+      dhtStatus: activeZone.sensorData.dhtOk === false ? "FAILED_OR_UNWIRED" : "OPERATIONAL"
+    },
+    pgnFrames: isoFrame.pgnFrames
   };
 
   const copyPayload = () => {
@@ -49,6 +81,63 @@ export default function DataSources() {
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
+
+  const handleTestBridge = async () => {
+    setTestingBridge(true);
+    setBridgeTestResult(null);
+    const res = await testBridgeConnection(inputBridgeUrl);
+    setBridgeTestResult(res);
+    setTestingBridge(false);
+  };
+
+  const handleSaveBridgeUrl = () => {
+    setBridgeUrl(inputBridgeUrl);
+  };
+
+  // Determine status color and text for USB badge
+  const getUsbStatusDisplay = () => {
+    switch (usbStatus) {
+      case 'connected':
+        return {
+          color: 'bg-emerald-500',
+          textColor: 'text-emerald-700',
+          borderColor: 'border-emerald-300',
+          bgColor: 'bg-emerald-50',
+          title: 'Connected & Streaming',
+          desc: `Active serial connection on ${usbPort || 'COM Port'}`
+        };
+      case 'waiting_data':
+        return {
+          color: 'bg-amber-500',
+          textColor: 'text-amber-700',
+          borderColor: 'border-amber-300',
+          bgColor: 'bg-amber-50',
+          title: 'Waiting for Sensor Frames',
+          desc: `Serial port ${usbPort || ''} open. Awaiting first JSON packet.`
+        };
+      case 'stale':
+        return {
+          color: 'bg-orange-500',
+          textColor: 'text-orange-700',
+          borderColor: 'border-orange-300',
+          bgColor: 'bg-orange-50',
+          title: 'Telemetry Stale',
+          desc: 'No packets received for > 8 seconds. Check ESP32 power.'
+        };
+      case 'disconnected':
+      default:
+        return {
+          color: 'bg-rose-500',
+          textColor: 'text-rose-700',
+          borderColor: 'border-rose-300',
+          bgColor: 'bg-rose-50',
+          title: 'Bridge Disconnected',
+          desc: usbError || 'Local Python bridge is offline or COM port is closed.'
+        };
+    }
+  };
+
+  const statusDisplay = getUsbStatusDisplay();
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
@@ -58,106 +147,327 @@ export default function DataSources() {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-              ISO 11783 (ISOBUS) & IoT Architecture
+              Data Sources & Hardware Ingestion
             </h1>
             <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-              ISO/IEC 25010
+              ESP32 USB Serial
             </span>
           </div>
           <p className="text-xs sm:text-sm text-slate-500 mt-1">
-            Enterprise hardware abstraction layer, CAN-bus Parameter Group Numbers (PGNs), and OpenAg telemetry standards.
+            Toggle between local ESP32 USB telemetry and virtual simulation. No Wi-Fi or cloud dependencies required.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span>
-          <span className="text-xs font-mono font-bold text-slate-700">
-            {isSimulationRunning ? 'ISOBUS 10Hz Broadcast' : 'Standby Telemetry'}
-          </span>
+        {/* Global Mode Switcher Controls */}
+        <div className="flex items-center gap-1.5 p-1 bg-slate-200/80 rounded-xl border border-slate-300">
+          <button
+            onClick={() => setDataMode('simulation')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+              dataMode === 'simulation'
+                ? 'bg-white text-slate-900 shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Activity className="w-3.5 h-3.5 text-blue-600" />
+            <span>Simulation</span>
+          </button>
+          <button
+            onClick={() => setDataMode('usb_hardware')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+              dataMode === 'usb_hardware'
+                ? 'bg-emerald-600 text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Cable className="w-3.5 h-3.5" />
+            <span>Live USB Hardware</span>
+          </button>
         </div>
       </div>
 
-      {/* ISO 11783 / OpenAg 4-Tier Enterprise Architecture */}
-      <div className="bg-white rounded-2xl border border-slate-200/90 p-6 sm:p-8 shadow-xs">
-        <h2 className="text-sm font-extrabold text-slate-900 mb-6 flex items-center gap-2">
-          <Layers className="w-4 h-4 text-emerald-600" />
-          International 4-Tier Precision Agriculture Architecture (W3C Web of Things Standard)
-        </h2>
+      {/* Mode Status Banner */}
+      <div className={`p-4 sm:p-5 rounded-2xl border ${
+        dataMode === 'usb_hardware'
+          ? (usbStatus === 'connected' ? 'bg-emerald-50/70 border-emerald-200' : 'bg-slate-900 border-slate-800 text-white')
+          : 'bg-blue-50/80 border-blue-200 text-slate-900'
+      } flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all shadow-xs`}>
+        <div className="flex items-start gap-3.5">
+          <div className={`p-2.5 rounded-xl ${
+            dataMode === 'usb_hardware'
+              ? (usbStatus === 'connected' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-emerald-400')
+              : 'bg-blue-600 text-white'
+          } shrink-0`}>
+            {dataMode === 'usb_hardware' ? <Cable className="w-6 h-6" /> : <Activity className="w-6 h-6" />}
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-mono font-bold uppercase tracking-wider opacity-75">
+                Current Mode:
+              </span>
+              <strong className="text-sm font-extrabold">
+                {dataMode === 'usb_hardware' ? 'Live USB Hardware' : 'Simulation Mode'}
+              </strong>
+              {dataMode === 'usb_hardware' && (
+                <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full ${statusDisplay.bgColor} ${statusDisplay.textColor} border ${statusDisplay.borderColor} flex items-center gap-1`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${statusDisplay.color} ${usbStatus === 'connected' ? 'animate-ping' : ''}`} />
+                  {statusDisplay.title}
+                </span>
+              )}
+            </div>
+            <p className={`text-xs mt-1 leading-relaxed ${dataMode === 'usb_hardware' && usbStatus !== 'connected' ? 'text-slate-300' : 'text-slate-600'}`}>
+              {dataMode === 'usb_hardware'
+                ? (usbStatus === 'connected'
+                    ? `Physical ESP32 streaming live telemetry from ${usbPort || 'USB'}. Zone A (Tomato) reflects real sensor readings.`
+                    : 'The dashboard is ready to ingest physical ESP32 data. Start your Python USB bridge to connect.')
+                : 'The hardware backend is mocked with realistic agricultural dynamic data across all 4 cadastral quadrants.'}
+            </p>
+          </div>
+        </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 relative">
+        {/* Live Metrics Ticker */}
+        <div className="flex items-center gap-3 shrink-0 self-end md:self-center text-xs font-mono">
+          {dataMode === 'usb_hardware' ? (
+            <div className={`px-3 py-1.5 rounded-xl border ${
+              usbStatus === 'connected' ? 'bg-white border-emerald-200 text-emerald-800' : 'bg-slate-800 border-slate-700 text-slate-300'
+            }`}>
+              <div className="text-[10px] opacity-75 font-bold">LAST SYNC</div>
+              <div className="font-bold">{usbLastSync || 'Never'}</div>
+            </div>
+          ) : (
+            <div className="px-3 py-1.5 rounded-xl bg-white border border-blue-200 text-blue-900">
+              <div className="text-[10px] opacity-75 font-bold">SIMULATION ENGINE</div>
+              <div className="font-bold">{isSimulationRunning ? '10 Hz Broadcast' : 'Standby'}</div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Primary USB Hardware Integration Card */}
+      <div className="bg-white rounded-2xl border-2 border-emerald-500/30 shadow-sm overflow-hidden">
+        <div className="bg-gradient-to-r from-slate-900 to-slate-850 px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between text-white gap-2">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 bg-emerald-600 text-white rounded-xl shadow-xs">
+              <Cable className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="font-extrabold text-sm text-white">Physical ESP32 USB-to-HTTP Ingestion</h3>
+              <p className="text-xs text-slate-400">Direct USB Serial at 115200 baud via local Python bridge (127.0.0.1:5000)</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded-full bg-slate-800 text-emerald-400 border border-slate-700">
+              No Cloud / No Wi-Fi Needed
+            </span>
+          </div>
+        </div>
+
+        <div className="p-6 space-y-6">
           
-          {/* Tier 1: Sensor & Mast Node */}
-          <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 flex flex-col justify-between group hover:border-emerald-300 transition-all">
-            <div>
-              <div className="w-12 h-12 rounded-xl bg-slate-900 text-emerald-400 flex items-center justify-center mb-4 shadow-sm">
-                <Cpu className="w-6 h-6" />
-              </div>
-              <span className="text-[10px] font-mono font-bold text-emerald-600 uppercase tracking-wider block">TIER 1 • FIELD LAYER</span>
-              <h3 className="font-extrabold text-slate-900 text-sm mt-1">ESP32 Mast Nodes</h3>
-              <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
-                4× Field Quadrant Units with RS-485 Modbus soil sensors, SHT31 microclimate, solar LiFePO4, and MCP2515 CAN transceiver.
-              </p>
+          {/* Real Sensor Telemetry Display Grid */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+                <Cpu className="w-4 h-4 text-emerald-600" />
+                Latest Physical ESP32 Sensor Telemetry (Node: ESP32-DEV-USB)
+              </h4>
+              <span className="text-[11px] font-mono text-slate-500">
+                Port: <strong>{usbPort || 'Auto-detect'}</strong> • Baud: <strong>115200</strong>
+              </span>
             </div>
-            <div className="mt-4 pt-3 border-t border-slate-200 text-[10px] font-mono text-slate-500">
-              Protocol: CAN 2.0B / Modbus RTU
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              
+              {/* Air Temperature Card */}
+              <div className={`p-4 rounded-xl border ${
+                usbRawReadings?.temperature !== null && usbRawReadings?.temperature !== undefined
+                  ? 'bg-amber-50/50 border-amber-200 text-amber-950'
+                  : 'bg-slate-50 border-slate-200 text-slate-500'
+              }`}>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-amber-700">GPIO 4 • DHT11</span>
+                  <Thermometer className="w-4 h-4 text-amber-600" />
+                </div>
+                <div className="mt-2">
+                  <div className="text-xs text-slate-500 font-semibold">Air Temperature</div>
+                  <div className="text-2xl font-black font-mono text-slate-900 mt-0.5">
+                    {usbRawReadings?.temperature !== null && usbRawReadings?.temperature !== undefined
+                      ? `${usbRawReadings.temperature.toFixed(1)} °C`
+                      : <span className="text-xs text-rose-600 font-bold flex items-center gap-1 mt-1"><AlertTriangle className="w-3.5 h-3.5" /> Sensor Unavailable</span>}
+                  </div>
+                  <div className="text-[10px] text-slate-400 mt-1 font-mono">
+                    {usbRawReadings?.dht_ok === false ? 'Read failed (check pin 4)' : 'Physical DHT11'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Relative Humidity Card */}
+              <div className={`p-4 rounded-xl border ${
+                usbRawReadings?.humidity !== null && usbRawReadings?.humidity !== undefined
+                  ? 'bg-blue-50/50 border-blue-200 text-blue-950'
+                  : 'bg-slate-50 border-slate-200 text-slate-500'
+              }`}>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-blue-700">GPIO 4 • DHT11</span>
+                  <Droplets className="w-4 h-4 text-blue-600" />
+                </div>
+                <div className="mt-2">
+                  <div className="text-xs text-slate-500 font-semibold">Relative Humidity</div>
+                  <div className="text-2xl font-black font-mono text-slate-900 mt-0.5">
+                    {usbRawReadings?.humidity !== null && usbRawReadings?.humidity !== undefined
+                      ? `${usbRawReadings.humidity.toFixed(1)} %`
+                      : <span className="text-xs text-rose-600 font-bold flex items-center gap-1 mt-1"><AlertTriangle className="w-3.5 h-3.5" /> Sensor Unavailable</span>}
+                  </div>
+                  <div className="text-[10px] text-slate-400 mt-1 font-mono">
+                    {usbRawReadings?.dht_ok === false ? 'Signal error' : 'Ambient Canopy RH'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Soil Moisture Card */}
+              <div className="p-4 rounded-xl border bg-emerald-50/50 border-emerald-200 text-emerald-950">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-emerald-700">GPIO 34 • ADC1_CH6</span>
+                  <Droplets className="w-4 h-4 text-emerald-600" />
+                </div>
+                <div className="mt-2">
+                  <div className="text-xs text-slate-500 font-semibold">Soil VWC Moisture</div>
+                  <div className="text-2xl font-black font-mono text-slate-900 mt-0.5">
+                    {usbRawReadings?.soil_moisture !== null && usbRawReadings?.soil_moisture !== undefined
+                      ? `${usbRawReadings.soil_moisture.toFixed(1)} %`
+                      : <span className="text-sm text-slate-400 font-bold">Standby</span>}
+                  </div>
+                  <div className="text-[10px] text-slate-500 mt-1 font-mono">
+                    Raw ADC: <strong>{usbRawReadings?.soil_raw !== null && usbRawReadings?.soil_raw !== undefined ? `${usbRawReadings.soil_raw} / 4095` : 'Awaiting packet'}</strong>
+                  </div>
+                </div>
+              </div>
+
+              {/* Ambient Light Card */}
+              <div className="p-4 rounded-xl border bg-yellow-50/50 border-yellow-200 text-yellow-950">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-yellow-700">GPIO 35 • ADC1_CH7</span>
+                  <Sun className="w-4 h-4 text-yellow-600" />
+                </div>
+                <div className="mt-2">
+                  <div className="text-xs text-slate-500 font-semibold">Ambient Light</div>
+                  <div className="text-2xl font-black font-mono text-slate-900 mt-0.5">
+                    {usbRawReadings?.light_lux !== null && usbRawReadings?.light_lux !== undefined
+                      ? `${usbRawReadings.light_lux} lux`
+                      : <span className="text-sm text-slate-400 font-bold">Standby</span>}
+                  </div>
+                  <div className="text-[10px] text-slate-500 mt-1 font-mono">
+                    Raw ADC: <strong>{usbRawReadings?.light_raw !== null && usbRawReadings?.light_raw !== undefined ? `${usbRawReadings.light_raw} / 4095` : 'Awaiting packet'}</strong>
+                  </div>
+                </div>
+              </div>
+
             </div>
           </div>
 
-          {/* Tier 2: ISOBUS Gateway */}
-          <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 flex flex-col justify-between group hover:border-blue-300 transition-all">
-            <div>
-              <div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 border border-blue-200 flex items-center justify-center mb-4 shadow-sm">
-                <Radio className="w-6 h-6" />
+          {/* Local Bridge Endpoint & Test */}
+          <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <label className="text-xs font-bold text-slate-700">
+                Local USB Serial Bridge API URL (Loopback Interface)
+              </label>
+              <span className="text-[11px] text-slate-500 font-mono">
+                Binds to: <strong>127.0.0.1:5000</strong>
+              </span>
+            </div>
+
+            <div className="flex gap-2">
+              <input 
+                type="text"
+                value={inputBridgeUrl}
+                onChange={(e) => setInputBridgeUrl(e.target.value)}
+                placeholder="http://127.0.0.1:5000"
+                className="flex-1 border border-slate-300 rounded-xl px-3.5 py-2 text-xs font-mono font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white"
+              />
+              <button
+                type="button"
+                onClick={handleTestBridge}
+                disabled={testingBridge}
+                className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 text-white rounded-xl text-xs font-bold transition-all shrink-0 active:scale-95 flex items-center gap-1.5"
+              >
+                {testingBridge ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Activity className="w-3.5 h-3.5" />}
+                <span>{testingBridge ? 'Testing...' : 'Test Bridge'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveBridgeUrl}
+                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shrink-0 active:scale-95"
+              >
+                Save
+              </button>
+            </div>
+
+            {/* Test Result Message */}
+            {bridgeTestResult && (
+              <div className={`p-3 rounded-lg text-xs font-medium border flex items-center gap-2 ${
+                bridgeTestResult.success 
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-800' 
+                  : 'bg-rose-50 border-rose-200 text-rose-800'
+              }`}>
+                {bridgeTestResult.success ? (
+                  <>
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <div>
+                      <strong>Bridge Online:</strong> Connected to local bridge at {inputBridgeUrl}. Serial status: <strong>{bridgeTestResult.data.serial_status}</strong> on port <strong>{bridgeTestResult.data.port}</strong>.
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                    <div>
+                      <strong>Connection Failed:</strong> {bridgeTestResult.error}
+                    </div>
+                  </>
+                )}
               </div>
-              <span className="text-[10px] font-mono font-bold text-blue-600 uppercase tracking-wider block">TIER 2 • TELEMETRY BUS</span>
-              <h3 className="font-extrabold text-slate-900 text-sm mt-1">ISOBUS Gateway</h3>
-              <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
-                ISO 11783-10 Task Controller (TC-BAS & TC-GEO). Ingests CAN frames over LoRaWAN 868MHz and bridges to MQTT TLS 1.3.
-              </p>
-            </div>
-            <div className="mt-4 pt-3 border-t border-slate-200 text-[10px] font-mono text-slate-500">
-              Standard: ISO 11783-10:2025
-            </div>
+            )}
           </div>
 
-          {/* Tier 3: Agronomic Engine */}
-          <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 flex flex-col justify-between group hover:border-purple-300 transition-all">
-            <div>
-              <div className="w-12 h-12 rounded-xl bg-purple-50 text-purple-600 border border-purple-200 flex items-center justify-center mb-4 shadow-sm">
-                <Brain className="w-6 h-6" />
-              </div>
-              <span className="text-[10px] font-mono font-bold text-purple-600 uppercase tracking-wider block">TIER 3 • COGNITIVE ML</span>
-              <h3 className="font-extrabold text-slate-900 text-sm mt-1">Decision AI Engine</h3>
-              <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
-                FAO-56 Penman-Monteith Evapotranspiration, EPPO CNN plant disease diagnostics, and GlobalG.A.P. IPM audit pipeline.
-              </p>
-            </div>
-            <div className="mt-4 pt-3 border-t border-slate-200 text-[10px] font-mono text-slate-500">
-              Standard: FAO-56 / GlobalG.A.P.
-            </div>
+          {/* Windows Setup Instructions */}
+          <div className="border border-slate-200 rounded-xl p-4 bg-slate-900 text-slate-100">
+            <h4 className="text-xs font-extrabold text-white mb-2 flex items-center gap-2">
+              <Terminal className="w-4 h-4 text-emerald-400" />
+              Windows Launch Instructions for Local USB Bridge
+            </h4>
+            <ol className="text-xs text-slate-300 space-y-2 list-decimal list-inside leading-relaxed">
+              <li>
+                <span className="font-semibold text-white">Plug your ESP32 into a USB port</span> on your Windows PC.
+              </li>
+              <li>
+                <span className="font-semibold text-amber-300">IMPORTANT: Close Arduino IDE Serial Monitor</span> before starting the bridge. (Only one program can own a COM port at a time).
+              </li>
+              <li>
+                Open PowerShell or Command Prompt in the project folder:
+                <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800 font-mono text-[11px] text-emerald-400 mt-1 select-all">
+                  python bridge/serial_bridge.py --port COM7
+                </div>
+                <span className="text-[11px] text-slate-400 block mt-0.5">
+                  *(Replace <code>COM7</code> with your board's port from Device Manager. Default is <code>COM3</code> at <code>115200</code> baud).*
+                </span>
+              </li>
+              <li>
+                Switch the mode toggle at the top of this page to <span className="font-semibold text-emerald-400">"Live USB Hardware"</span>.
+              </li>
+            </ol>
           </div>
 
-          {/* Tier 4: Digital Twin Presentation */}
-          <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 flex flex-col justify-between group hover:border-emerald-300 transition-all">
+          {/* Architecture Status Note */}
+          <div className="text-[11px] text-slate-500 bg-slate-50 p-3.5 rounded-xl border border-slate-200 flex items-start gap-2">
+            <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
             <div>
-              <div className="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-200 flex items-center justify-center mb-4 shadow-sm">
-                <Server className="w-6 h-6" />
-              </div>
-              <span className="text-[10px] font-mono font-bold text-emerald-600 uppercase tracking-wider block">TIER 4 • DIGITAL TWIN</span>
-              <h3 className="font-extrabold text-slate-900 text-sm mt-1">WebGL 3D Twin</h3>
-              <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
-                High-performance Three.js procedural twin rendering live quadrant soil moisture, wind-animated crops, and drip irrigation lines.
-              </p>
-            </div>
-            <div className="mt-4 pt-3 border-t border-slate-200 text-[10px] font-mono text-slate-500">
-              Engine: Three.js WebGL / React 19
+              <strong className="text-slate-700">Hardware Telemetry Architecture:</strong> Real sensor values from GPIO 4 (DHT11), GPIO 34 (Soil Moisture AO), and GPIO 35 (Light LDR AO) are read by the ESP32 and transmitted as newline-delimited JSON over USB Serial to your local Python bridge, which serves them over HTTP to this dashboard. <em>A cloud REST backend is not currently active at this stage.</em>
             </div>
           </div>
 
         </div>
       </div>
 
-      {/* Interactive ISO 11783 CAN-Bus Telemetry Inspector */}
+      {/* ISO 11783 CAN-Bus Telemetry Inspector */}
       <div className="bg-slate-900 text-white rounded-2xl border border-slate-800 p-6 sm:p-8 shadow-xl">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-5 border-b border-slate-800 gap-4">
           <div>
@@ -185,6 +495,9 @@ export default function DataSources() {
                 }`}
               >
                 {z.zoneId.replace('ZONE-', '')}
+                {z.zoneId === 'ZONE-A' && dataMode === 'usb_hardware' && (
+                  <span className="ml-1 text-[9px] px-1 bg-emerald-500 text-white rounded">USB</span>
+                )}
               </button>
             ))}
           </div>

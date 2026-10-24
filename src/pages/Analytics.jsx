@@ -57,12 +57,14 @@ const generateFaoWaterBalance = (unitSystem, faoEt0) => {
 
 // Generate 24h soil moisture & matric potential curve
 const generate24hTelemetry = (baseMoisture, baseTemp, unitSystem) => {
+  const safeMoisture = typeof baseMoisture === 'number' && !isNaN(baseMoisture) ? baseMoisture : 45;
+  const safeTemp = typeof baseTemp === 'number' && !isNaN(baseTemp) ? baseTemp : 27;
   const points = [];
   for (let i = 24; i >= 0; i -= 2) {
     const hourLabel = `${24 - i}:00`;
-    const moisture = Math.max(12, Math.min(85, baseMoisture + Math.sin(i / 3) * 6));
+    const moisture = Math.max(12, Math.min(85, safeMoisture + Math.sin(i / 3) * 6));
     const matricKPa = Math.round((100 - moisture) * 0.8);
-    const tempC = baseTemp + Math.cos(i / 4) * 4;
+    const tempC = safeTemp + Math.cos(i / 4) * 4;
     const finalTemp = unitSystem === 'imperial' ? Number(((tempC * 9) / 5 + 32).toFixed(1)) : Number(tempC.toFixed(1));
 
     points.push({

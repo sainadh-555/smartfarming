@@ -82,6 +82,18 @@ export const FarmProvider = ({ children }) => {
     setUnitSystem(prev => (prev === 'metric' ? 'imperial' : 'metric'));
   };
 
+  const setDataMode = (mode) => {
+    apiService.setDataMode(mode);
+  };
+
+  const setBridgeUrl = (url) => {
+    apiService.setBridgeUrl(url);
+  };
+
+  const testBridgeConnection = async (candidateUrl) => {
+    return await apiService.testBridgeConnection(candidateUrl);
+  };
+
   const setBackendUrl = (url) => {
     apiService.setBackendUrl(url);
   };
@@ -106,6 +118,9 @@ export const FarmProvider = ({ children }) => {
     formatVolume,
     formatArea,
     formatPressure,
+    setDataMode,
+    setBridgeUrl,
+    testBridgeConnection,
     setBackendUrl,
     testBackendConnection,
     startSimulation: () => apiService.startSimulation(),
