@@ -1,0 +1,11 @@
+# Clangd configuration for Arduino .ino files
+CompileFlags:
+  Add:
+    - -x
+    - c++
+    - -std=c++17
+    - -Wno-everything
+Diagnostics:
+  Suppress:
+    - "*"
+  UnusedIncludes: None
