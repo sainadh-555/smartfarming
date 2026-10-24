@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useFarmData } from '../context/FarmContext';
 import ZoneDetailModal from '../components/ZoneDetailModal';
+import ErrorBoundary from '../components/ErrorBoundary';
 import { 
   Layers, 
   Droplets, 
@@ -202,11 +203,13 @@ export default function FarmMap() {
 
       {/* Modal / Deep-Dive Drawer for Selected Zone */}
       {selectedZoneId && (
-        <ZoneDetailModal 
-          zoneId={selectedZoneId}
-          onClose={() => setSelectedZoneId(null)}
-          onSelectZone={(id) => setSelectedZoneId(id)}
-        />
+        <ErrorBoundary title="Zone Details & 3D Viewer">
+          <ZoneDetailModal 
+            zoneId={selectedZoneId}
+            onClose={() => setSelectedZoneId(null)}
+            onSelectZone={(id) => setSelectedZoneId(id)}
+          />
+        </ErrorBoundary>
       )}
     </div>
   );

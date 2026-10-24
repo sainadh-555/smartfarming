@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { useFarmData } from '../context/FarmContext';
 import Zone3DView from './Zone3DView';
+import ErrorBoundary from './ErrorBoundary';
 
 export default function ZoneDetailModal({ zoneId, onClose, onSelectZone }) {
   const { zones, simulateAction, logPesticideSpray } = useFarmData();
@@ -46,7 +47,23 @@ export default function ZoneDetailModal({ zoneId, onClose, onSelectZone }) {
 
   if (!zone) return null;
 
-  const { sensorData, analysis, agronomy } = zone;
+  const sensorData = zone.sensorData || {
+    soilMoisture: 30,
+    soilTemperature: 28,
+    airTemperature: 30,
+    humidity: 50,
+    soilPH: 6.5,
+    lightIntensity: 800,
+    rainfall: 0,
+    plantHealthScore: 75
+  };
+  const analysis = zone.analysis || {
+    overallHealthScore: 75,
+    plantStatus: 'Healthy',
+    confidence: 90,
+    explanation: 'Conditions are optimal.'
+  };
+  const agronomy = zone.agronomy || {};
   const cropType = zone.cropType || agronomy?.crop?.name || 'Crop';
   const crop = agronomy?.crop || {};
   const pesticideUsage = agronomy?.pesticideUsage || { treatments: [] };
@@ -410,7 +427,9 @@ export default function ZoneDetailModal({ zoneId, onClose, onSelectZone }) {
           {/* TAB 0: LIVE 3D FIELD VIEW */}
           {activeTab === '3d' && (
             <div className="space-y-4 animate-fadeIn">
-              <Zone3DView zone={zone} onSimulateIrrigate={handleIrrigate} />
+              <ErrorBoundary title="3D Field Digital Twin">
+                <Zone3DView zone={zone} onSimulateIrrigate={handleIrrigate} />
+              </ErrorBoundary>
               
               {/* 3D Scene Condition Insights */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
