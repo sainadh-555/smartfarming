@@ -10,15 +10,42 @@ import {
   Scale, 
   Radio, 
   ShieldCheck, 
-  CheckCircle2 
+  CheckCircle2, 
+  Server, 
+  Activity, 
+  AlertCircle,
+  ExternalLink
 } from 'lucide-react';
 import { useFarmData } from '../context/FarmContext';
 
 export default function Settings() {
-  const { unitSystem, setUnitSystem, language, setLanguage } = useFarmData();
+  const { 
+    unitSystem, 
+    setUnitSystem, 
+    language, 
+    setLanguage,
+    backendUrl,
+    setBackendUrl,
+    testBackendConnection,
+    isLiveHardware,
+    lastHardwareSync 
+  } = useFarmData();
+
+  const [inputUrl, setInputUrl] = useState(backendUrl || '');
+  const [testingConnection, setTestingConnection] = useState(false);
+  const [connectionResult, setConnectionResult] = useState(null);
   const [saved, setSaved] = useState(false);
 
+  const handleTestConnection = async () => {
+    setTestingConnection(true);
+    setConnectionResult(null);
+    const res = await testBackendConnection(inputUrl);
+    setConnectionResult(res);
+    setTestingConnection(false);
+  };
+
   const handleSave = () => {
+    setBackendUrl(inputUrl);
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
   };
@@ -31,14 +58,14 @@ export default function Settings() {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-              System & International Standards Settings
+              Hardware & International System Settings
             </h1>
             <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-              ISO 11783 & GlobalG.A.P.
+              ESP32 & Render Ready
             </span>
           </div>
           <p className="text-xs sm:text-sm text-slate-500 mt-1">
-            Configure precision agriculture units, CAN-bus baud rates, language preferences, and AI threshold triggers.
+            Configure your Render backend endpoint, live ESP32 pinouts, measurement units, and CAN-bus telemetry.
           </p>
         </div>
 
@@ -47,8 +74,109 @@ export default function Settings() {
           className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-xs active:scale-95 shrink-0"
         >
           {saved ? <CheckCircle2 className="w-4 h-4 text-white" /> : <Save className="w-4 h-4" />}
-          {saved ? 'Settings Persisted!' : 'Save All Preferences'}
+          {saved ? 'Preferences Saved!' : 'Save All Preferences'}
         </button>
+      </div>
+
+      {/* Live Render Backend & ESP32 Configuration Card */}
+      <div className="bg-white rounded-2xl border-2 border-emerald-500/40 shadow-sm overflow-hidden">
+        <div className="border-b border-slate-100 bg-gradient-to-r from-emerald-50 to-teal-50 px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 bg-emerald-600 text-white rounded-xl shadow-xs">
+              <Server className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="font-extrabold text-sm text-slate-900">Render Cloud Backend Integration</h3>
+              <p className="text-xs text-slate-500">Connect this frontend to your deployed Python FastAPI service on Render</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className={`w-2.5 h-2.5 rounded-full ${isLiveHardware ? 'bg-emerald-500 animate-ping' : 'bg-slate-400'}`}></span>
+            <span className="text-xs font-mono font-bold text-slate-700">
+              {isLiveHardware ? `Live ESP32 Synced (${lastHardwareSync})` : 'Simulation Fallback Active'}
+            </span>
+          </div>
+        </div>
+
+        <div className="p-6 space-y-4">
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">
+              Backend API URL (Render Web Service)
+            </label>
+            <div className="flex gap-2">
+              <input 
+                type="text" 
+                value={inputUrl}
+                onChange={(e) => setInputUrl(e.target.value)}
+                placeholder="https://your-app-name.onrender.com (or http://localhost:8000 for local)"
+                className="flex-1 border border-slate-300 rounded-xl px-3.5 py-2.5 text-xs font-mono font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50/50"
+              />
+              <button
+                type="button"
+                onClick={handleTestConnection}
+                disabled={testingConnection || !inputUrl}
+                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 text-white rounded-xl text-xs font-bold transition-all shrink-0 active:scale-95 flex items-center gap-1.5"
+              >
+                {testingConnection ? <Activity className="w-3.5 h-3.5 animate-spin" /> : <Wifi className="w-3.5 h-3.5" />}
+                <span>{testingConnection ? 'Testing...' : 'Test Connection'}</span>
+              </button>
+            </div>
+            <p className="text-[11px] text-slate-500 mt-1.5">
+              Enter your live Render backend URL. Once connected, your real physical ESP32 sensor readings will stream directly into the dashboard!
+            </p>
+          </div>
+
+          {/* Test Connection Result Box */}
+          {connectionResult && (
+            <div className={`p-3.5 rounded-xl text-xs font-medium border flex items-center gap-2.5 animate-fadeIn ${
+              connectionResult.success 
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-800' 
+                : 'bg-rose-50 border-rose-200 text-rose-800'
+            }`}>
+              {connectionResult.success ? (
+                <>
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <div>
+                    <strong>Connection Successful!</strong> Connected to backend. Ready to ingest ESP32 live telemetry.
+                  </div>
+                </>
+              ) : (
+                <>
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <div>
+                    <strong>Connection Failed:</strong> {connectionResult.error}. Make sure your Render backend service is deployed and running.
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Confirmed Pinout Reference */}
+          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs">
+            <span className="font-extrabold text-slate-800 block mb-2 uppercase text-[10px] tracking-wider text-slate-500">
+              Confirmed Classic ESP32 Hardware Wiring Map
+            </span>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center font-mono">
+              <div className="bg-white p-2 rounded-lg border border-slate-200">
+                <span className="text-[10px] text-slate-400 block font-sans">DHT11 SENSOR</span>
+                <strong className="text-slate-900 font-bold">GPIO 4</strong>
+              </div>
+              <div className="bg-white p-2 rounded-lg border border-slate-200">
+                <span className="text-[10px] text-slate-400 block font-sans">SOIL MOISTURE</span>
+                <strong className="text-slate-900 font-bold">GPIO 34 (AO)</strong>
+              </div>
+              <div className="bg-white p-2 rounded-lg border border-slate-200">
+                <span className="text-[10px] text-slate-400 block font-sans">LIGHT / LDR</span>
+                <strong className="text-slate-900 font-bold">GPIO 35 (AO)</strong>
+              </div>
+              <div className="bg-white p-2 rounded-lg border border-slate-200">
+                <span className="text-[10px] text-slate-400 block font-sans">SOLENOID VALVE</span>
+                <strong className="text-slate-900 font-bold">GPIO 26 (Relay)</strong>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -133,67 +261,6 @@ export default function Settings() {
                 <option>1 Hz (Periodic Low-Power)</option>
                 <option>Every 5 Minutes (Battery Saver Mode)</option>
               </select>
-            </div>
-          </div>
-        </div>
-
-        {/* AI & FAO-56 Engine Rules */}
-        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
-          <div className="border-b border-slate-100 bg-slate-50/80 px-6 py-4 flex items-center gap-2">
-            <Shield className="w-5 h-5 text-purple-600" />
-            <h3 className="font-extrabold text-sm text-slate-800">FAO-56 Penman-Monteith & AI Policy</h3>
-          </div>
-          <div className="p-6 space-y-4 text-xs">
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">Drip Irrigation Depletion Threshold (RAW p-factor)</label>
-              <input type="range" min="20" max="60" defaultValue="40" className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-emerald-600" />
-              <div className="flex justify-between text-[11px] text-slate-400 mt-1 font-mono">
-                <span>20% (Conservative)</span>
-                <span className="font-bold text-emerald-600">40% RAW (FAO-56 Default)</span>
-                <span>60% (Deficit Irrigation)</span>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between pt-2">
-              <div>
-                <p className="font-bold text-slate-800">Autonomous Solenoid Relay Trigger</p>
-                <p className="text-[11px] text-slate-500">Enable ISO 11783-10 Task Controller to actuate drip pumps automatically</p>
-              </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input type="checkbox" defaultChecked className="sr-only peer" />
-                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-emerald-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
-              </label>
-            </div>
-          </div>
-        </div>
-
-        {/* Notifications & Auditing */}
-        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
-          <div className="border-b border-slate-100 bg-slate-50/80 px-6 py-4 flex items-center gap-2">
-            <Bell className="w-5 h-5 text-amber-600" />
-            <h3 className="font-extrabold text-sm text-slate-800">Regulatory Notifications & Audio Chimes</h3>
-          </div>
-          <div className="p-6 space-y-4 text-xs">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="font-bold text-slate-800">GlobalG.A.P. Pre-Harvest Warning</p>
-                <p className="text-[11px] text-slate-500">Alert 48 hours prior to pre-harvest interval expiration</p>
-              </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input type="checkbox" defaultChecked className="sr-only peer" />
-                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-emerald-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
-              </label>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="font-bold text-slate-800">Web Audio API Agronomist Chimes</p>
-                <p className="text-[11px] text-slate-500">Soft acoustic alerts on proactive agronomic anomaly</p>
-              </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input type="checkbox" defaultChecked className="sr-only peer" />
-                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-emerald-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
-              </label>
             </div>
           </div>
         </div>

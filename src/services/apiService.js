@@ -13,6 +13,16 @@ class MockApiService {
     this.isSimulationRunning = false;
     this.simulationInterval = null;
     this.subscribers = new Set();
+    
+    // Live ESP32 Hardware Integration
+    this.backendUrl = localStorage.getItem('smartfarm_backend_url') || '';
+    this.isLiveHardware = false;
+    this.lastHardwareSync = null;
+    this.pollingInterval = null;
+
+    if (this.backendUrl) {
+      this.startHardwarePolling();
+    }
   }
 
   subscribe(callback) {
@@ -34,7 +44,8 @@ class MockApiService {
         ...zone,
         sensorData: sensorReading,
         analysis,
-        agronomy
+        agronomy,
+        isLiveHardware: zone.zoneId === 'ZONE-A' ? this.isLiveHardware : false
       };
     });
 
@@ -42,11 +53,116 @@ class MockApiService {
       zones: enrichedZones,
       alerts: this.alerts,
       history: this.history,
-      isSimulationRunning: this.isSimulationRunning
+      isSimulationRunning: this.isSimulationRunning,
+      isLiveHardware: this.isLiveHardware,
+      lastHardwareSync: this.lastHardwareSync,
+      backendUrl: this.backendUrl
     };
   }
 
-  // Simulated ESP32 POST Endpoint
+  // ==========================================
+  // HARDWARE INTEGRATION: POLLING & SYNC
+  // ==========================================
+
+  setBackendUrl(url) {
+    this.backendUrl = url ? url.trim().replace(/\/+$/, '') : '';
+    if (this.backendUrl) {
+      localStorage.setItem('smartfarm_backend_url', this.backendUrl);
+      this.startHardwarePolling();
+    } else {
+      localStorage.removeItem('smartfarm_backend_url');
+      this.stopHardwarePolling();
+      this.isLiveHardware = false;
+    }
+    this.notify();
+  }
+
+  async testBackendConnection(candidateUrl) {
+    const target = candidateUrl ? candidateUrl.trim().replace(/\/+$/, '') : this.backendUrl;
+    if (!target) return { success: false, error: 'No backend URL provided' };
+
+    try {
+      const response = await fetch(`${target}/api/health`, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(5000)
+      });
+
+      if (!response.ok) {
+        return { success: false, error: `HTTP ${response.status} ${response.statusText}` };
+      }
+
+      const data = await response.json();
+      return { success: true, data };
+    } catch (err) {
+      return { success: false, error: err.message || 'Connection failed' };
+    }
+  }
+
+  startHardwarePolling() {
+    this.stopHardwarePolling();
+    // Immediate initial fetch
+    this.fetchLiveBackendData();
+    // Poll every 4 seconds for new telemetry from ESP32
+    this.pollingInterval = setInterval(() => {
+      this.fetchLiveBackendData();
+    }, 4000);
+  }
+
+  stopHardwarePolling() {
+    if (this.pollingInterval) {
+      clearInterval(this.pollingInterval);
+      this.pollingInterval = null;
+    }
+  }
+
+  async fetchLiveBackendData() {
+    if (!this.backendUrl) return;
+
+    try {
+      const response = await fetch(`${this.backendUrl}/api/sensor-data`, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(4000)
+      });
+
+      if (!response.ok) return;
+
+      const data = await response.json();
+      if (data && data.zones) {
+        let updated = false;
+
+        Object.keys(data.zones).forEach(zoneId => {
+          const liveZone = data.zones[zoneId];
+          if (this.sensorData[zoneId] && liveZone) {
+            this.sensorData[zoneId] = {
+              ...this.sensorData[zoneId],
+              soilMoisture: liveZone.soilMoisture,
+              soilTemperature: liveZone.soilTemperature || this.sensorData[zoneId].soilTemperature,
+              airTemperature: liveZone.airTemperature,
+              humidity: liveZone.humidity,
+              lightIntensity: liveZone.lightIntensity || this.sensorData[zoneId].lightIntensity,
+              soilPH: liveZone.soilPH || this.sensorData[zoneId].soilPH,
+              rainfall: liveZone.rainfall || 0,
+              timestamp: liveZone.lastUpdated || new Date().toISOString()
+            };
+            updated = true;
+          }
+        });
+
+        if (updated) {
+          this.isLiveHardware = true;
+          this.lastHardwareSync = new Date().toLocaleTimeString();
+          this.checkAlerts('ZONE-A');
+          this.notify();
+        }
+      }
+    } catch {
+      // Backend temporarily offline; seamlessly preserve current readings
+    }
+  }
+
+  // Simulated ESP32 POST Endpoint (Local fallback)
   postSensorData(data) {
     const { zoneId } = data;
     if (this.sensorData[zoneId]) {
@@ -59,6 +175,7 @@ class MockApiService {
   checkAlerts(zoneId) {
     const reading = this.sensorData[zoneId];
     const zone = this.zones.find(z => z.zoneId === zoneId);
+    if (!zone || !reading) return;
     const analysis = analyzeFarmData({ ...reading, cropType: zone.cropType });
     
     // Simple alert generation logic
@@ -94,8 +211,10 @@ class MockApiService {
     this.simulationInterval = setInterval(() => {
       // Slightly mutate data to simulate live sensors
       Object.keys(this.sensorData).forEach(zoneId => {
+        // If Zone A is driven by physical hardware, skip mutating it
+        if (zoneId === 'ZONE-A' && this.isLiveHardware) return;
+
         const data = this.sensorData[zoneId];
-        // Gradual changes
         const moistureChange = (Math.random() * 1.0) - 0.6; // Tend to dry out
         const tempChange = (Math.random() * 0.4) - 0.15; // Tend to warm slightly
         
@@ -117,7 +236,7 @@ class MockApiService {
     this.notify();
   }
 
-  simulateAction(action, zoneId = 'ZONE-A') {
+  async simulateAction(action, zoneId = 'ZONE-A') {
     const data = this.sensorData[zoneId];
     if (!data) return;
 
@@ -129,12 +248,23 @@ class MockApiService {
       this.alerts.unshift({
         id: Date.now().toString(),
         zoneId,
-        zoneName: this.zones.find(z => z.zoneId === zoneId).name,
+        zoneName: this.zones.find(z => z.zoneId === zoneId)?.name || zoneId,
         timestamp: new Date().toISOString(),
         severity: 'Information',
         message: `Irrigation applied to ${zoneId}. Soil moisture increased.`,
         resolved: false
       });
+
+      // Forward command to backend if connected
+      if (this.backendUrl) {
+        try {
+          fetch(`${this.backendUrl}/api/irrigate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ zoneId, action: 'IRRIGATE' })
+          }).catch(() => {});
+        } catch {}
+      }
     } else if (action === 'RAINFALL') {
       Object.keys(this.sensorData).forEach(zid => {
         this.sensorData[zid].rainfall += 15;

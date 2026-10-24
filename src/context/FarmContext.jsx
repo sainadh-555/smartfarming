@@ -30,7 +30,7 @@ export const FarmProvider = ({ children }) => {
       setData({ ...newData });
     });
     
-    // Start with a demo check
+    // Start with initial alert check
     apiService.checkAlerts('ZONE-A');
     apiService.checkAlerts('ZONE-B');
     apiService.notify();
@@ -82,6 +82,14 @@ export const FarmProvider = ({ children }) => {
     setUnitSystem(prev => (prev === 'metric' ? 'imperial' : 'metric'));
   };
 
+  const setBackendUrl = (url) => {
+    apiService.setBackendUrl(url);
+  };
+
+  const testBackendConnection = async (candidateUrl) => {
+    return await apiService.testBackendConnection(candidateUrl);
+  };
+
   const value = {
     ...data,
     unitSystem,
@@ -98,6 +106,8 @@ export const FarmProvider = ({ children }) => {
     formatVolume,
     formatArea,
     formatPressure,
+    setBackendUrl,
+    testBackendConnection,
     startSimulation: () => apiService.startSimulation(),
     stopSimulation: () => apiService.stopSimulation(),
     simulateAction: (action, zoneId) => apiService.simulateAction(action, zoneId),
