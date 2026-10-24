@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 
 export default function FarmMap() {
-  const { zones } = useFarmData();
+  const { zones, formatTemp, formatArea, unitSystem } = useFarmData();
   const [selectedZoneId, setSelectedZoneId] = useState(null);
 
   const getBorderColor = (status) => {
@@ -104,13 +104,13 @@ export default function FarmMap() {
                 {/* Top Row: Quadrant Indicator & Pulsing Live Status Dot */}
                 <div className="flex items-center justify-between w-full">
                   <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 bg-white/80 px-2.5 py-1 rounded-md shadow-2xs border border-slate-200/70">
-                    {agronomy?.quadrant ? `${agronomy.quadrant.split(' ')[0]} • 0.25 Acre` : '0.25 Acre'}
+                    {agronomy?.quadrant ? `${agronomy.quadrant.split(' ')[0]} • ${formatArea(agronomy.acreage || 0.25).value} ${formatArea(agronomy.acreage || 0.25).symbol}` : '0.25 Acre'}
                   </span>
                   
                   <div className="flex items-center gap-2">
                     <span className="text-[11px] font-bold uppercase text-slate-400 group-hover:text-emerald-600 transition-colors flex items-center gap-1">
                       <Maximize2 className="w-3 h-3" />
-                      <span>Inspect</span>
+                      <span>Inspect 3D</span>
                     </span>
                     <div className={`w-3.5 h-3.5 rounded-full ${getDotColor(status)} shadow-xs animate-pulse`} />
                   </div>
@@ -137,7 +137,7 @@ export default function FarmMap() {
                         <Droplets className="w-3.5 h-3.5 text-blue-500" />
                         <span>Moisture</span>
                       </span>
-                      <strong className="text-slate-800 font-bold">
+                      <strong className="text-slate-800 font-bold font-mono">
                         {zone.sensorData.soilMoisture.toFixed(0)}%
                       </strong>
                     </div>
@@ -145,10 +145,10 @@ export default function FarmMap() {
                     <div className="flex items-center justify-between bg-slate-50 p-2 rounded-lg">
                       <span className="text-slate-500 flex items-center gap-1">
                         <Thermometer className="w-3.5 h-3.5 text-orange-500" />
-                        <span>Air Temp</span>
+                        <span>Canopy</span>
                       </span>
-                      <strong className="text-slate-800 font-bold">
-                        {zone.sensorData.airTemperature.toFixed(0)}°C
+                      <strong className="text-slate-800 font-bold font-mono">
+                        {formatTemp(zone.sensorData.airTemperature).value}{formatTemp(zone.sensorData.airTemperature).symbol}
                       </strong>
                     </div>
                   </div>

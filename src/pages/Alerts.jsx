@@ -1,86 +1,153 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useFarmData } from '../context/FarmContext';
-import { CheckCircle2, AlertTriangle, AlertOctagon, Info } from 'lucide-react';
+import { 
+  CheckCircle2, 
+  AlertTriangle, 
+  AlertOctagon, 
+  Info, 
+  Bell, 
+  ShieldCheck, 
+  Sparkles,
+  Filter,
+  Check
+} from 'lucide-react';
 
 export default function Alerts() {
   const { alerts, resolveAlert } = useFarmData();
+  const [filterSeverity, setFilterSeverity] = useState('ALL');
 
   const getAlertIcon = (severity) => {
     switch(severity) {
-      case 'Critical': return <AlertOctagon className="w-6 h-6 text-red-600" />;
-      case 'Warning': return <AlertTriangle className="w-6 h-6 text-orange-600" />;
-      case 'Information': return <Info className="w-6 h-6 text-blue-600" />;
-      default: return <Info className="w-6 h-6 text-gray-600" />;
+      case 'Critical': return <AlertOctagon className="w-5 h-5 text-rose-600" />;
+      case 'Warning': return <AlertTriangle className="w-5 h-5 text-amber-600" />;
+      case 'Information': return <Info className="w-5 h-5 text-blue-600" />;
+      default: return <Info className="w-5 h-5 text-slate-600" />;
     }
   };
 
   const getAlertStyle = (severity) => {
     switch(severity) {
-      case 'Critical': return 'bg-red-50 border-red-200';
-      case 'Warning': return 'bg-orange-50 border-orange-200';
-      case 'Information': return 'bg-blue-50 border-blue-200';
-      default: return 'bg-gray-50 border-gray-200';
+      case 'Critical': return 'bg-rose-50/70 border-rose-200';
+      case 'Warning': return 'bg-amber-50/70 border-amber-200';
+      case 'Information': return 'bg-blue-50/70 border-blue-200';
+      default: return 'bg-slate-50 border-slate-200';
     }
   };
 
+  const filteredAlerts = alerts.filter(alert => {
+    if (filterSeverity === 'ALL') return true;
+    if (filterSeverity === 'UNRESOLVED') return !alert.resolved;
+    if (filterSeverity === 'RESOLVED') return alert.resolved;
+    return alert.severity.toUpperCase() === filterSeverity;
+  });
+
   return (
-    <div className="space-y-6 max-w-4xl mx-auto">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">System Alerts</h1>
-        <p className="text-gray-500">Real-time notifications and AI-generated warnings.</p>
+    <div className="space-y-6 max-w-5xl mx-auto">
+      
+      {/* Page Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-200 gap-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
+              Regulatory & Agronomic Audit Alerts
+            </h1>
+            <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+              ISO 11783-10
+            </span>
+          </div>
+          <p className="text-xs sm:text-sm text-slate-500 mt-1">
+            Real-time agro-climatic anomalies, moisture deficit triggers, and GlobalG.A.P. compliance flags.
+          </p>
+        </div>
+
+        {/* Filter Pills */}
+        <div className="flex items-center gap-1.5 bg-white p-1 rounded-xl border border-slate-200 shadow-2xs">
+          {['ALL', 'UNRESOLVED', 'Critical', 'Warning'].map(tab => (
+            <button
+              key={tab}
+              onClick={() => setFilterSeverity(tab)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                filterSeverity === tab
+                  ? 'bg-slate-900 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+              }`}
+            >
+              {tab === 'ALL' ? 'All Alerts' : tab}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-        {alerts.length === 0 ? (
-          <div className="p-12 text-center text-gray-500 flex flex-col items-center">
-            <CheckCircle2 className="w-12 h-12 text-green-400 mb-3" />
-            <p className="text-lg font-medium">All systems normal</p>
-            <p className="text-sm mt-1">No active alerts to display.</p>
+      {/* Alerts Container */}
+      <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
+        {filteredAlerts.length === 0 ? (
+          <div className="p-16 text-center text-slate-500 flex flex-col items-center">
+            <div className="w-14 h-14 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mb-3 border border-emerald-200">
+              <CheckCircle2 className="w-8 h-8" />
+            </div>
+            <p className="text-base font-extrabold text-slate-800">All Precision Quadrants Normal</p>
+            <p className="text-xs text-slate-400 mt-1">No active compliance or sensor alarms matching your criteria.</p>
           </div>
         ) : (
-          <div className="divide-y divide-gray-100">
-            {alerts.map((alert) => (
+          <div className="divide-y divide-slate-100">
+            {filteredAlerts.map((alert) => (
               <div 
                 key={alert.id} 
-                className={`p-5 flex items-start gap-4 transition-colors ${alert.resolved ? 'bg-gray-50 opacity-60' : getAlertStyle(alert.severity)}`}
+                className={`p-5 flex items-start gap-4 transition-all ${alert.resolved ? 'bg-slate-50/50 opacity-60' : getAlertStyle(alert.severity)}`}
               >
-                <div className="shrink-0 mt-1">
+                <div className="shrink-0 mt-0.5 p-2 bg-white rounded-xl shadow-2xs border border-slate-100">
                   {getAlertIcon(alert.severity)}
                 </div>
                 
                 <div className="flex-1">
-                  <div className="flex justify-between items-start mb-1">
-                    <h4 className="font-bold text-gray-900">
-                      {alert.zoneName} - {alert.severity}
-                    </h4>
-                    <span className="text-xs text-gray-500 font-medium">
-                      {new Date(alert.timestamp).toLocaleTimeString()}
+                  <div className="flex flex-wrap justify-between items-center gap-2 mb-1.5">
+                    <div className="flex items-center gap-2">
+                      <h4 className="font-extrabold text-sm text-slate-900">
+                        {alert.zoneName} — {alert.severity} Incident
+                      </h4>
+                      <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full ${
+                        alert.severity === 'Critical' ? 'bg-rose-100 text-rose-800' : 'bg-amber-100 text-amber-800'
+                      }`}>
+                        {alert.type || alert.severity}
+                      </span>
+                    </div>
+
+                    <span className="text-[11px] font-mono text-slate-500 font-medium">
+                      {new Date(alert.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })} UTC
                     </span>
                   </div>
                   
-                  <p className="text-sm text-gray-700 mb-3">
+                  <p className="text-xs text-slate-700 leading-relaxed font-medium mb-3">
                     {alert.message}
                   </p>
                   
-                  {!alert.resolved && (
-                    <button 
-                      onClick={() => resolveAlert(alert.id)}
-                      className="text-xs font-semibold px-3 py-1.5 bg-white border border-gray-300 rounded-md hover:bg-gray-50 text-gray-700 transition-colors"
-                    >
-                      Mark as Resolved
-                    </button>
-                  )}
-                  {alert.resolved && (
-                    <span className="text-xs font-semibold text-gray-500 flex items-center gap-1">
-                      <CheckCircle2 className="w-3.5 h-3.5" /> Resolved
+                  <div className="flex items-center gap-3">
+                    {!alert.resolved ? (
+                      <button 
+                        onClick={() => resolveAlert(alert.id)}
+                        className="text-xs font-bold px-3 py-1.5 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl text-slate-700 transition-all shadow-2xs active:scale-95 flex items-center gap-1.5"
+                      >
+                        <Check className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Acknowledge & Resolve</span>
+                      </button>
+                    ) : (
+                      <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Resolved</span>
+                      </span>
+                    )}
+
+                    <span className="text-[10px] font-mono text-slate-400">
+                      Standard: ISO 11783-10 Exception
                     </span>
-                  )}
+                  </div>
                 </div>
               </div>
             ))}
           </div>
         )}
       </div>
+
     </div>
   );
 }

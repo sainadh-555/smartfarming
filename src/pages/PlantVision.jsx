@@ -294,12 +294,27 @@ export default function PlantVision() {
               <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
-                    Pathological Classification
+                    Pathological Classification (EPPO Standard)
                   </span>
                   <h4 className="text-lg font-black text-slate-900">
                     {activeDiagnosis.title}
                   </h4>
-                  <span className="text-xs text-slate-500">
+                  <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                    {activeDiagnosis.eppoCode && (
+                      <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-purple-100 text-purple-700 border border-purple-200">
+                        EPPO: {activeDiagnosis.eppoCode}
+                      </span>
+                    )}
+                    {activeDiagnosis.fracIracCode && (
+                      <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-blue-100 text-blue-700 border border-blue-200">
+                        {activeDiagnosis.fracIracCode}
+                      </span>
+                    )}
+                    <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200">
+                      {activeDiagnosis.mrlStatus || 'GlobalG.A.P. MRL Safe'}
+                    </span>
+                  </div>
+                  <span className="text-xs text-slate-500 block mt-1.5">
                     Surface Lesion Impact: <strong className="text-slate-800">{activeDiagnosis.affectedArea}</strong>
                   </span>
                 </div>

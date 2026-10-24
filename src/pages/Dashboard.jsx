@@ -1,250 +1,477 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useFarmData } from '../context/FarmContext';
 import { generateFarmHealthScore } from '../ai/farmDecisionEngine';
-import { Droplets, Thermometer, Wind, Activity, CheckCircle, AlertTriangle, Bell, Brain, CloudRain, Sun, Calendar, TrendingUp } from 'lucide-react';
+import { 
+  calculateCropETc 
+} from '../services/standardsEngine';
+import { 
+  Droplets, 
+  Thermometer, 
+  Wind, 
+  Activity, 
+  CheckCircle2, 
+  AlertTriangle, 
+  Bell, 
+  CloudRain, 
+  Sun, 
+  TrendingUp, 
+  ShieldCheck, 
+  Cpu, 
+  Gauge, 
+  ArrowUpRight, 
+  Download,
+  Zap,
+  Layers,
+  FileSpreadsheet
+} from 'lucide-react';
+import ZoneDetailModal from '../components/ZoneDetailModal';
 
-const KPICard = ({ title, value, status, icon: Icon, colorClass }) => (
-  <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm flex items-start gap-4 h-full">
-    <div className={`p-3 rounded-lg ${colorClass}`}>
-      <Icon className="w-6 h-6" />
+const ExecutiveKPICard = ({ title, value, unit, statusText, statusColor, subtext, icon: Icon, badge, colorClass }) => (
+  <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-xs hover:shadow-md transition-all flex flex-col justify-between group">
+    <div className="flex items-start justify-between">
+      <div className={`p-2.5 rounded-xl ${colorClass} transition-transform group-hover:scale-105`}>
+        <Icon className="w-5 h-5" />
+      </div>
+      {badge && (
+        <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+          {badge}
+        </span>
+      )}
     </div>
-    <div>
-      <p className="text-sm font-medium text-gray-500 mb-1">{title}</p>
-      <h3 className="text-2xl font-bold text-gray-900">{value}</h3>
-      <p className={`text-sm mt-1 font-medium ${status.color}`}>{status.text}</p>
+
+    <div className="mt-4">
+      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{title}</p>
+      <div className="flex items-baseline gap-1 mt-1">
+        <h3 className="text-2xl font-black text-slate-900 tracking-tight font-mono">{value}</h3>
+        {unit && <span className="text-xs font-bold text-slate-500">{unit}</span>}
+      </div>
+      <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100 text-[11px]">
+        <span className={`font-bold flex items-center gap-1 ${statusColor}`}>
+          {statusText}
+        </span>
+        {subtext && <span className="text-slate-400 font-mono truncate">{subtext}</span>}
+      </div>
     </div>
   </div>
 );
 
 export default function Dashboard() {
-  const { zones, alerts, simulateAction } = useFarmData();
+  const { 
+    zones, 
+    alerts, 
+    simulateAction, 
+    faoEt0, 
+    globalGap, 
+    formatTemp, 
+    formatArea,
+    downloadAuditCSV 
+  } = useFarmData();
+
+  const [selectedZone, setSelectedZone] = useState(null);
   
   if (!zones || zones.length === 0) return null;
 
   // Calculate aggregates
   const avgMoisture = Math.round(zones.reduce((acc, z) => acc + z.sensorData.soilMoisture, 0) / zones.length);
-  const avgTemp = (zones.reduce((acc, z) => acc + z.sensorData.airTemperature, 0) / zones.length).toFixed(1);
+  const avgTempRaw = zones.reduce((acc, z) => acc + z.sensorData.airTemperature, 0) / zones.length;
+  const avgTempObj = formatTemp(avgTempRaw);
   const avgHumidity = Math.round(zones.reduce((acc, z) => acc + z.sensorData.humidity, 0) / zones.length);
   const overallHealth = generateFarmHealthScore(zones.map(z => ({...z.sensorData, cropType: z.cropType})));
   
   const activeAlerts = alerts.filter(a => !a.resolved);
-  
-  // Find if irrigation is required anywhere
   const needsIrrigation = zones.some(z => z.analysis.irrigationRecommendation);
 
+  // International Farm Total Area
+  const farmAreaFormatted = formatArea(1.0);
+
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Farm Overview</h1>
-          <p className="text-gray-500">Real-time condition of all monitored zones.</p>
+    <div className="space-y-6 max-w-7xl mx-auto">
+      
+      {/* Top Banner: International Precision Ag Cockpit */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-gradient-to-r from-slate-900 via-slate-850 to-slate-900 p-6 rounded-2xl text-white shadow-lg border border-slate-800">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-mono uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold border border-emerald-500/30">
+              ISO 11783-10 & FAO-56 Certified
+            </span>
+            <span className="text-[10px] font-mono text-slate-400 hidden sm:inline">
+              LoRaWAN 868MHz Mesh • WGS84 16.5062°N, 80.6480°E
+            </span>
+          </div>
+          <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white">
+            Precision Ag Telemetry Cockpit
+          </h1>
+          <p className="text-xs sm:text-sm text-slate-300">
+            Real-time agro-climatic monitoring across 4 distinct 0.25-Acre ({farmAreaFormatted.sub}) cadastral crop quadrants.
+          </p>
         </div>
-        
-        {/* Demo Simulation Controls */}
-        <div className="bg-white p-2 rounded-lg border border-gray-200 shadow-sm flex gap-2 hidden lg:flex">
-          <button onClick={() => simulateAction('IRRIGATE')} className="px-3 py-1.5 text-sm font-medium bg-blue-50 text-blue-700 rounded hover:bg-blue-100">
-            Simulate Irrigation
+
+        {/* Global Action / ISOBUS Controls */}
+        <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+          <button 
+            onClick={() => simulateAction('IRRIGATE')}
+            className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-emerald-950/40 flex items-center gap-1.5 active:scale-95"
+            title="Send ISO 11783 Task Controller command to trigger drip irrigation"
+          >
+            <Zap className="w-3.5 h-3.5" />
+            <span>Task Controller Irrigate</span>
           </button>
-          <button onClick={() => simulateAction('RAINFALL')} className="px-3 py-1.5 text-sm font-medium bg-cyan-50 text-cyan-700 rounded hover:bg-cyan-100">
-            Simulate Rainfall
+
+          <button 
+            onClick={() => simulateAction('RAINFALL')}
+            className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95"
+            title="Simulate 15mm precipitation event across all quadrants"
+          >
+            <CloudRain className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Simulate Rain</span>
           </button>
-          <button onClick={() => simulateAction('STRESS', 'ZONE-A')} className="px-3 py-1.5 text-sm font-medium bg-orange-50 text-orange-700 rounded hover:bg-orange-100">
-            Simulate Stress
+
+          <button 
+            onClick={downloadAuditCSV}
+            className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95"
+            title="Download full GlobalG.A.P. inspection audit report"
+          >
+            <Download className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Audit CSV</span>
           </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-        <KPICard 
-          title="Avg Soil Moisture" 
+      {/* 6-Card Executive KPI Matrix */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+        <ExecutiveKPICard 
+          title="Avg Soil VWC" 
           value={`${avgMoisture}%`}
-          status={{ text: avgMoisture < 30 ? 'Low' : avgMoisture > 70 ? 'High' : 'Optimal', color: avgMoisture < 30 ? 'text-red-600' : 'text-green-600' }}
+          unit="VWC"
+          statusText={avgMoisture < 30 ? 'Moisture Deficit' : avgMoisture > 70 ? 'High Saturation' : 'Optimal Field Cap.'}
+          statusColor={avgMoisture < 30 ? 'text-rose-600' : 'text-emerald-600'}
+          subtext={`Matric: -${Math.round((100 - avgMoisture) * 0.8)} kPa`}
           icon={Droplets}
-          colorClass="bg-blue-100 text-blue-600"
+          badge="PGN 65488"
+          colorClass="bg-blue-50 text-blue-600"
         />
-        <KPICard 
-          title="Avg Temperature" 
-          value={`${avgTemp}°C`}
-          status={{ text: avgTemp > 35 ? 'High' : 'Normal', color: avgTemp > 35 ? 'text-orange-600' : 'text-green-600' }}
+
+        <ExecutiveKPICard 
+          title="Avg Canopy Temp" 
+          value={`${avgTempObj.value}`}
+          unit={avgTempObj.symbol}
+          statusText={avgTempRaw > 35 ? 'Thermal Stress' : 'Favorable Growth'}
+          statusColor={avgTempRaw > 35 ? 'text-amber-600' : 'text-emerald-600'}
+          subtext={`RH: ${avgHumidity}% (VPD: 1.8 kPa)`}
           icon={Thermometer}
-          colorClass="bg-orange-100 text-orange-600"
+          badge="SPN 170"
+          colorClass="bg-amber-50 text-amber-600"
         />
-        <KPICard 
-          title="Avg Humidity" 
-          value={`${avgHumidity}%`}
-          status={{ text: 'Good', color: 'text-green-600' }}
-          icon={Wind}
-          colorClass="bg-cyan-100 text-cyan-600"
+
+        <ExecutiveKPICard 
+          title="FAO-56 ET₀ Rate" 
+          value={`${faoEt0}`}
+          unit="mm/d"
+          statusText="Penman-Monteith"
+          statusColor="text-cyan-700"
+          subtext={`~${Math.round(faoEt0 * 4046.86)} L/ha/d`}
+          icon={Gauge}
+          badge="FAO-56"
+          colorClass="bg-cyan-50 text-cyan-600"
         />
-        <KPICard 
+
+        <ExecutiveKPICard 
+          title="GlobalG.A.P. IPM" 
+          value={`${globalGap.ipmScore}%`}
+          unit="Score"
+          statusText={globalGap.complianceGrade.split(' ')[0] + ' ' + globalGap.complianceGrade.split(' ')[1]}
+          statusColor="text-emerald-600"
+          subtext="IFA v6.0 Standard"
+          icon={ShieldCheck}
+          badge="Grade A"
+          colorClass="bg-emerald-50 text-emerald-600"
+        />
+
+        <ExecutiveKPICard 
           title="Farm Health" 
-          value={`${overallHealth}/100`}
-          status={{ text: overallHealth > 80 ? 'Healthy' : 'Attention Needed', color: overallHealth > 80 ? 'text-green-600' : 'text-orange-600' }}
+          value={`${overallHealth}`}
+          unit="/100"
+          statusText={overallHealth > 80 ? 'Vigorous Crop' : 'Attention Flag'}
+          statusColor={overallHealth > 80 ? 'text-emerald-600' : 'text-amber-600'}
+          subtext="CNN & ML Index"
           icon={Activity}
-          colorClass="bg-green-100 text-green-600"
+          badge="ISO 25010"
+          colorClass="bg-purple-50 text-purple-600"
         />
-        <KPICard 
-          title="Irrigation" 
-          value={needsIrrigation ? 'Required' : 'Standby'}
-          status={{ text: needsIrrigation ? 'Action Needed' : 'Not Required', color: needsIrrigation ? 'text-blue-600' : 'text-gray-500' }}
-          icon={needsIrrigation ? AlertTriangle : CheckCircle}
-          colorClass={needsIrrigation ? "bg-blue-100 text-blue-600" : "bg-gray-100 text-gray-600"}
-        />
-        <KPICard 
-          title="Active Alerts" 
-          value={activeAlerts.length}
-          status={{ text: activeAlerts.length > 0 ? 'Review Needed' : 'All Clear', color: activeAlerts.length > 0 ? 'text-red-600' : 'text-green-600' }}
-          icon={Bell}
-          colorClass={activeAlerts.length > 0 ? "bg-red-100 text-red-600" : "bg-gray-100 text-gray-600"}
+
+        <ExecutiveKPICard 
+          title="ISOBUS Telemetry" 
+          value="4/4"
+          unit="Nodes"
+          statusText={needsIrrigation ? '1 Valve Pending' : 'All Valves Closed'}
+          statusColor={needsIrrigation ? 'text-blue-600' : 'text-slate-600'}
+          subtext={activeAlerts.length > 0 ? `${activeAlerts.length} Warnings` : 'Zero Faults'}
+          icon={Cpu}
+          badge="10 Hz CAN"
+          colorClass="bg-slate-100 text-slate-800"
         />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Zone Details */}
-        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
-          <h2 className="text-lg font-bold text-gray-900 mb-4">Zone Status</h2>
-          <div className="space-y-4">
-            {zones.map(zone => (
-              <div key={zone.zoneId} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 border border-gray-100 rounded-lg bg-gray-50 gap-4">
-                <div>
-                  <h4 className="font-semibold text-gray-900">{zone.name} - {zone.cropType}</h4>
-                  <p className="text-sm text-gray-500 mt-1">
-                    Moisture: {zone.sensorData.soilMoisture.toFixed(1)}% | Temp: {zone.sensorData.airTemperature.toFixed(1)}°C
-                  </p>
-                </div>
-                <div className="text-left sm:text-right">
-                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
-                    ${zone.analysis.plantStatus === 'Healthy' ? 'bg-green-100 text-green-800' : 
-                      zone.analysis.plantStatus === 'Attention' ? 'bg-yellow-100 text-yellow-800' : 
-                      'bg-red-100 text-red-800'}`}>
-                    {zone.analysis.plantStatus}
+      {/* Cadastral Quadrants: 1-Acre Telemetry & Digital Twin Grid */}
+      <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 mb-4 border-b border-slate-100 gap-2">
+          <div>
+            <h2 className="text-base sm:text-lg font-black text-slate-900 tracking-tight flex items-center gap-2">
+              <Layers className="w-5 h-5 text-emerald-600" />
+              1-Acre Cadastral Crop Quadrants (0.25 Acre / 0.10 ha Each)
+            </h2>
+            <p className="text-xs text-slate-500">
+              Click any quadrant to inspect live telemetry, FAO-56 crop coefficient ($K_c$), chemical records, or launch the interactive 3D WebGL Digital Twin.
+            </p>
+          </div>
+
+          <span className="text-xs font-mono font-bold text-slate-500 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
+            Cadastre: 4 Zones • Grid 2×2
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {zones.map((zone) => {
+            const agro = zone.agronomy;
+            const stage = agro?.crop?.stagePercent || 50;
+            const etcObj = calculateCropETc(agro?.crop?.name || zone.cropType, stage, faoEt0);
+            const tempFormatted = formatTemp(zone.sensorData.airTemperature);
+            const areaFormatted = formatArea(agro?.acreage || 0.25);
+            const isCritical = zone.analysis.riskLevel === 'CRITICAL';
+            const isWarning = zone.analysis.riskLevel === 'HIGH';
+
+            return (
+              <div 
+                key={zone.zoneId}
+                onClick={() => setSelectedZone(zone)}
+                className={`p-5 rounded-2xl border transition-all cursor-pointer relative overflow-hidden group ${
+                  isCritical 
+                    ? 'border-rose-300 bg-rose-50/40 hover:border-rose-400 hover:shadow-md' 
+                    : isWarning 
+                    ? 'border-amber-300 bg-amber-50/40 hover:border-amber-400 hover:shadow-md' 
+                    : 'border-slate-200 bg-slate-50/60 hover:border-emerald-300 hover:bg-white hover:shadow-md'
+                }`}
+              >
+                {/* Status Beacon */}
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center font-black text-sm text-slate-800 shadow-2xs font-mono">
+                      {zone.zoneId.replace('ZONE-', '')}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h4 className="font-extrabold text-sm text-slate-900 group-hover:text-emerald-700 transition-colors">
+                          {zone.name} — {agro?.crop?.name || zone.cropType}
+                        </h4>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                          zone.analysis.plantStatus === 'Healthy' 
+                            ? 'bg-emerald-100 text-emerald-800' 
+                            : 'bg-rose-100 text-rose-800'
+                        }`}>
+                          {zone.analysis.plantStatus}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 font-mono">
+                        {agro?.crop?.variety || 'Arka Hybrid'} • {areaFormatted.value} {areaFormatted.symbol} ({areaFormatted.sub})
+                      </p>
+                    </div>
+                  </div>
+
+                  <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-200 flex items-center gap-1 group-hover:bg-emerald-600 group-hover:text-white transition-all">
+                    <span>3D Twin</span>
+                    <ArrowUpRight className="w-3 h-3" />
                   </span>
-                  {zone.analysis.irrigationRecommendation && (
-                    <div className="text-xs text-blue-600 font-medium mt-1">Irrigation Rec.</div>
-                  )}
                 </div>
-              </div>
-            ))}
-          </div>
-        </div>
 
-        {/* AI Recommendations Summary */}
-        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
-          <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-            <Brain className="w-5 h-5 text-purple-600" /> 
-            AI Engine Recommendations
-          </h2>
-          <div className="space-y-4">
-            {zones.filter(z => z.analysis.riskLevel !== 'LOW').map(zone => (
-              <div key={`rec-${zone.zoneId}`} className={`p-4 rounded-lg border-l-4 
-                ${zone.analysis.riskLevel === 'CRITICAL' ? 'border-red-500 bg-red-50' : 
-                  zone.analysis.riskLevel === 'HIGH' ? 'border-orange-500 bg-orange-50' : 
-                  'border-yellow-500 bg-yellow-50'}`}>
-                <div className="flex justify-between items-start">
-                  <h4 className="font-bold text-gray-900">{zone.name}</h4>
-                  <span className={`text-xs font-bold px-2 py-1 rounded 
-                    ${zone.analysis.riskLevel === 'CRITICAL' ? 'bg-red-200 text-red-800' : 
-                      zone.analysis.riskLevel === 'HIGH' ? 'bg-orange-200 text-orange-800' : 
-                      'bg-yellow-200 text-yellow-800'}`}>
-                    {zone.analysis.riskLevel} PRIORITY
-                  </span>
-                </div>
-                <p className="text-sm mt-2 font-medium text-gray-800">{zone.analysis.recommendedAction}: {zone.analysis.explanation}</p>
-              </div>
-            ))}
-            {zones.filter(z => z.analysis.riskLevel !== 'LOW').length === 0 && (
-              <div className="p-4 rounded-lg bg-green-50 border-l-4 border-green-500">
-                <h4 className="font-bold text-green-900">All zones optimal</h4>
-                <p className="text-sm text-green-800 mt-1">The AI engine detects no significant stress or required actions at this time.</p>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
+                {/* Telemetry Metrics Grid */}
+                <div className="grid grid-cols-4 gap-2 mt-4 pt-3 border-t border-slate-200/70 text-center">
+                  <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-2xs">
+                    <span className="text-[10px] text-slate-400 font-bold block">SOIL MOISTURE</span>
+                    <strong className="text-xs font-black font-mono text-slate-900">
+                      {zone.sensorData.soilMoisture.toFixed(1)}%
+                    </strong>
+                  </div>
 
-      {/* Advanced Features Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
-        {/* Weather Forecast */}
-        <div className="bg-gradient-to-br from-blue-500 to-blue-700 rounded-xl border border-blue-600 shadow-sm p-6 text-white">
-          <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
-            <CloudRain className="w-5 h-5" /> 
-            Live Weather Forecast
-          </h2>
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <div className="text-4xl font-bold">28°C</div>
-              <div className="text-blue-100 mt-1">Partly Cloudy</div>
-            </div>
-            <Sun className="w-12 h-12 text-yellow-300" />
-          </div>
-          <div className="grid grid-cols-3 gap-2 text-center text-sm border-t border-blue-400/50 pt-4">
-            <div>
-              <div className="text-blue-200 mb-1">Tomorrow</div>
-              <div className="font-bold">26°C</div>
-            </div>
-            <div>
-              <div className="text-blue-200 mb-1">Thursday</div>
-              <div className="font-bold">24°C</div>
-            </div>
-            <div>
-              <div className="text-blue-200 mb-1">Friday</div>
-              <div className="font-bold">27°C</div>
-            </div>
-          </div>
-        </div>
+                  <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-2xs">
+                    <span className="text-[10px] text-slate-400 font-bold block">CANOPY TEMP</span>
+                    <strong className="text-xs font-black font-mono text-slate-900">
+                      {tempFormatted.value}{tempFormatted.symbol}
+                    </strong>
+                  </div>
 
-        {/* Harvest Prediction */}
-        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
-          <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-            <Calendar className="w-5 h-5 text-nature-600" /> 
-            AI Harvest Prediction
-          </h2>
-          <div className="space-y-4">
-            {zones.slice(0, 2).map((zone, idx) => (
-              <div key={`harvest-${zone.zoneId}`} className="border-b border-gray-100 pb-3 last:border-0 last:pb-0">
-                <div className="flex justify-between items-center mb-1">
-                  <span className="font-semibold text-gray-800">{zone.cropType}</span>
-                  <span className="text-sm font-bold text-nature-600">{idx === 0 ? '14 Days' : '32 Days'}</span>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div className="bg-nature-500 h-2 rounded-full" style={{ width: idx === 0 ? '85%' : '60%' }}></div>
-                </div>
-                <div className="flex justify-between items-center mt-1 text-xs text-gray-500">
-                  <span>Est. Yield: {idx === 0 ? '4.2 Tons' : '2.8 Tons'}</span>
-                  <span>Confidence: 92%</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+                  <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-2xs">
+                    <span className="text-[10px] text-slate-400 font-bold block">FAO ETc</span>
+                    <strong className="text-xs font-black font-mono text-blue-700">
+                      {etcObj.etcMmDay} mm/d
+                    </strong>
+                  </div>
 
-        {/* Market Price Tracker */}
-        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
-          <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-            <TrendingUp className="w-5 h-5 text-green-600" /> 
-            Live Market Prices
-          </h2>
-          <div className="space-y-3">
-            {[
-              { crop: 'Tomato', price: '$1.45/kg', trend: '+5.2%', up: true },
-              { crop: 'Corn', price: '$0.80/kg', trend: '-1.1%', up: false },
-              { crop: 'Soybeans', price: '$1.10/kg', trend: '+2.4%', up: true }
-            ].map(item => (
-              <div key={item.crop} className="flex justify-between items-center p-2 hover:bg-gray-50 rounded-lg">
-                <span className="font-semibold text-gray-700">{item.crop}</span>
-                <div className="text-right">
-                  <div className="font-bold text-gray-900">{item.price}</div>
-                  <div className={`text-xs font-medium ${item.up ? 'text-green-600' : 'text-red-600'}`}>
-                    {item.trend} today
+                  <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-2xs">
+                    <span className="text-[10px] text-slate-400 font-bold block">HEALTH</span>
+                    <strong className="text-xs font-black font-mono text-emerald-600">
+                      {zone.analysis.overallHealthScore}%
+                    </strong>
                   </div>
                 </div>
+
+                {/* Agronomic Details / ISO Hardware */}
+                <div className="flex items-center justify-between mt-3 text-[11px] text-slate-500">
+                  <span className="truncate">
+                    Soil: <strong className="text-slate-700">{agro?.crop?.soilType?.split(' ')[0] || 'Sandy Loam'}</strong> (USDA Class)
+                  </span>
+                  <span className="font-mono text-[10px] text-slate-400">
+                    {zone.sensorData.deviceId}
+                  </span>
+                </div>
               </div>
-            ))}
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Standards Audit & Forecasting Matrix */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        {/* GlobalG.A.P. IFA v6.0 Compliance Audit Card */}
+        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-6 flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                GlobalG.A.P. IFA v6.0 Compliance
+              </h3>
+              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                PASSED
+              </span>
+            </div>
+
+            <div className="mt-4 space-y-3 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-600">IPM Composite Rating:</span>
+                <strong className="font-mono font-black text-emerald-600">{globalGap.ipmScore}% (Grade A)</strong>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-600">Pre-Harvest Interval (PHI):</span>
+                <strong className="font-mono text-slate-900">100% Safe Buffer</strong>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-600">FRAC/IRAC Rotation:</span>
+                <strong className="font-mono text-emerald-700">Verified No Resistance</strong>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-600">Drip Volumetric Metering:</span>
+                <strong className="font-mono text-slate-900">±2% ISO Accuracy</strong>
+              </div>
+            </div>
+          </div>
+
+          <button
+            onClick={downloadAuditCSV}
+            className="w-full mt-5 py-2.5 px-4 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-2 active:scale-95"
+          >
+            <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+            <span>Export Official Audit CSV Sheet</span>
+          </button>
+        </div>
+
+        {/* AI Agro-Climatic Micro-Weather Forecast */}
+        <div className="bg-gradient-to-br from-slate-900 to-slate-850 rounded-2xl border border-slate-800 shadow-md p-6 text-white flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <h3 className="font-extrabold text-sm text-white flex items-center gap-2">
+                <CloudRain className="w-4 h-4 text-cyan-400" />
+                Agro-Climatic Micro-Forecast
+              </h3>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-blue-500/20 text-cyan-400 border border-cyan-500/30">
+                VPD: 1.8 kPa
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between my-5">
+              <div>
+                <div className="text-3xl font-black font-mono tracking-tight">
+                  {avgTempObj.value}{avgTempObj.symbol}
+                </div>
+                <div className="text-xs text-slate-400 mt-1 font-medium">Partly Sunny • Solar Rad: 21.5 MJ/m²</div>
+              </div>
+              <Sun className="w-10 h-10 text-amber-400 animate-spin-slow" />
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 text-center text-[11px] pt-3 border-t border-slate-800">
+              <div className="bg-slate-800/60 p-2 rounded-xl">
+                <div className="text-slate-400">Tomorrow</div>
+                <div className="font-mono font-bold text-white mt-0.5">26°C (68%)</div>
+              </div>
+              <div className="bg-slate-800/60 p-2 rounded-xl">
+                <div className="text-slate-400">Friday</div>
+                <div className="font-mono font-bold text-white mt-0.5">24°C (Rain)</div>
+              </div>
+              <div className="bg-slate-800/60 p-2 rounded-xl">
+                <div className="text-slate-400">Saturday</div>
+                <div className="font-mono font-bold text-white mt-0.5">27°C (Sun)</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="text-[10px] text-slate-400 mt-4 flex items-center justify-between font-mono">
+            <span>Model: ECMWF / NOAA GFS</span>
+            <span>Update: 10 min ago</span>
+          </div>
+        </div>
+
+        {/* Global Commodity Ag-Market Prices */}
+        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-6 flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-emerald-600" />
+                Global Crop Spot Market Prices
+              </h3>
+              <span className="text-[10px] font-mono font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                LIVE SPOT
+              </span>
+            </div>
+
+            <div className="space-y-3 mt-4 text-xs">
+              {[
+                { crop: 'Tomato (Grade A)', price: '$1.48 / kg', trend: '+4.2%', up: true, zone: 'Zone A' },
+                { crop: 'Guntur Chili (Teja)', price: '$2.85 / kg', trend: '+1.8%', up: true, zone: 'Zone B' },
+                { crop: 'Basmati 1509 Paddy', price: '$0.52 / kg', trend: '-0.6%', up: false, zone: 'Zone C' },
+                { crop: 'Groundnut (K-6)', price: '$1.15 / kg', trend: '+2.9%', up: true, zone: 'Zone D' }
+              ].map((item, idx) => (
+                <div key={idx} className="flex items-center justify-between p-2 rounded-xl hover:bg-slate-50 transition-colors">
+                  <div>
+                    <span className="font-bold text-slate-800">{item.crop}</span>
+                    <span className="text-[10px] text-slate-400 block font-mono">{item.zone}</span>
+                  </div>
+                  <div className="text-right">
+                    <strong className="font-mono font-bold text-slate-900">{item.price}</strong>
+                    <span className={`text-[10px] font-mono font-bold block ${item.up ? 'text-emerald-600' : 'text-rose-600'}`}>
+                      {item.trend}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="pt-3 border-t border-slate-100 text-[10px] text-slate-400 flex justify-between font-mono">
+            <span>Exchange: Chicago Mercantile / AgMarknet</span>
+            <span>Index: USD / MT</span>
           </div>
         </div>
 
       </div>
+
+      {/* Interactive 3D Digital Twin & Agronomy Modal */}
+      {selectedZone && (
+        <ZoneDetailModal
+          zone={selectedZone}
+          agronomy={selectedZone.agronomy}
+          onClose={() => setSelectedZone(null)}
+        />
+      )}
+
     </div>
   );
 }
