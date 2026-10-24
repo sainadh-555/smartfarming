@@ -22,7 +22,8 @@ import {
   Download,
   Zap,
   Layers,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Globe
 } from 'lucide-react';
 import ZoneDetailModal from '../components/ZoneDetailModal';
 
@@ -72,7 +73,10 @@ export default function Dashboard() {
     usbLastSync,
     usbRawReadings,
     usbError,
-    bridgeUrl
+    bridgeUrl,
+    backendUrl,
+    cloudStatus,
+    lastCloudSync
   } = useFarmData();
 
   const [selectedZone, setSelectedZone] = useState(null);
@@ -80,6 +84,7 @@ export default function Dashboard() {
   if (!zones || zones.length === 0) return null;
 
   const isUsbMode = dataMode === 'usb_hardware';
+  const isCloudMode = dataMode === 'cloud_backend';
   const liveZoneA = zones.find(z => z.zoneId === 'ZONE-A') || zones[0];
 
   // ----------------------------------------------------
@@ -138,12 +143,12 @@ export default function Dashboard() {
       displayTempSub = 'Check GPIO 4 wiring';
     }
   } else {
-    // In Simulation Mode: aggregate across simulated zones
+    // In Cloud Backend or Simulation Mode: aggregate across zones
     const avgM = Math.round(zones.reduce((acc, z) => acc + (z.sensorData?.soilMoisture || 0), 0) / zones.length);
     displayMoisture = `${avgM}%`;
     displayMoistureStatus = avgM < 30 ? 'Moisture Deficit' : avgM > 70 ? 'High Saturation' : 'Optimal Field Cap.';
     displayMoistureColor = avgM < 30 ? 'text-rose-600' : 'text-emerald-600';
-    displayMoistureSub = `Matric: -${Math.round((100 - avgM) * 0.8)} kPa`;
+    displayMoistureSub = isCloudMode ? 'Render Multi-Zone Sync' : `Matric: -${Math.round((100 - avgM) * 0.8)} kPa`;
 
     const validTemps = zones.filter(z => typeof z.sensorData?.airTemperature === 'number');
     const avgT = validTemps.length ? validTemps.reduce((acc, z) => acc + z.sensorData.airTemperature, 0) / validTemps.length : 28;
@@ -167,14 +172,21 @@ export default function Dashboard() {
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-mono uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold border border-emerald-500/30">
-              {isUsbMode ? 'ESP32 USB Serial Telemetry' : 'ISO 11783-10 & FAO-56 Certified'}
+              {isCloudMode ? 'Render Production Backend' : (isUsbMode ? 'ESP32 USB Serial Telemetry' : 'ISO 11783-10 & FAO-56 Certified')}
             </span>
             <span className="text-[10px] font-mono text-slate-400 hidden sm:inline">
-              {isUsbMode ? `115200 Baud • ${usbPort || 'COM Port'} • 1 Physical Node` : 'LoRaWAN 868MHz Mesh • WGS84 16.5062°N, 80.6480°E'}
+              {isCloudMode 
+                ? 'Render Cloud FastAPI Service • Worldwide Access' 
+                : (isUsbMode ? `115200 Baud • ${usbPort || 'COM Port'} • 1 Physical Node` : 'LoRaWAN 868MHz Mesh • WGS84 16.5062°N, 80.6480°E')}
             </span>
           </div>
           <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white flex items-center gap-2.5">
             <span>Precision Ag Telemetry Cockpit</span>
+            {isCloudMode && (
+              <span className="text-xs font-mono font-bold px-2.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/40 animate-pulse">
+                RENDER CLOUD LIVE
+              </span>
+            )}
             {isUsbMode && (
               <span className={`text-xs font-mono font-bold px-2.5 py-0.5 rounded-full border ${
                 usbStatus === 'connected' 
@@ -186,7 +198,9 @@ export default function Dashboard() {
             )}
           </h1>
           <p className="text-xs sm:text-sm text-slate-300">
-            {isUsbMode 
+            {isCloudMode 
+              ? `Live cloud telemetry streaming from ${backendUrl} across all 4 cadastral crop quadrants.`
+              : isUsbMode 
               ? `Direct physical ESP32 sensor stream powering primary quadrant Zone A (Tomato). Aux quadrants indicate unmonitored status.`
               : `Real-time agro-climatic monitoring across 4 distinct 0.25-Acre (${farmAreaFormatted.sub}) cadastral crop quadrants.`}
           </p>
@@ -224,6 +238,28 @@ export default function Dashboard() {
           </button>
         </div>
       </div>
+
+      {/* Cloud Mode Active Banner */}
+      {isCloudMode && (
+        <div className="p-4 rounded-xl border bg-purple-50/90 border-purple-200 text-purple-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-xs">
+          <div className="flex items-center gap-2.5">
+            <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${cloudStatus === 'connected' ? 'bg-purple-600 animate-ping' : 'bg-amber-500 animate-pulse'}`} />
+            <div>
+              <strong>
+                {cloudStatus === 'connected' ? 'Render Production Backend Synced' : 'Connecting to Render Backend...'}
+              </strong>
+              <span className="block opacity-85 text-[11px] mt-0.5">
+                Target: {backendUrl} • Polling interval: 4 seconds. Multi-zone agro-climatic telemetry active.
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="font-mono text-[11px] font-bold px-2.5 py-1 rounded-lg bg-white border border-purple-200 text-purple-900">
+              {cloudStatus === 'connected' ? `SYNC: ${lastCloudSync || 'Live'}` : 'CONNECTING...'}
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* USB Hardware Notification Banner (when in Live USB Mode) */}
       {isUsbMode && (
@@ -327,15 +363,15 @@ export default function Dashboard() {
         />
 
         <ExecutiveKPICard 
-          title={isUsbMode ? "ESP32 USB Ingest" : "ISOBUS Telemetry"} 
-          value={isUsbMode ? (usbStatus === 'connected' ? 'LIVE' : (usbStatus === 'waiting_data' ? 'WAIT' : 'OFFLINE')) : "4/4"}
-          unit={isUsbMode ? (usbPort || 'USB') : "Nodes"}
-          statusText={isUsbMode ? (usbStatus === 'connected' ? `Synced ${usbLastSync}` : (usbStatus === 'waiting_data' ? 'Awaiting Data' : 'Bridge Offline')) : (needsIrrigation ? '1 Valve Pending' : 'All Valves Closed')}
-          statusColor={isUsbMode ? (usbStatus === 'connected' ? 'text-emerald-600' : 'text-rose-600') : (needsIrrigation ? 'text-blue-600' : 'text-slate-600')}
-          subtext={isUsbMode ? (liveZoneA.sensorData?.dhtOk === false ? "DHT11 signal flag" : "GPIO 4, 34, 35 Active") : (activeAlerts.length > 0 ? `${activeAlerts.length} Warnings` : 'Zero Faults')}
-          icon={Cpu}
-          badge={isUsbMode ? "115200 Baud" : "10 Hz CAN"}
-          colorClass={isUsbMode && usbStatus === 'connected' ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-800"}
+          title={isCloudMode ? "Render Cloud Ingest" : (isUsbMode ? "ESP32 USB Ingest" : "ISOBUS Telemetry")} 
+          value={isCloudMode ? (cloudStatus === 'connected' ? 'LIVE' : 'SYNC') : (isUsbMode ? (usbStatus === 'connected' ? 'LIVE' : (usbStatus === 'waiting_data' ? 'WAIT' : 'OFFLINE')) : "4/4")}
+          unit={isCloudMode ? "Cloud" : (isUsbMode ? (usbPort || 'USB') : "Nodes")}
+          statusText={isCloudMode ? (cloudStatus === 'connected' ? `Synced ${lastCloudSync || 'Live'}` : 'Connecting...') : (isUsbMode ? (usbStatus === 'connected' ? `Synced ${usbLastSync}` : (usbStatus === 'waiting_data' ? 'Awaiting Data' : 'Bridge Offline')) : (needsIrrigation ? '1 Valve Pending' : 'All Valves Closed'))}
+          statusColor={isCloudMode ? (cloudStatus === 'connected' ? 'text-purple-600' : 'text-amber-600') : (isUsbMode ? (usbStatus === 'connected' ? 'text-emerald-600' : 'text-rose-600') : (needsIrrigation ? 'text-blue-600' : 'text-slate-600'))}
+          subtext={isCloudMode ? "Render FastAPI 4s" : (isUsbMode ? (liveZoneA.sensorData?.dhtOk === false ? "DHT11 signal flag" : "GPIO 4, 34, 35 Active") : (activeAlerts.length > 0 ? `${activeAlerts.length} Warnings` : 'Zero Faults'))}
+          icon={isCloudMode ? Globe : Cpu}
+          badge={isCloudMode ? "FastAPI 4s" : (isUsbMode ? "115200 Baud" : "10 Hz CAN")}
+          colorClass={isCloudMode ? "bg-purple-50 text-purple-700" : (isUsbMode && usbStatus === 'connected' ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-800")}
         />
       </div>
 

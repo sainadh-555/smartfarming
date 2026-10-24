@@ -24,7 +24,8 @@ import {
   ExternalLink,
   Droplets,
   Thermometer,
-  Sun
+  Sun,
+  Globe
 } from 'lucide-react';
 import { useFarmData } from '../context/FarmContext';
 import { ISOBUS_PGN_DEFINITIONS, generateIsoBusTelemetryFrame } from '../services/standardsEngine';
@@ -42,36 +43,50 @@ export default function DataSources() {
     usbLastSync,
     usbRawReadings,
     usbError,
-    testBridgeConnection
+    testBridgeConnection,
+    backendUrl,
+    setBackendUrl,
+    cloudStatus,
+    lastCloudSync,
+    testBackendConnection
   } = useFarmData();
 
   const [selectedZoneId, setSelectedZoneId] = useState('ZONE-A');
   const [selectedPgn, setSelectedPgn] = useState('PGN_65488');
   const [copied, setCopied] = useState(false);
+
+  // USB Bridge Testing
   const [testingBridge, setTestingBridge] = useState(false);
   const [bridgeTestResult, setBridgeTestResult] = useState(null);
   const [inputBridgeUrl, setInputBridgeUrl] = useState(bridgeUrl || 'http://127.0.0.1:5000');
+
+  // Cloud Backend Testing
+  const [testingCloud, setTestingCloud] = useState(false);
+  const [cloudTestResult, setCloudTestResult] = useState(null);
+  const [inputCloudUrl, setInputCloudUrl] = useState(backendUrl || 'https://smartfarming-e3b2.onrender.com');
 
   const activeZone = zones.find(z => z.zoneId === selectedZoneId) || zones[0];
   const isoFrame = generateIsoBusTelemetryFrame(activeZone.zoneId, activeZone.sensorData);
 
   const samplePayload = {
     standard: "ISO 11783-10:2025 (ISOBUS)",
-    telemetrySource: dataMode === 'usb_hardware' ? "ESP32 USB Serial (115200 baud)" : "Virtual Simulation Engine",
+    telemetrySource: dataMode === 'cloud_backend' 
+      ? `Render Cloud Service (${backendUrl})` 
+      : (dataMode === 'usb_hardware' ? "ESP32 USB Serial (115200 baud)" : "Virtual Simulation Engine"),
     activePort: usbPort || "None",
-    hardwareStatus: usbStatus,
+    hardwareStatus: dataMode === 'cloud_backend' ? cloudStatus : (dataMode === 'usb_hardware' ? usbStatus : 'simulated'),
     controllerUnit: `ECU-${activeZone.zoneId}-ESP32`,
     sourceAddress: isoFrame.sourceAddress,
     timestamp: new Date().toISOString(),
     zoneId: activeZone.zoneId,
     cropType: activeZone.cropType,
     liveSensorTelemetry: {
-      temperatureC: activeZone.sensorData.airTemperature,
-      humidityPct: activeZone.sensorData.humidity,
-      soilMoisturePct: activeZone.sensorData.soilMoisture,
-      rawMoistureAdc: activeZone.sensorData.soilRaw || null,
-      rawLdrAdc: activeZone.sensorData.lightRaw || null,
-      dhtStatus: activeZone.sensorData.dhtOk === false ? "FAILED_OR_UNWIRED" : "OPERATIONAL"
+      temperatureC: activeZone.sensorData?.airTemperature,
+      humidityPct: activeZone.sensorData?.humidity,
+      soilMoisturePct: activeZone.sensorData?.soilMoisture,
+      rawMoistureAdc: activeZone.sensorData?.soilRaw || null,
+      rawLdrAdc: activeZone.sensorData?.lightRaw || null,
+      dhtStatus: activeZone.sensorData?.dhtOk === false ? "FAILED_OR_UNWIRED" : "OPERATIONAL"
     },
     pgnFrames: isoFrame.pgnFrames
   };
@@ -92,6 +107,18 @@ export default function DataSources() {
 
   const handleSaveBridgeUrl = () => {
     setBridgeUrl(inputBridgeUrl);
+  };
+
+  const handleTestCloud = async () => {
+    setTestingCloud(true);
+    setCloudTestResult(null);
+    const res = await testBackendConnection(inputCloudUrl);
+    setCloudTestResult(res);
+    setTestingCloud(false);
+  };
+
+  const handleSaveCloudUrl = () => {
+    setBackendUrl(inputCloudUrl);
   };
 
   // Determine status color and text for USB badge
@@ -145,21 +172,21 @@ export default function DataSources() {
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-200 gap-3">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
               Data Sources & Hardware Ingestion
             </h1>
             <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-              ESP32 USB Serial
+              Render & USB Ready
             </span>
           </div>
           <p className="text-xs sm:text-sm text-slate-500 mt-1">
-            Toggle between local ESP32 USB telemetry and virtual simulation. No Wi-Fi or cloud dependencies required.
+            Seamlessly switch between Live Render Cloud, local ESP32 USB cable, or virtual simulation.
           </p>
         </div>
 
-        {/* Global Mode Switcher Controls */}
-        <div className="flex items-center gap-1.5 p-1 bg-slate-200/80 rounded-xl border border-slate-300">
+        {/* 3-Mode Global Switcher Controls */}
+        <div className="flex items-center gap-1.5 p-1 bg-slate-200/80 rounded-xl border border-slate-300 flex-wrap">
           <button
             onClick={() => setDataMode('simulation')}
             className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
@@ -180,33 +207,58 @@ export default function DataSources() {
             }`}
           >
             <Cable className="w-3.5 h-3.5" />
-            <span>Live USB Hardware</span>
+            <span>Live USB Cable</span>
+          </button>
+          <button
+            onClick={() => setDataMode('cloud_backend')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+              dataMode === 'cloud_backend'
+                ? 'bg-purple-600 text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Globe className="w-3.5 h-3.5" />
+            <span>Render Cloud</span>
           </button>
         </div>
       </div>
 
       {/* Mode Status Banner */}
       <div className={`p-4 sm:p-5 rounded-2xl border ${
-        dataMode === 'usb_hardware'
-          ? (usbStatus === 'connected' ? 'bg-emerald-50/70 border-emerald-200' : 'bg-slate-900 border-slate-800 text-white')
+        dataMode === 'cloud_backend'
+          ? (cloudStatus === 'connected' ? 'bg-purple-50/80 border-purple-200 text-purple-950' : 'bg-slate-900 border-slate-800 text-white')
+          : dataMode === 'usb_hardware'
+          ? (usbStatus === 'connected' ? 'bg-emerald-50/80 border-emerald-200 text-emerald-950' : 'bg-slate-900 border-slate-800 text-white')
           : 'bg-blue-50/80 border-blue-200 text-slate-900'
       } flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all shadow-xs`}>
         <div className="flex items-start gap-3.5">
           <div className={`p-2.5 rounded-xl ${
-            dataMode === 'usb_hardware'
+            dataMode === 'cloud_backend'
+              ? (cloudStatus === 'connected' ? 'bg-purple-600 text-white' : 'bg-slate-800 text-purple-400')
+              : dataMode === 'usb_hardware'
               ? (usbStatus === 'connected' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-emerald-400')
               : 'bg-blue-600 text-white'
           } shrink-0`}>
-            {dataMode === 'usb_hardware' ? <Cable className="w-6 h-6" /> : <Activity className="w-6 h-6" />}
+            {dataMode === 'cloud_backend' ? <Globe className="w-6 h-6" /> : (dataMode === 'usb_hardware' ? <Cable className="w-6 h-6" /> : <Activity className="w-6 h-6" />)}
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs font-mono font-bold uppercase tracking-wider opacity-75">
                 Current Mode:
               </span>
               <strong className="text-sm font-extrabold">
-                {dataMode === 'usb_hardware' ? 'Live USB Hardware' : 'Simulation Mode'}
+                {dataMode === 'cloud_backend' 
+                  ? 'Render Cloud Backend' 
+                  : (dataMode === 'usb_hardware' ? 'Live USB Hardware' : 'Simulation Mode')}
               </strong>
+              {dataMode === 'cloud_backend' && (
+                <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full ${
+                  cloudStatus === 'connected' ? 'bg-emerald-100 text-emerald-800 border-emerald-300' : 'bg-amber-100 text-amber-800 border-amber-300'
+                } border flex items-center gap-1`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${cloudStatus === 'connected' ? 'bg-emerald-500 animate-ping' : 'bg-amber-500'}`} />
+                  {cloudStatus === 'connected' ? 'Cloud Synced' : 'Connecting to Render...'}
+                </span>
+              )}
               {dataMode === 'usb_hardware' && (
                 <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full ${statusDisplay.bgColor} ${statusDisplay.textColor} border ${statusDisplay.borderColor} flex items-center gap-1`}>
                   <span className={`w-1.5 h-1.5 rounded-full ${statusDisplay.color} ${usbStatus === 'connected' ? 'animate-ping' : ''}`} />
@@ -214,11 +266,17 @@ export default function DataSources() {
                 </span>
               )}
             </div>
-            <p className={`text-xs mt-1 leading-relaxed ${dataMode === 'usb_hardware' && usbStatus !== 'connected' ? 'text-slate-300' : 'text-slate-600'}`}>
-              {dataMode === 'usb_hardware'
+            <p className={`text-xs mt-1 leading-relaxed ${
+              (dataMode === 'cloud_backend' && cloudStatus !== 'connected') || (dataMode === 'usb_hardware' && usbStatus !== 'connected')
+                ? 'text-slate-300' 
+                : 'text-slate-600'
+            }`}>
+              {dataMode === 'cloud_backend'
+                ? `Ingesting live multi-zone telemetry from production backend at ${backendUrl}.`
+                : dataMode === 'usb_hardware'
                 ? (usbStatus === 'connected'
-                    ? `Physical ESP32 streaming live telemetry from ${usbPort || 'USB'}. Zone A (Tomato) reflects real sensor readings.`
-                    : 'The dashboard is ready to ingest physical ESP32 data. Start your Python USB bridge to connect.')
+                    ? `Physical ESP32 streaming live telemetry from ${usbPort || 'USB'}. Zone A reflects real sensor readings.`
+                    : 'The dashboard is ready for direct USB connection. Launch the local Python bridge to connect.')
                 : 'The hardware backend is mocked with realistic agricultural dynamic data across all 4 cadastral quadrants.'}
             </p>
           </div>
@@ -226,38 +284,123 @@ export default function DataSources() {
 
         {/* Live Metrics Ticker */}
         <div className="flex items-center gap-3 shrink-0 self-end md:self-center text-xs font-mono">
-          {dataMode === 'usb_hardware' ? (
-            <div className={`px-3 py-1.5 rounded-xl border ${
-              usbStatus === 'connected' ? 'bg-white border-emerald-200 text-emerald-800' : 'bg-slate-800 border-slate-700 text-slate-300'
-            }`}>
-              <div className="text-[10px] opacity-75 font-bold">LAST SYNC</div>
-              <div className="font-bold">{usbLastSync || 'Never'}</div>
+          <div className="px-3 py-1.5 rounded-xl bg-white/90 border border-slate-200 text-slate-800 shadow-2xs">
+            <div className="text-[10px] opacity-75 font-bold uppercase">
+              {dataMode === 'cloud_backend' ? 'CLOUD SYNC' : (dataMode === 'usb_hardware' ? 'USB SYNC' : 'SIMULATION')}
             </div>
-          ) : (
-            <div className="px-3 py-1.5 rounded-xl bg-white border border-blue-200 text-blue-900">
-              <div className="text-[10px] opacity-75 font-bold">SIMULATION ENGINE</div>
-              <div className="font-bold">{isSimulationRunning ? '10 Hz Broadcast' : 'Standby'}</div>
+            <div className="font-bold">
+              {dataMode === 'cloud_backend' 
+                ? (lastCloudSync || 'Polling...') 
+                : (dataMode === 'usb_hardware' ? (usbLastSync || 'Never') : (isSimulationRunning ? '10 Hz Stream' : 'Standby'))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* RENDER CLOUD BACKEND INTEGRATION CARD */}
+      <div className={`bg-white rounded-2xl border-2 ${dataMode === 'cloud_backend' ? 'border-purple-500 shadow-md' : 'border-slate-200 shadow-xs'} overflow-hidden transition-all`}>
+        <div className="bg-gradient-to-r from-purple-900 to-indigo-900 px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between text-white gap-2">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 bg-purple-600 text-white rounded-xl shadow-xs">
+              <Globe className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="font-extrabold text-sm text-white">Render Production Cloud Backend</h3>
+              <p className="text-xs text-purple-200">Deployed Python FastAPI Web Service at {backendUrl}</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <a 
+              href={`${backendUrl}/docs`}
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="text-[10px] font-mono px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white font-bold flex items-center gap-1 border border-white/20 transition-all"
+            >
+              <span>Swagger Docs</span>
+              <ExternalLink className="w-3 h-3" />
+            </a>
+          </div>
+        </div>
+
+        <div className="p-6 space-y-4">
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">
+              Render Backend API Endpoint
+            </label>
+            <div className="flex gap-2">
+              <input 
+                type="text" 
+                value={inputCloudUrl}
+                onChange={(e) => setInputCloudUrl(e.target.value)}
+                placeholder="https://smartfarming-e3b2.onrender.com"
+                className="flex-1 border border-slate-300 rounded-xl px-3.5 py-2.5 text-xs font-mono font-medium focus:outline-none focus:ring-2 focus:ring-purple-500 bg-slate-50/50"
+              />
+              <button
+                type="button"
+                onClick={handleTestCloud}
+                disabled={testingCloud}
+                className="px-4 py-2 bg-purple-700 hover:bg-purple-800 disabled:bg-slate-300 text-white rounded-xl text-xs font-bold transition-all shrink-0 active:scale-95 flex items-center gap-1.5"
+              >
+                {testingCloud ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Activity className="w-3.5 h-3.5" />}
+                <span>{testingCloud ? 'Testing...' : 'Test Connection'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveCloudUrl}
+                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all shrink-0 active:scale-95"
+              >
+                Save
+              </button>
+            </div>
+            <p className="text-[11px] text-slate-500 mt-1.5">
+              Live service: <code>https://smartfarming-e3b2.onrender.com</code>. Ingests ESP32 Wi-Fi HTTP POST payloads and serves real-time telemetry to the dashboard.
+            </p>
+          </div>
+
+          {/* Test Cloud Result Box */}
+          {cloudTestResult && (
+            <div className={`p-3 rounded-lg text-xs font-medium border flex items-center gap-2 ${
+              cloudTestResult.success 
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-800' 
+                : 'bg-rose-50 border-rose-200 text-rose-800'
+            }`}>
+              {cloudTestResult.success ? (
+                <>
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <div>
+                    <strong>Render Backend Online!</strong> Status: <strong>{cloudTestResult.data?.status || 'healthy'}</strong>. Connected to {backendUrl}. Zones active: <strong>{cloudTestResult.data?.zonesCount || 4}</strong>.
+                  </div>
+                </>
+              ) : (
+                <>
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <div>
+                    <strong>Connection Failed:</strong> {cloudTestResult.error}
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>
       </div>
 
-      {/* Primary USB Hardware Integration Card */}
-      <div className="bg-white rounded-2xl border-2 border-emerald-500/30 shadow-sm overflow-hidden">
+      {/* LOCAL USB SERIAL BRIDGE CARD */}
+      <div className={`bg-white rounded-2xl border-2 ${dataMode === 'usb_hardware' ? 'border-emerald-500 shadow-md' : 'border-slate-200 shadow-xs'} overflow-hidden transition-all`}>
         <div className="bg-gradient-to-r from-slate-900 to-slate-850 px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between text-white gap-2">
           <div className="flex items-center gap-2.5">
             <div className="p-2 bg-emerald-600 text-white rounded-xl shadow-xs">
               <Cable className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-extrabold text-sm text-white">Physical ESP32 USB-to-HTTP Ingestion</h3>
+              <h3 className="font-extrabold text-sm text-white">Physical ESP32 USB Cable Ingestion</h3>
               <p className="text-xs text-slate-400">Direct USB Serial at 115200 baud via local Python bridge (127.0.0.1:5000)</p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded-full bg-slate-800 text-emerald-400 border border-slate-700">
-              No Cloud / No Wi-Fi Needed
+              Direct USB • No Wi-Fi
             </span>
           </div>
         </div>
@@ -378,7 +521,7 @@ export default function DataSources() {
 
             <div className="flex gap-2">
               <input 
-                type="text"
+                type="text" 
                 value={inputBridgeUrl}
                 onChange={(e) => setInputBridgeUrl(e.target.value)}
                 placeholder="http://127.0.0.1:5000"
@@ -451,17 +594,9 @@ export default function DataSources() {
                 </span>
               </li>
               <li>
-                Switch the mode toggle at the top of this page to <span className="font-semibold text-emerald-400">"Live USB Hardware"</span>.
+                Switch the mode toggle at the top of this page to <span className="font-semibold text-emerald-400">"Live USB Cable"</span>.
               </li>
             </ol>
-          </div>
-
-          {/* Architecture Status Note */}
-          <div className="text-[11px] text-slate-500 bg-slate-50 p-3.5 rounded-xl border border-slate-200 flex items-start gap-2">
-            <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-            <div>
-              <strong className="text-slate-700">Hardware Telemetry Architecture:</strong> Real sensor values from GPIO 4 (DHT11), GPIO 34 (Soil Moisture AO), and GPIO 35 (Light LDR AO) are read by the ESP32 and transmitted as newline-delimited JSON over USB Serial to your local Python bridge, which serves them over HTTP to this dashboard. <em>A cloud REST backend is not currently active at this stage.</em>
-            </div>
           </div>
 
         </div>
@@ -497,6 +632,9 @@ export default function DataSources() {
                 {z.zoneId.replace('ZONE-', '')}
                 {z.zoneId === 'ZONE-A' && dataMode === 'usb_hardware' && (
                   <span className="ml-1 text-[9px] px-1 bg-emerald-500 text-white rounded">USB</span>
+                )}
+                {dataMode === 'cloud_backend' && (
+                  <span className="ml-1 text-[9px] px-1 bg-purple-500 text-white rounded">CLOUD</span>
                 )}
               </button>
             ))}

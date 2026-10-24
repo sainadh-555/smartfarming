@@ -14,7 +14,7 @@ class MockApiService {
     this.simulationInterval = null;
     this.subscribers = new Set();
     
-    // Selectable Data Mode: 'simulation' | 'usb_hardware'
+    // Selectable Data Mode: 'simulation' | 'usb_hardware' | 'cloud_backend'
     this.dataMode = localStorage.getItem('smartfarm_data_mode') || 'simulation';
 
     // Local USB Serial Bridge Integration (http://127.0.0.1:5000)
@@ -27,12 +27,17 @@ class MockApiService {
     this.usbError = null;
     this.usbPollingInterval = null;
 
-    // Cloud Backend (Legacy/Optional, disabled in USB mode)
-    this.backendUrl = localStorage.getItem('smartfarm_backend_url') || '';
+    // Production Render Cloud Backend Integration
+    this.backendUrl = localStorage.getItem('smartfarm_backend_url') || 'https://smartfarming-e3b2.onrender.com';
+    this.cloudStatus = 'disconnected'; // 'connected' | 'disconnected'
+    this.lastCloudSync = null;
+    this.cloudPollingInterval = null;
 
     // Initialize based on saved mode
     if (this.dataMode === 'usb_hardware') {
       this.startUsbPolling();
+    } else if (this.dataMode === 'cloud_backend') {
+      this.startCloudPolling();
     }
   }
 
@@ -54,28 +59,40 @@ class MockApiService {
 
       // In Live USB Hardware mode: Zone A is the primary hardware node connected to the ESP32.
       // Other zones are clearly identified as unmonitored to avoid claiming independent readings from 1 ESP32.
-      const isZoneAMonitored = zone.zoneId === 'ZONE-A' && this.dataMode === 'usb_hardware';
+      const isZoneAMonitoredUsb = zone.zoneId === 'ZONE-A' && this.dataMode === 'usb_hardware';
       const isAuxiliaryInUsbMode = zone.zoneId !== 'ZONE-A' && this.dataMode === 'usb_hardware';
+      const isCloudMode = this.dataMode === 'cloud_backend';
 
       return {
         ...zone,
         sensorData: sensorReading,
         analysis,
         agronomy,
-        isLiveHardware: isZoneAMonitored && this.usbStatus === 'connected',
-        hardwareStatus: isZoneAMonitored ? this.usbStatus : (isAuxiliaryInUsbMode ? 'unmonitored' : 'simulated'),
-        hardwareNodeId: isZoneAMonitored ? 'ESP32-DEV-USB' : null,
-        hardwarePort: isZoneAMonitored ? this.usbPort : null
+        isLiveHardware: isCloudMode 
+          ? (this.cloudStatus === 'connected')
+          : (isZoneAMonitoredUsb && this.usbStatus === 'connected'),
+        hardwareStatus: isCloudMode
+          ? this.cloudStatus
+          : (isZoneAMonitoredUsb ? this.usbStatus : (isAuxiliaryInUsbMode ? 'unmonitored' : 'simulated')),
+        hardwareNodeId: isZoneAMonitoredUsb ? 'ESP32-DEV-USB' : (isCloudMode ? `ESP32-CLOUD-${zone.zoneId}` : null),
+        hardwarePort: isZoneAMonitoredUsb ? this.usbPort : null
       };
     });
+
+    const isConnected = this.dataMode === 'cloud_backend' 
+      ? (this.cloudStatus === 'connected')
+      : (this.dataMode === 'usb_hardware' && this.usbStatus === 'connected');
+
+    const lastSyncTime = this.dataMode === 'cloud_backend' ? this.lastCloudSync : this.usbLastSync;
 
     return {
       zones: enrichedZones,
       alerts: this.alerts,
       history: this.history,
       isSimulationRunning: this.isSimulationRunning,
-      // USB Hardware State
+      // Telemetry Data Mode
       dataMode: this.dataMode,
+      // USB Hardware State
       bridgeUrl: this.bridgeUrl,
       usbStatus: this.usbStatus,
       usbPort: this.usbPort,
@@ -83,37 +100,150 @@ class MockApiService {
       usbLastSyncEpoch: this.usbLastSyncEpoch,
       usbRawReadings: this.usbRawReadings,
       usbError: this.usbError,
-      // Backward-compatibility aliases
-      isLiveHardware: this.dataMode === 'usb_hardware' && this.usbStatus === 'connected',
-      lastHardwareSync: this.usbLastSync,
-      backendUrl: this.backendUrl
+      // Cloud Backend State
+      backendUrl: this.backendUrl,
+      cloudStatus: this.cloudStatus,
+      lastCloudSync: this.lastCloudSync,
+      // General Hardware sync aliases
+      isLiveHardware: isConnected,
+      lastHardwareSync: lastSyncTime
     };
   }
 
   // ==========================================
-  // DATA MODE MANAGEMENT (Simulation vs USB)
+  // DATA MODE MANAGEMENT
   // ==========================================
 
   setDataMode(mode) {
-    if (mode !== 'simulation' && mode !== 'usb_hardware') return;
+    if (mode !== 'simulation' && mode !== 'usb_hardware' && mode !== 'cloud_backend') return;
     this.dataMode = mode;
     localStorage.setItem('smartfarm_data_mode', mode);
 
+    // Stop all active pollers / simulation
+    this.stopSimulation();
+    this.stopUsbPolling();
+    this.stopCloudPolling();
+
     if (mode === 'usb_hardware') {
-      // Pause simulation to ensure no simulated values taint real hardware data
-      this.stopSimulation();
       this.startUsbPolling();
-    } else {
-      // In simulation mode, stop USB polling
-      this.stopUsbPolling();
+    } else if (mode === 'cloud_backend') {
+      this.startCloudPolling();
+    } else if (mode === 'simulation') {
       this.usbStatus = 'disconnected';
+      this.cloudStatus = 'disconnected';
     }
 
     this.notify();
   }
 
   // ==========================================
-  // USB SERIAL BRIDGE POLLING (every 3 seconds)
+  // RENDER CLOUD BACKEND POLLING (every 4s)
+  // ==========================================
+
+  setBackendUrl(url) {
+    this.backendUrl = url ? url.trim().replace(/\/+$/, '') : 'https://smartfarming-e3b2.onrender.com';
+    localStorage.setItem('smartfarm_backend_url', this.backendUrl);
+    if (this.dataMode === 'cloud_backend') {
+      this.startCloudPolling();
+    }
+    this.notify();
+  }
+
+  async testBackendConnection(candidateUrl) {
+    const target = candidateUrl ? candidateUrl.trim().replace(/\/+$/, '') : this.backendUrl;
+    if (!target) return { success: false, error: 'No backend URL provided' };
+
+    try {
+      const response = await fetch(`${target}/api/health`, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(6000)
+      });
+
+      if (!response.ok) {
+        return { success: false, error: `HTTP ${response.status}: ${response.statusText}` };
+      }
+
+      const data = await response.json();
+      return { success: true, data };
+    } catch (err) {
+      return { 
+        success: false, 
+        error: err.name === 'TimeoutError'
+          ? 'Connection timed out (Render free tier may be waking up, wait 30s)'
+          : (err.message || 'Connection failed')
+      };
+    }
+  }
+
+  startCloudPolling() {
+    this.stopCloudPolling();
+    this.fetchLiveCloudData();
+    this.cloudPollingInterval = setInterval(() => {
+      this.fetchLiveCloudData();
+    }, 4000);
+  }
+
+  stopCloudPolling() {
+    if (this.cloudPollingInterval) {
+      clearInterval(this.cloudPollingInterval);
+      this.cloudPollingInterval = null;
+    }
+  }
+
+  async fetchLiveCloudData() {
+    if (this.dataMode !== 'cloud_backend' || !this.backendUrl) return;
+
+    try {
+      const response = await fetch(`${this.backendUrl}/api/sensor-data`, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(5000)
+      });
+
+      if (!response.ok) {
+        this.cloudStatus = 'disconnected';
+        this.notify();
+        return;
+      }
+
+      const data = await response.json();
+      if (data && data.zones) {
+        let updated = false;
+
+        Object.keys(data.zones).forEach(zoneId => {
+          const liveZone = data.zones[zoneId];
+          if (this.sensorData[zoneId] && liveZone) {
+            this.sensorData[zoneId] = {
+              ...this.sensorData[zoneId],
+              soilMoisture: liveZone.soilMoisture !== undefined ? liveZone.soilMoisture : this.sensorData[zoneId].soilMoisture,
+              soilTemperature: liveZone.soilTemperature || this.sensorData[zoneId].soilTemperature,
+              airTemperature: liveZone.airTemperature !== undefined ? liveZone.airTemperature : this.sensorData[zoneId].airTemperature,
+              humidity: liveZone.humidity !== undefined ? liveZone.humidity : this.sensorData[zoneId].humidity,
+              lightIntensity: liveZone.lightIntensity || this.sensorData[zoneId].lightIntensity,
+              soilPH: liveZone.soilPH || this.sensorData[zoneId].soilPH,
+              rainfall: liveZone.rainfall || 0,
+              timestamp: liveZone.lastUpdated || new Date().toISOString()
+            };
+            updated = true;
+          }
+        });
+
+        if (updated) {
+          this.cloudStatus = 'connected';
+          this.lastCloudSync = new Date().toLocaleTimeString();
+          this.checkAlerts('ZONE-A');
+          this.notify();
+        }
+      }
+    } catch {
+      this.cloudStatus = 'disconnected';
+      this.notify();
+    }
+  }
+
+  // ==========================================
+  // USB SERIAL BRIDGE POLLING (every 3s)
   // ==========================================
 
   setBridgeUrl(url) {
@@ -154,9 +284,7 @@ class MockApiService {
 
   startUsbPolling() {
     this.stopUsbPolling();
-    // Immediate fetch
     this.fetchLiveUsbData();
-    // Poll every 3 seconds (2-5 second requirement)
     this.usbPollingInterval = setInterval(() => {
       this.fetchLiveUsbData();
     }, 3000);
@@ -201,15 +329,14 @@ class MockApiService {
         this.usbLastSyncEpoch = Date.now();
 
         // Update Zone A with real hardware telemetry
-        // Note: Preserve explicit null if DHT11 sensor read failed. NEVER replace with 0!
         this.sensorData['ZONE-A'] = {
           ...this.sensorData['ZONE-A'],
           deviceId: 'ESP32-DEV-USB',
           zoneId: 'ZONE-A',
           timestamp: payload.last_updated || new Date().toISOString(),
-          soilMoisture: r.soil_moisture, // null if unavailable, float otherwise
-          airTemperature: r.temperature,  // null if DHT failed
-          humidity: r.humidity,          // null if DHT failed
+          soilMoisture: r.soil_moisture,
+          airTemperature: r.temperature,
+          humidity: r.humidity,
           soilTemperature: r.temperature !== null ? Math.round((r.temperature - 1.5) * 10) / 10 : null,
           lightIntensity: r.light_lux !== null ? r.light_lux : 650,
           soilRaw: r.soil_raw,
@@ -224,11 +351,9 @@ class MockApiService {
       }
 
       this.notify();
-    } catch (err) {
-      // Bridge is offline or USB disconnected
+    } catch {
       this.usbStatus = 'disconnected';
       this.usbError = 'Bridge offline at ' + this.bridgeUrl + ' (Verify python script is running)';
-      // NEVER fall back silently to simulated data in Live USB mode!
       this.notify();
     }
   }
@@ -273,14 +398,13 @@ class MockApiService {
     this.isSimulationRunning = true;
     
     this.simulationInterval = setInterval(() => {
-      // Mutate simulated data
       Object.keys(this.sensorData).forEach(zoneId => {
-        // If Zone A is driven by physical hardware in USB mode, do NOT mutate it!
         if (zoneId === 'ZONE-A' && this.dataMode === 'usb_hardware') return;
+        if (this.dataMode === 'cloud_backend') return;
 
         const data = this.sensorData[zoneId];
-        const moistureChange = (Math.random() * 1.0) - 0.6; // Tend to dry out
-        const tempChange = (Math.random() * 0.4) - 0.15; // Tend to warm slightly
+        const moistureChange = (Math.random() * 1.0) - 0.6;
+        const tempChange = (Math.random() * 0.4) - 0.15;
         
         data.soilMoisture = Math.max(0, Math.min(100, (data.soilMoisture || 30) + moistureChange));
         data.airTemperature = Math.max(10, Math.min(50, (data.airTemperature || 28) + tempChange));
@@ -320,9 +444,19 @@ class MockApiService {
         message: `Irrigation applied to ${zoneId}. Soil moisture increased.`,
         resolved: false
       });
+
+      // Forward to Render backend if in cloud mode
+      if (this.dataMode === 'cloud_backend' && this.backendUrl) {
+        try {
+          fetch(`${this.backendUrl}/api/irrigate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ zoneId, action: 'IRRIGATE' })
+          }).catch(() => {});
+        } catch {}
+      }
     } else if (action === 'RAINFALL') {
       Object.keys(this.sensorData).forEach(zid => {
-        // In USB mode, do not mutate physical Zone A readings with simulated rain
         if (zid === 'ZONE-A' && this.dataMode === 'usb_hardware') return;
         this.sensorData[zid].rainfall = (this.sensorData[zid].rainfall || 0) + 15;
         this.sensorData[zid].soilMoisture = Math.min(100, (this.sensorData[zid].soilMoisture || 30) + 30);
