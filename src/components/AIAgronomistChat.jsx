@@ -356,9 +356,25 @@ export default function AIAgronomistChat() {
                     ? 'bg-white border border-slate-200/90 text-slate-800 rounded-tl-xs' 
                     : 'bg-emerald-600 text-white rounded-tr-xs'
                 }`}>
-                  {/* Markdown formatted text simulation */}
-                  <div className="whitespace-pre-line font-medium">
-                    {msg.text}
+                  {/* Formatted rich text */}
+                  <div className="font-medium space-y-1">
+                    {(msg.text || '').split('\n').map((line, lIdx) => {
+                      const parts = line.split(/(\*\*.*?\*\*)/g);
+                      return (
+                        <div key={lIdx} className="leading-relaxed">
+                          {parts.map((part, pIdx) => {
+                            if (part.startsWith('**') && part.endsWith('**')) {
+                              return (
+                                <strong key={pIdx} className={isAI ? 'font-black text-slate-950' : 'font-black text-white'}>
+                                  {part.slice(2, -2)}
+                                </strong>
+                              );
+                            }
+                            return part;
+                          })}
+                        </div>
+                      );
+                    })}
                   </div>
 
                   {/* Timestamp */}
