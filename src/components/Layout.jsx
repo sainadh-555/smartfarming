@@ -49,13 +49,13 @@ export default function Layout() {
 
   const navItems = [
     { name: 'Dashboard', path: '/', icon: LayoutDashboard },
-    { name: 'Farm Map', path: '/map', icon: Map, sub: '0.25 Ac Zones' },
-    { name: 'Plant Vision', path: '/vision', icon: Sprout, sub: 'EPPO AI Vision' },
-    { name: 'AI Insights', path: '/insights', icon: Brain, sub: 'Agronomist Copilot' },
-    { name: 'Analytics', path: '/analytics', icon: BarChart3, sub: 'FAO-56 Trends' },
-    { name: 'Inventory', path: '/inventory', icon: Package, sub: 'GAP Agrochemicals' },
+    { name: 'Farm Map', path: '/map', icon: Map, sub: 'Field Overview' },
+    { name: 'Plant Vision', path: '/vision', icon: Sprout, sub: 'Disease Detection' },
+    { name: 'AI Insights', path: '/insights', icon: Brain, sub: 'Farming Copilot' },
+    { name: 'Analytics', path: '/analytics', icon: BarChart3, sub: 'Sensor Analytics' },
+    { name: 'Inventory', path: '/inventory', icon: Package, sub: 'Seeds & Supplies' },
     { name: 'Alerts', path: '/alerts', icon: Bell, badge: activeAlertsCount },
-    { name: 'Data Sources', path: '/data-sources', icon: Database, sub: 'ISO 11783' },
+    { name: 'Data Sources', path: '/data-sources', icon: Database, sub: 'Hardware & Cloud' },
     { name: 'Settings', path: '/settings', icon: Settings },
   ];
 
@@ -73,7 +73,7 @@ export default function Layout() {
                 <h1 className="text-base font-extrabold tracking-tight text-white">SmartFarm AI</h1>
                 <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">PRO</span>
               </div>
-              <p className="text-[11px] text-slate-400 font-medium">Enterprise Precision Ag</p>
+              <p className="text-[11px] text-slate-400 font-medium">Smart Farming System</p>
             </div>
           </div>
           <button 
@@ -203,9 +203,9 @@ export default function Layout() {
 
             <div className="flex flex-col">
               <div className="flex items-center gap-2">
-                <h2 className="text-sm sm:text-base font-bold text-slate-900 tracking-tight">Green Valley Precision Farm</h2>
+                <h2 className="text-sm sm:text-base font-bold text-slate-900 tracking-tight">Green Valley Farm</h2>
                 <span className="hidden xl:inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold border border-emerald-200">
-                  <ShieldCheck className="w-3 h-3 text-emerald-600" /> GlobalG.A.P. Certified
+                  <ShieldCheck className="w-3 h-3 text-emerald-600" /> Farm Certified
                 </span>
                 {dataMode === 'usb_hardware' && (
                   <span className={`hidden sm:inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-mono font-bold border ${
@@ -224,37 +224,37 @@ export default function Layout() {
                   </span>
                 )}
               </div>
-              <span className="text-[11px] text-slate-500 font-mono hidden sm:inline">
-                Cadastral ID: <strong>WGS84 16.5062°N, 80.6480°E</strong> (1.00 Acre / 0.40 ha)
+              <span className="text-[11px] text-slate-500 font-medium hidden sm:inline">
+                Field 1 • 1.00 Acre (4 Zones)
               </span>
             </div>
           </div>
 
-          {/* Right: Global Standards Tickers, Unit Switcher, Language & Audit CSV */}
+          {/* Right: Status Tickers, Unit Switcher, Language & Export */}
           <div className="flex items-center gap-2 sm:gap-3 text-xs">
             
-            {/* FAO-56 Evapotranspiration Metric */}
+            {/* Water Loss Metric */}
             <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-50/80 border border-blue-200 text-blue-900 font-medium">
               <Gauge className="w-3.5 h-3.5 text-blue-600" />
-              <span>FAO-56 ET₀:</span>
+              <span>Water Loss:</span>
               <strong className="font-mono font-bold text-blue-700">{faoEt0} mm/day</strong>
             </div>
 
-            {/* GlobalG.A.P. Score Indicator */}
+            {/* Crop Health Score Indicator */}
             <div className="hidden 2xl:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-50/80 border border-emerald-200 text-emerald-900 font-medium">
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-              <span>IPM Compliance:</span>
+              <span>Crop Health:</span>
               <strong className="font-mono font-bold text-emerald-700">{globalGap.ipmScore}%</strong>
             </div>
 
             {/* Unit Toggle (Metric SI ⟷ Imperial US) */}
             <button
               onClick={toggleUnitSystem}
-              title={`Switch Unit System (Currently: ${unitSystem === 'metric' ? 'Metric SI (°C, mm, ha)' : 'Imperial US (°F, in, ac)'})`}
+              title={`Switch Unit System (Currently: ${unitSystem === 'metric' ? 'Metric (°C, mm, ha)' : 'Imperial (°F, in, ac)'})`}
               className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition-all border border-slate-300/70"
             >
               <Scale className="w-3.5 h-3.5 text-slate-600" />
-              <span className="font-mono">{unitSystem === 'metric' ? 'SI Metric' : 'US Imper.'}</span>
+              <span className="font-medium">{unitSystem === 'metric' ? 'Metric (°C)' : 'Imperial (°F)'}</span>
             </button>
 
             {/* Language Selector */}
@@ -275,14 +275,14 @@ export default function Layout() {
               </select>
             </div>
 
-            {/* Export GlobalG.A.P. Audit CSV Button */}
+            {/* Export CSV Button */}
             <button
               onClick={downloadAuditCSV}
               className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-bold transition-all shadow-xs active:scale-95"
-              title="Download GlobalG.A.P. IFA v6.0 Inspection Audit Sheet in CSV format"
+              title="Download Farm Report in CSV format"
             >
               <Download className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Audit CSV</span>
+              <span>Export CSV</span>
             </button>
 
             {/* Agronomist Avatar */}

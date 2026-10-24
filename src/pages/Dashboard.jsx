@@ -91,12 +91,12 @@ export default function Dashboard() {
   // Aggregate / Live Sensor Calculations
   // ----------------------------------------------------
   let displayMoisture = '0%';
-  let displayMoistureStatus = 'Optimal Field Cap.';
+  let displayMoistureStatus = 'Optimal Level';
   let displayMoistureColor = 'text-emerald-600';
   let displayMoistureSub = '';
 
   let displayTempObj = { value: 'Unavailable', symbol: '' };
-  let displayTempStatus = 'Favorable Growth';
+  let displayTempStatus = 'Normal Temperature';
   let displayTempColor = 'text-emerald-600';
   let displayTempSub = '';
 
@@ -110,35 +110,35 @@ export default function Dashboard() {
 
     if (zoneAMoist !== null && zoneAMoist !== undefined) {
       displayMoisture = `${zoneAMoist.toFixed(1)}%`;
-      displayMoistureStatus = zoneAMoist < 30 ? 'Moisture Deficit' : zoneAMoist > 70 ? 'High Saturation' : 'Optimal Field Cap.';
+      displayMoistureStatus = zoneAMoist < 30 ? 'Low Moisture' : zoneAMoist > 70 ? 'High Moisture' : 'Optimal Level';
       displayMoistureColor = zoneAMoist < 30 ? 'text-rose-600' : 'text-emerald-600';
       displayMoistureSub = `Raw ADC: ${liveZoneA.sensorData?.soilRaw !== null && liveZoneA.sensorData?.soilRaw !== undefined ? liveZoneA.sensorData.soilRaw : 'N/A'}`;
     } else if (usbStatus === 'waiting_data') {
       displayMoisture = 'Waiting...';
-      displayMoistureStatus = 'Awaiting Telemetry';
+      displayMoistureStatus = 'Waiting for Sensor';
       displayMoistureColor = 'text-amber-600';
-      displayMoistureSub = 'Awaiting first packet';
+      displayMoistureSub = 'Waiting for first packet';
     } else {
       displayMoisture = 'Unavailable';
       displayMoistureStatus = 'Sensor Offline';
       displayMoistureColor = 'text-slate-400';
-      displayMoistureSub = 'Check USB bridge';
+      displayMoistureSub = 'Check USB cable';
     }
 
     if (zoneATemp !== null && zoneATemp !== undefined) {
       displayTempObj = formatTemp(zoneATemp);
-      displayTempStatus = zoneATemp > 35 ? 'Thermal Stress' : 'Favorable Growth';
+      displayTempStatus = zoneATemp > 35 ? 'High Temperature' : 'Normal Temperature';
       displayTempColor = zoneATemp > 35 ? 'text-amber-600' : 'text-emerald-600';
       avgHumidity = zoneAHum !== null && zoneAHum !== undefined ? Math.round(zoneAHum) : 60;
-      displayTempSub = `RH: ${zoneAHum !== null && zoneAHum !== undefined ? zoneAHum.toFixed(1) + '%' : 'Unavailable'}`;
+      displayTempSub = `Humidity: ${zoneAHum !== null && zoneAHum !== undefined ? zoneAHum.toFixed(1) + '%' : 'Unavailable'}`;
     } else if (usbStatus === 'waiting_data') {
       displayTempObj = { value: 'Waiting...', symbol: '' };
-      displayTempStatus = 'Awaiting Data';
+      displayTempStatus = 'Waiting for Data';
       displayTempColor = 'text-amber-600';
-      displayTempSub = 'DHT11 initializing';
+      displayTempSub = 'Sensor initializing';
     } else {
       displayTempObj = { value: 'Unavailable', symbol: '' };
-      displayTempStatus = liveZoneA.sensorData?.dhtOk === false ? 'DHT11 Read Failed' : 'Sensor Offline';
+      displayTempStatus = liveZoneA.sensorData?.dhtOk === false ? 'Sensor Error' : 'Sensor Offline';
       displayTempColor = 'text-rose-600';
       displayTempSub = 'Check GPIO 4 wiring';
     }
@@ -146,17 +146,17 @@ export default function Dashboard() {
     // In Cloud Backend or Simulation Mode: aggregate across zones
     const avgM = Math.round(zones.reduce((acc, z) => acc + (z.sensorData?.soilMoisture || 0), 0) / zones.length);
     displayMoisture = `${avgM}%`;
-    displayMoistureStatus = avgM < 30 ? 'Moisture Deficit' : avgM > 70 ? 'High Saturation' : 'Optimal Field Cap.';
+    displayMoistureStatus = avgM < 30 ? 'Low Moisture' : avgM > 70 ? 'High Moisture' : 'Optimal Level';
     displayMoistureColor = avgM < 30 ? 'text-rose-600' : 'text-emerald-600';
-    displayMoistureSub = isCloudMode ? 'Render Multi-Zone Sync' : `Matric: -${Math.round((100 - avgM) * 0.8)} kPa`;
+    displayMoistureSub = isCloudMode ? 'Render Cloud Synced' : 'Target: 40% – 60%';
 
     const validTemps = zones.filter(z => typeof z.sensorData?.airTemperature === 'number');
     const avgT = validTemps.length ? validTemps.reduce((acc, z) => acc + z.sensorData.airTemperature, 0) / validTemps.length : 28;
     displayTempObj = formatTemp(avgT);
-    displayTempStatus = avgT > 35 ? 'Thermal Stress' : 'Favorable Growth';
+    displayTempStatus = avgT > 35 ? 'High Temperature' : 'Normal Temperature';
     displayTempColor = avgT > 35 ? 'text-amber-600' : 'text-emerald-600';
     avgHumidity = Math.round(zones.reduce((acc, z) => acc + (z.sensorData?.humidity || 55), 0) / zones.length);
-    displayTempSub = `RH: ${avgHumidity}% (VPD: 1.8 kPa)`;
+    displayTempSub = `Humidity: ${avgHumidity}%`;
   }
 
   const overallHealth = generateFarmHealthScore(zones.map(z => ({...z.sensorData, cropType: z.cropType})));
@@ -167,24 +167,24 @@ export default function Dashboard() {
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       
-      {/* Top Banner: International Precision Ag Cockpit */}
+      {/* Top Banner: Farm Dashboard */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-gradient-to-r from-slate-900 via-slate-850 to-slate-900 p-6 rounded-2xl text-white shadow-lg border border-slate-800">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-mono uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold border border-emerald-500/30">
-              {isCloudMode ? 'Render Production Backend' : (isUsbMode ? 'ESP32 USB Serial Telemetry' : 'ISO 11783-10 & FAO-56 Certified')}
+              {isCloudMode ? 'Render Cloud Live' : (isUsbMode ? 'ESP32 Hardware Live' : 'Live Farm Telemetry')}
             </span>
             <span className="text-[10px] font-mono text-slate-400 hidden sm:inline">
               {isCloudMode 
-                ? 'Render Cloud FastAPI Service • Worldwide Access' 
-                : (isUsbMode ? `115200 Baud • ${usbPort || 'COM Port'} • 1 Physical Node` : 'LoRaWAN 868MHz Mesh • WGS84 16.5062°N, 80.6480°E')}
+                ? 'Render Cloud Service • Live Telemetry' 
+                : (isUsbMode ? `Connected on ${usbPort || 'USB'} • 115200 Baud` : 'Real-time Sensors • 4 Farm Zones')}
             </span>
           </div>
           <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white flex items-center gap-2.5">
-            <span>Precision Ag Telemetry Cockpit</span>
+            <span>Smart Farm Dashboard</span>
             {isCloudMode && (
               <span className="text-xs font-mono font-bold px-2.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/40 animate-pulse">
-                RENDER CLOUD LIVE
+                CLOUD LIVE
               </span>
             )}
             {isUsbMode && (
@@ -199,10 +199,10 @@ export default function Dashboard() {
           </h1>
           <p className="text-xs sm:text-sm text-slate-300">
             {isCloudMode 
-              ? `Live cloud telemetry streaming from ${backendUrl} across all 4 cadastral crop quadrants.`
+              ? `Live cloud sensor data streaming across all 4 crop zones.`
               : isUsbMode 
-              ? `Direct physical ESP32 sensor stream powering primary quadrant Zone A (Tomato). Aux quadrants indicate unmonitored status.`
-              : `Real-time agro-climatic monitoring across 4 distinct 0.25-Acre (${farmAreaFormatted.sub}) cadastral crop quadrants.`}
+              ? `Direct sensor data from physical ESP32 in Zone A (Tomato). Aux zones in standby.`
+              : `Real-time soil moisture, temperature, and crop monitoring across 4 farm zones.`}
           </p>
         </div>
 
@@ -211,17 +211,17 @@ export default function Dashboard() {
           <button 
             onClick={() => simulateAction('IRRIGATE')}
             className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-emerald-950/40 flex items-center gap-1.5 active:scale-95"
-            title="Trigger drip irrigation valve"
+            title="Start irrigation for dry zones"
           >
             <Zap className="w-3.5 h-3.5" />
-            <span>Task Controller Irrigate</span>
+            <span>Start Irrigation</span>
           </button>
 
           {!isUsbMode && (
             <button 
               onClick={() => simulateAction('RAINFALL')}
               className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95"
-              title="Simulate 15mm precipitation event across all quadrants"
+              title="Simulate rain across all zones"
             >
               <CloudRain className="w-3.5 h-3.5 text-cyan-400" />
               <span>Simulate Rain</span>
@@ -231,10 +231,10 @@ export default function Dashboard() {
           <button 
             onClick={downloadAuditCSV}
             className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95"
-            title="Download full GlobalG.A.P. inspection audit report"
+            title="Download farm data report in CSV"
           >
             <Download className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Audit CSV</span>
+            <span>Export CSV</span>
           </button>
         </div>
       </div>
@@ -300,96 +300,96 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* 6-Card Executive KPI Matrix */}
+      {/* 6-Card KPI Matrix */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
         <ExecutiveKPICard 
-          title={isUsbMode ? "Zone A Soil VWC" : "Avg Soil VWC"} 
+          title={isUsbMode ? "Zone A Moisture" : "Soil Moisture"} 
           value={displayMoisture}
-          unit={displayMoisture.includes('%') ? 'VWC' : ''}
+          unit=""
           statusText={displayMoistureStatus}
           statusColor={displayMoistureColor}
           subtext={displayMoistureSub}
           icon={Droplets}
-          badge={isUsbMode ? "GPIO 34 AO" : "PGN 65488"}
+          badge={isUsbMode ? "Sensor Live" : "Moisture"}
           colorClass="bg-blue-50 text-blue-600"
         />
 
         <ExecutiveKPICard 
-          title={isUsbMode ? "Zone A Canopy Temp" : "Avg Canopy Temp"} 
+          title={isUsbMode ? "Zone A Temp" : "Air Temperature"} 
           value={`${displayTempObj.value}`}
           unit={displayTempObj.symbol}
           statusText={displayTempStatus}
           statusColor={displayTempColor}
           subtext={displayTempSub}
           icon={Thermometer}
-          badge={isUsbMode ? "GPIO 4 DHT11" : "SPN 170"}
+          badge={isUsbMode ? "DHT11" : "Temperature"}
           colorClass="bg-amber-50 text-amber-600"
         />
 
         <ExecutiveKPICard 
-          title="FAO-56 ET₀ Rate" 
+          title="Water Loss (Evap)" 
           value={`${faoEt0}`}
-          unit="mm/d"
-          statusText="Penman-Monteith"
+          unit="mm/day"
+          statusText="Normal Rate"
           statusColor="text-cyan-700"
-          subtext={`~${Math.round(faoEt0 * 4046.86)} L/ha/d`}
+          subtext="Daily water loss"
           icon={Gauge}
-          badge="FAO-56"
+          badge="Water Need"
           colorClass="bg-cyan-50 text-cyan-600"
         />
 
         <ExecutiveKPICard 
-          title="GlobalG.A.P. IPM" 
+          title="Crop Health" 
           value={`${globalGap.ipmScore}%`}
-          unit="Score"
-          statusText={globalGap.complianceGrade.split(' ')[0] + ' ' + globalGap.complianceGrade.split(' ')[1]}
+          unit=""
+          statusText="Grade A (Good)"
           statusColor="text-emerald-600"
-          subtext="IFA v6.0 Standard"
+          subtext="Low pest risk"
           icon={ShieldCheck}
-          badge="Grade A"
+          badge="Healthy"
           colorClass="bg-emerald-50 text-emerald-600"
         />
 
         <ExecutiveKPICard 
-          title="Farm Health" 
-          value={`${overallHealth}`}
-          unit="/100"
-          statusText={overallHealth > 80 ? 'Vigorous Crop' : 'Attention Flag'}
+          title="Overall Farm Health" 
+          value={`${overallHealth} / 100`}
+          unit=""
+          statusText={overallHealth > 80 ? 'Healthy Crops' : 'Needs Attention'}
           statusColor={overallHealth > 80 ? 'text-emerald-600' : 'text-amber-600'}
-          subtext="CNN & ML Index"
+          subtext="Sensor-based score"
           icon={Activity}
-          badge="ISO 25010"
+          badge="Health"
           colorClass="bg-purple-50 text-purple-600"
         />
 
         <ExecutiveKPICard 
-          title={isCloudMode ? "Render Cloud Ingest" : (isUsbMode ? "ESP32 USB Ingest" : "ISOBUS Telemetry")} 
-          value={isCloudMode ? (cloudStatus === 'connected' ? 'LIVE' : 'SYNC') : (isUsbMode ? (usbStatus === 'connected' ? 'LIVE' : (usbStatus === 'waiting_data' ? 'WAIT' : 'OFFLINE')) : "4/4")}
-          unit={isCloudMode ? "Cloud" : (isUsbMode ? (usbPort || 'USB') : "Nodes")}
-          statusText={isCloudMode ? (cloudStatus === 'connected' ? `Synced ${lastCloudSync || 'Live'}` : 'Connecting...') : (isUsbMode ? (usbStatus === 'connected' ? `Synced ${usbLastSync}` : (usbStatus === 'waiting_data' ? 'Awaiting Data' : 'Bridge Offline')) : (needsIrrigation ? '1 Valve Pending' : 'All Valves Closed'))}
+          title={isCloudMode ? "Cloud Backend" : (isUsbMode ? "ESP32 Device" : "Connected Sensors")} 
+          value={isCloudMode ? (cloudStatus === 'connected' ? 'Online' : 'Connecting') : (isUsbMode ? (usbStatus === 'connected' ? 'Online' : (usbStatus === 'waiting_data' ? 'Waiting' : 'Offline')) : "4 Active")}
+          unit={isCloudMode ? "" : (isUsbMode ? (usbPort || '') : "Zones")}
+          statusText={isCloudMode ? (cloudStatus === 'connected' ? `Synced ${lastCloudSync || 'Live'}` : 'Connecting...') : (isUsbMode ? (usbStatus === 'connected' ? `Synced ${usbLastSync}` : (usbStatus === 'waiting_data' ? 'Waiting for data' : 'Offline')) : (needsIrrigation ? 'Irrigation Needed' : 'Valves Off'))}
           statusColor={isCloudMode ? (cloudStatus === 'connected' ? 'text-purple-600' : 'text-amber-600') : (isUsbMode ? (usbStatus === 'connected' ? 'text-emerald-600' : 'text-rose-600') : (needsIrrigation ? 'text-blue-600' : 'text-slate-600'))}
-          subtext={isCloudMode ? "Render FastAPI 4s" : (isUsbMode ? (liveZoneA.sensorData?.dhtOk === false ? "DHT11 signal flag" : "GPIO 4, 34, 35 Active") : (activeAlerts.length > 0 ? `${activeAlerts.length} Warnings` : 'Zero Faults'))}
+          subtext={isCloudMode ? "Render Cloud" : (isUsbMode ? "Direct USB Cable" : (activeAlerts.length > 0 ? `${activeAlerts.length} Alerts` : 'All normal'))}
           icon={isCloudMode ? Globe : Cpu}
-          badge={isCloudMode ? "FastAPI 4s" : (isUsbMode ? "115200 Baud" : "10 Hz CAN")}
+          badge={isCloudMode ? "Cloud Live" : (isUsbMode ? "USB Live" : "Active")}
           colorClass={isCloudMode ? "bg-purple-50 text-purple-700" : (isUsbMode && usbStatus === 'connected' ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-800")}
         />
       </div>
 
-      {/* Cadastral Quadrants: 1-Acre Telemetry & Digital Twin Grid */}
+      {/* Farm Zones: Telemetry & 3D View */}
       <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 mb-4 border-b border-slate-100 gap-2">
           <div>
             <h2 className="text-base sm:text-lg font-black text-slate-900 tracking-tight flex items-center gap-2">
               <Layers className="w-5 h-5 text-emerald-600" />
-              1-Acre Cadastral Crop Quadrants (0.25 Acre / 0.10 ha Each)
+              Farm Zones & Crops (4 Zones)
             </h2>
             <p className="text-xs text-slate-500">
-              Click any quadrant to inspect live telemetry, FAO-56 crop coefficient ($K_c$), chemical records, or launch the interactive 3D WebGL Digital Twin.
+              Click any zone to inspect live readings, watering status, crop guidelines, or open the 3D field view.
             </p>
           </div>
 
           <span className="text-xs font-mono font-bold text-slate-500 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
-            Cadastre: 4 Zones • Grid 2×2
+            4 Active Zones
           </span>
         </div>
 
@@ -462,14 +462,14 @@ export default function Dashboard() {
                           {zone.analysis?.plantStatus || 'Normal'}
                         </span>
                       </div>
-                      <p className="text-[11px] text-slate-500 font-mono">
+                      <p className="text-[11px] text-slate-500 font-medium">
                         {agro?.crop?.variety || 'Arka Hybrid'} • {areaFormatted.value} {areaFormatted.symbol} ({areaFormatted.sub})
                       </p>
                     </div>
                   </div>
 
                   <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-200 flex items-center gap-1 group-hover:bg-emerald-600 group-hover:text-white transition-all shrink-0">
-                    <span>3D Twin</span>
+                    <span>3D Field View</span>
                     <ArrowUpRight className="w-3 h-3" />
                   </span>
                 </div>
@@ -477,7 +477,7 @@ export default function Dashboard() {
                 {/* Telemetry Metrics Grid */}
                 <div className="grid grid-cols-4 gap-2 mt-4 pt-3 border-t border-slate-200/70 text-center">
                   <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-2xs">
-                    <span className="text-[10px] text-slate-400 font-bold block">SOIL MOISTURE</span>
+                    <span className="text-[10px] text-slate-400 font-bold block">MOISTURE</span>
                     <strong className="text-xs font-black font-mono text-slate-900 block truncate">
                       {moistureDisplay}
                     </strong>
@@ -487,7 +487,7 @@ export default function Dashboard() {
                   </div>
 
                   <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-2xs">
-                    <span className="text-[10px] text-slate-400 font-bold block">CANOPY TEMP</span>
+                    <span className="text-[10px] text-slate-400 font-bold block">TEMPERATURE</span>
                     <strong className="text-xs font-black font-mono text-slate-900 block truncate">
                       {tempDisplay}
                     </strong>
@@ -497,7 +497,7 @@ export default function Dashboard() {
                   </div>
 
                   <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-2xs">
-                    <span className="text-[10px] text-slate-400 font-bold block">FAO ETc</span>
+                    <span className="text-[10px] text-slate-400 font-bold block">WATER NEED</span>
                     <strong className="text-xs font-black font-mono text-blue-700 block truncate">
                       {etcObj.etcMmDay} mm/d
                     </strong>
@@ -511,10 +511,10 @@ export default function Dashboard() {
                   </div>
                 </div>
 
-                {/* Agronomic Details / ISO Hardware */}
+                {/* Agronomic Details */}
                 <div className="flex items-center justify-between mt-3 text-[11px] text-slate-500">
                   <span className="truncate">
-                    Soil: <strong className="text-slate-700">{agro?.crop?.soilType?.split(' ')[0] || 'Sandy Loam'}</strong> (USDA Class)
+                    Soil: <strong className="text-slate-700">{agro?.crop?.soilType?.split(' ')[0] || 'Sandy Loam'}</strong>
                   </span>
                   <span className="font-mono text-[10px] text-slate-400">
                     {isZoneLiveUsb 
@@ -531,13 +531,13 @@ export default function Dashboard() {
       {/* Standards Audit & Forecasting Matrix */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
-        {/* GlobalG.A.P. IFA v6.0 Compliance Audit Card */}
+        {/* Crop Safety & Quality Standards */}
         <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-6 flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
                 <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                GlobalG.A.P. IFA v6.0 Compliance
+                Crop Safety & Quality Standards
               </h3>
               <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
                 PASSED
@@ -546,20 +546,20 @@ export default function Dashboard() {
 
             <div className="mt-4 space-y-3 text-xs">
               <div className="flex items-center justify-between">
-                <span className="text-slate-600">IPM Composite Rating:</span>
+                <span className="text-slate-600">Pest & Safety Rating:</span>
                 <strong className="font-mono font-black text-emerald-600">{globalGap.ipmScore}% (Grade A)</strong>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-slate-600">Pre-Harvest Interval (PHI):</span>
-                <strong className="font-mono text-slate-900">100% Safe Buffer</strong>
+                <span className="text-slate-600">Harvest Safety Buffer:</span>
+                <strong className="font-mono text-slate-900">100% Safe</strong>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-slate-600">FRAC/IRAC Rotation:</span>
-                <strong className="font-mono text-emerald-700">Verified No Resistance</strong>
+                <span className="text-slate-600">Crop Health Rotation:</span>
+                <strong className="font-mono text-emerald-700">Optimal Rotation</strong>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-slate-600">Drip Volumetric Metering:</span>
-                <strong className="font-mono text-slate-900">±2% ISO Accuracy</strong>
+                <span className="text-slate-600">Irrigation Metering:</span>
+                <strong className="font-mono text-slate-900">Active & Monitored</strong>
               </div>
             </div>
           </div>
@@ -569,20 +569,20 @@ export default function Dashboard() {
             className="w-full mt-5 py-2.5 px-4 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-2 active:scale-95"
           >
             <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
-            <span>Export Official Audit CSV Sheet</span>
+            <span>Export Farm Data (CSV)</span>
           </button>
         </div>
 
-        {/* AI Agro-Climatic Micro-Weather Forecast */}
+        {/* Local Weather Forecast */}
         <div className="bg-gradient-to-br from-slate-900 to-slate-850 rounded-2xl border border-slate-800 shadow-md p-6 text-white flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <h3 className="font-extrabold text-sm text-white flex items-center gap-2">
                 <CloudRain className="w-4 h-4 text-cyan-400" />
-                Agro-Climatic Micro-Forecast
+                Local Weather Forecast
               </h3>
               <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-blue-500/20 text-cyan-400 border border-cyan-500/30">
-                VPD: 1.8 kPa
+                Humidity: Normal
               </span>
             </div>
 
@@ -591,7 +591,7 @@ export default function Dashboard() {
                 <div className="text-3xl font-black font-mono tracking-tight">
                   {avgTempObj.value}{avgTempObj.symbol}
                 </div>
-                <div className="text-xs text-slate-400 mt-1 font-medium">Partly Sunny • Solar Rad: 21.5 MJ/m²</div>
+                <div className="text-xs text-slate-400 mt-1 font-medium">Partly Sunny • Good Sunlight</div>
               </div>
               <Sun className="w-10 h-10 text-amber-400 animate-spin-slow" />
             </div>
@@ -613,18 +613,18 @@ export default function Dashboard() {
           </div>
 
           <div className="text-[10px] text-slate-400 mt-4 flex items-center justify-between font-mono">
-            <span>Model: ECMWF / NOAA GFS</span>
+            <span>Forecast: Local Weather Station</span>
             <span>Update: 10 min ago</span>
           </div>
         </div>
 
-        {/* Global Commodity Ag-Market Prices */}
+        {/* Live Crop Market Prices */}
         <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-6 flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
                 <TrendingUp className="w-4 h-4 text-emerald-600" />
-                Global Crop Spot Market Prices
+                Live Crop Market Prices
               </h3>
               <span className="text-[10px] font-mono font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
                 LIVE SPOT
@@ -655,8 +655,8 @@ export default function Dashboard() {
           </div>
 
           <div className="pt-3 border-t border-slate-100 text-[10px] text-slate-400 flex justify-between font-mono">
-            <span>Exchange: Chicago Mercantile / AgMarknet</span>
-            <span>Index: USD / MT</span>
+            <span>Market: Local Mandi / APMC</span>
+            <span>Updated Today</span>
           </div>
         </div>
 
