@@ -43,6 +43,56 @@ export default function AIAgronomistChat() {
     }
   };
 
+  // Helper to parse bold and italic inline tokens
+  const renderInlineTokens = (rawText, isAI) => {
+    const tokens = rawText.split(/(\*\*.*?\*\*|\*.*?\*)/g);
+    return tokens.map((token, idx) => {
+      if (token.startsWith('**') && token.endsWith('**') && token.length >= 4) {
+        return (
+          <strong key={idx} className={isAI ? 'font-bold text-slate-900' : 'font-bold text-white'}>
+            {token.slice(2, -2)}
+          </strong>
+        );
+      }
+      if (token.startsWith('*') && token.endsWith('*') && token.length >= 2) {
+        return (
+          <em key={idx} className={isAI ? 'italic text-purple-700 font-semibold' : 'italic text-emerald-100 font-medium'}>
+            {token.slice(1, -1)}
+          </em>
+        );
+      }
+      return token;
+    });
+  };
+
+  // Helper to render markdown lines and bullet points
+  const renderFormattedMessage = (text, isAI) => {
+    if (!text) return null;
+    const lines = text.split('\n');
+    return lines.map((line, lIdx) => {
+      const trimmed = line.trim();
+      if (!trimmed) {
+        return <div key={lIdx} className="h-1.5" />;
+      }
+      if (trimmed.startsWith('• ') || trimmed.startsWith('- ')) {
+        const bulletContent = trimmed.slice(2);
+        return (
+          <div key={lIdx} className="flex items-start gap-1.5 my-0.5">
+            <span className={isAI ? "text-purple-600 font-bold shrink-0 leading-relaxed select-none" : "text-emerald-200 font-bold shrink-0 leading-relaxed select-none"}>•</span>
+            <div className="leading-relaxed flex-1">
+              {renderInlineTokens(bulletContent, isAI)}
+            </div>
+          </div>
+        );
+      }
+      return (
+        <div key={lIdx} className="leading-relaxed">
+          {renderInlineTokens(line, isAI)}
+        </div>
+      );
+    });
+  };
+
   // Initialize with proactive notification message on component mount
   useEffect(() => {
     const criticalZone = zones.find(z => z.analysis?.riskLevel === 'CRITICAL') || zones[3];
@@ -358,23 +408,7 @@ export default function AIAgronomistChat() {
                 }`}>
                   {/* Formatted rich text */}
                   <div className="font-medium space-y-1">
-                    {(msg.text || '').split('\n').map((line, lIdx) => {
-                      const parts = line.split(/(\*\*.*?\*\*)/g);
-                      return (
-                        <div key={lIdx} className="leading-relaxed">
-                          {parts.map((part, pIdx) => {
-                            if (part.startsWith('**') && part.endsWith('**')) {
-                              return (
-                                <strong key={pIdx} className={isAI ? 'font-black text-slate-950' : 'font-black text-white'}>
-                                  {part.slice(2, -2)}
-                                </strong>
-                              );
-                            }
-                            return part;
-                          })}
-                        </div>
-                      );
-                    })}
+                    {renderFormattedMessage(msg.text, isAI)}
                   </div>
 
                   {/* Timestamp */}
