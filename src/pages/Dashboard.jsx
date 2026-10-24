@@ -589,7 +589,7 @@ export default function Dashboard() {
             <div className="flex items-center justify-between my-5">
               <div>
                 <div className="text-3xl font-black font-mono tracking-tight">
-                  {avgTempObj.value}{avgTempObj.symbol}
+                  {displayTempObj.value}{displayTempObj.symbol}
                 </div>
                 <div className="text-xs text-slate-400 mt-1 font-medium">Partly Sunny • Good Sunlight</div>
               </div>
