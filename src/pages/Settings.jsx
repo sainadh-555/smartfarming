@@ -17,9 +17,16 @@ import {
   ExternalLink,
   Cable,
   Terminal,
-  RefreshCw
+  RefreshCw,
+  Bot,
+  Key,
+  Sparkles,
+  Eye,
+  EyeOff,
+  Zap
 } from 'lucide-react';
 import { useFarmData } from '../context/FarmContext';
+import { getAIConfig, saveAIConfig, testAIConnection } from '../services/aiChatService';
 
 export default function Settings() {
   const { 
@@ -37,16 +44,27 @@ export default function Settings() {
     usbLastSync,
     backendUrl,
     setBackendUrl,
-    testBackendConnection
+    testBackendConnection,
+    cloudStatus
   } = useFarmData();
 
   const [inputBridgeUrl, setInputBridgeUrl] = useState(bridgeUrl || 'http://127.0.0.1:5000');
   const [testingBridge, setTestingBridge] = useState(false);
   const [bridgeResult, setBridgeResult] = useState(null);
 
-  const [inputCloudUrl, setInputCloudUrl] = useState(backendUrl || '');
+  const [inputCloudUrl, setInputCloudUrl] = useState(backendUrl || 'https://smartfarming-e3b2.onrender.com');
   const [testingCloud, setTestingCloud] = useState(false);
   const [cloudResult, setCloudResult] = useState(null);
+
+  // AI Configuration State
+  const initialAI = getAIConfig();
+  const [aiProvider, setAiProvider] = useState(initialAI.provider);
+  const [geminiKey, setGeminiKey] = useState(initialAI.geminiKey);
+  const [openaiKey, setOpenaiKey] = useState(initialAI.openaiKey);
+  const [geminiModel, setGeminiModel] = useState(initialAI.model || 'gemini-1.5-flash');
+  const [showKey, setShowKey] = useState(false);
+  const [testingAIKey, setTestingAIKey] = useState(false);
+  const [aiTestResult, setAiTestResult] = useState(null);
 
   const [saved, setSaved] = useState(false);
 
@@ -66,9 +84,24 @@ export default function Settings() {
     setTestingCloud(false);
   };
 
+  const handleTestAI = async () => {
+    setTestingAIKey(true);
+    setAiTestResult(null);
+    const key = aiProvider === 'gemini' ? geminiKey : openaiKey;
+    const res = await testAIConnection(aiProvider, key, geminiModel);
+    setAiTestResult(res);
+    setTestingAIKey(false);
+  };
+
   const handleSave = () => {
     setBridgeUrl(inputBridgeUrl);
     setBackendUrl(inputCloudUrl);
+    saveAIConfig({
+      provider: aiProvider,
+      geminiKey: geminiKey,
+      openaiKey: openaiKey,
+      model: geminiModel
+    });
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
   };
@@ -81,14 +114,14 @@ export default function Settings() {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-              Hardware & International System Settings
+              Hardware, AI & System Settings
             </h1>
             <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-              ESP32 USB Ready
+              System Ready
             </span>
           </div>
           <p className="text-xs sm:text-sm text-slate-500 mt-1">
-            Configure local USB serial bridge, hardware data mode, units of measurement, and agronomy parameters.
+            Configure telemetry sources, ESP32 USB bridge, AI Copilot engine/API keys, and units of measurement.
           </p>
         </div>
 
@@ -108,10 +141,10 @@ export default function Settings() {
           Active Telemetry Source Mode
         </h3>
         <p className="text-xs text-slate-500 mb-4">
-          Select whether the dashboard should read from your physical ESP32 USB cable or use the virtual farm simulation engine.
+          Select whether the dashboard should read from physical ESP32 hardware, the cloud backend, or the simulation engine.
         </p>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div 
             onClick={() => setDataMode('usb_hardware')}
             className={`p-4 rounded-xl border-2 cursor-pointer transition-all ${
@@ -123,12 +156,32 @@ export default function Settings() {
             <div className="flex items-center justify-between">
               <span className="font-bold text-xs text-slate-900 flex items-center gap-1.5">
                 <Cable className="w-4 h-4 text-emerald-600" />
-                Live USB Hardware Mode
+                Live USB Hardware
               </span>
               <span className={`w-2.5 h-2.5 rounded-full ${usbStatus === 'connected' ? 'bg-emerald-500 animate-ping' : 'bg-slate-400'}`} />
             </div>
             <p className="text-[11px] text-slate-500 mt-1.5 leading-relaxed">
-              Streams real physical measurements from your ESP32 on USB serial at 115200 baud via local Python bridge.
+              Streams physical measurements from your ESP32 on USB serial via local Python bridge.
+            </p>
+          </div>
+
+          <div 
+            onClick={() => setDataMode('cloud_backend')}
+            className={`p-4 rounded-xl border-2 cursor-pointer transition-all ${
+              dataMode === 'cloud_backend'
+                ? 'border-purple-500 bg-purple-50/50 shadow-xs'
+                : 'border-slate-200 bg-slate-50/50 hover:border-slate-300'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-xs text-slate-900 flex items-center gap-1.5">
+                <Server className="w-4 h-4 text-purple-600" />
+                Render Cloud Backend
+              </span>
+              <span className={`w-2.5 h-2.5 rounded-full ${cloudStatus === 'connected' ? 'bg-purple-500 animate-ping' : 'bg-slate-400'}`} />
+            </div>
+            <p className="text-[11px] text-slate-500 mt-1.5 leading-relaxed">
+              Reads from your live deployed FastAPI web service on Render across all 4 quadrants.
             </p>
           </div>
 
@@ -142,34 +195,233 @@ export default function Settings() {
           >
             <div className="flex items-center justify-between">
               <span className="font-bold text-xs text-slate-900 flex items-center gap-1.5">
-                <Activity className="w-4 h-4 text-blue-600" />
-                Virtual Simulation Mode
+                <RefreshCw className="w-4 h-4 text-blue-600" />
+                Simulation Mode
               </span>
               <span className="w-2.5 h-2.5 rounded-full bg-blue-500" />
             </div>
             <p className="text-[11px] text-slate-500 mt-1.5 leading-relaxed">
-              Simulates realistic agricultural data across 4 cadastral crop quadrants.
+              Simulates realistic agro-climatic dynamics across all 4 zones for testing.
             </p>
           </div>
         </div>
       </div>
 
-      {/* Local USB Serial Bridge Configuration Card */}
-      <div className="bg-white rounded-2xl border-2 border-emerald-500/40 shadow-sm overflow-hidden">
-        <div className="border-b border-slate-100 bg-gradient-to-r from-emerald-50 to-teal-50 px-6 py-4 flex items-center justify-between">
+      {/* AI Copilot & LLM Configuration Card */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
           <div className="flex items-center gap-2.5">
-            <div className="p-2 bg-emerald-600 text-white rounded-xl shadow-xs">
-              <Cable className="w-5 h-5" />
+            <div className="p-2 bg-purple-50 text-purple-700 rounded-xl">
+              <Bot className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-extrabold text-sm text-slate-900">Local USB Serial Bridge Endpoint</h3>
-              <p className="text-xs text-slate-500">Connects dashboard to Python bridge on this PC (http://127.0.0.1:5000)</p>
+              <h3 className="font-extrabold text-sm text-slate-900">AI Agronomist Copilot & API Settings</h3>
+              <p className="text-xs text-slate-500">Choose between the free built-in farm engine or external LLMs (Gemini / OpenAI)</p>
             </div>
           </div>
 
+          <span className="text-[10px] font-mono font-bold px-2.5 py-1 rounded-full bg-purple-50 text-purple-700 border border-purple-200">
+            {aiProvider === 'gemini' ? 'Google Gemini' : aiProvider === 'openai' ? 'OpenAI GPT' : 'Built-in (Zero API Key)'}
+          </span>
+        </div>
+
+        {/* Engine Selection */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div 
+            onClick={() => setAiProvider('builtin')}
+            className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all ${
+              aiProvider === 'builtin'
+                ? 'border-purple-600 bg-purple-50/50 shadow-xs'
+                : 'border-slate-200 bg-slate-50/50 hover:border-slate-300'
+            }`}
+          >
+            <div className="flex items-center justify-between mb-1">
+              <span className="font-bold text-xs text-slate-900">Built-in Farm AI</span>
+              <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.2 rounded">Free</span>
+            </div>
+            <p className="text-[11px] text-slate-500 leading-relaxed">
+              No API key required. Natural language chat, greetings, farm summaries, and drip triggers.
+            </p>
+          </div>
+
+          <div 
+            onClick={() => setAiProvider('gemini')}
+            className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all ${
+              aiProvider === 'gemini'
+                ? 'border-blue-600 bg-blue-50/50 shadow-xs'
+                : 'border-slate-200 bg-slate-50/50 hover:border-slate-300'
+            }`}
+          >
+            <div className="flex items-center justify-between mb-1">
+              <span className="font-bold text-xs text-slate-900">Google Gemini AI</span>
+              <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-1.5 py-0.2 rounded">Free Key</span>
+            </div>
+            <p className="text-[11px] text-slate-500 leading-relaxed">
+              Gemini 1.5 Flash generative AI with live sensor telemetry injected into prompts.
+            </p>
+          </div>
+
+          <div 
+            onClick={() => setAiProvider('openai')}
+            className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all ${
+              aiProvider === 'openai'
+                ? 'border-emerald-600 bg-emerald-50/50 shadow-xs'
+                : 'border-slate-200 bg-slate-50/50 hover:border-slate-300'
+            }`}
+          >
+            <div className="flex items-center justify-between mb-1">
+              <span className="font-bold text-xs text-slate-900">OpenAI (GPT-4o)</span>
+              <span className="text-[10px] bg-slate-200 text-slate-800 font-bold px-1.5 py-0.2 rounded">API Key</span>
+            </div>
+            <p className="text-[11px] text-slate-500 leading-relaxed">
+              Connect OpenAI API key for advanced conversational crop diagnostics.
+            </p>
+          </div>
+        </div>
+
+        {/* Gemini Key Config */}
+        {aiProvider === 'gemini' && (
+          <div className="p-4 bg-blue-50/70 border border-blue-200 rounded-xl space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-blue-900">
+                Google Gemini API Key
+              </label>
+              <a
+                href="https://aistudio.google.com/app/apikey"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[11px] text-blue-700 hover:underline flex items-center gap-1 font-semibold"
+              >
+                <span>Get Free Key at Google AI Studio</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
+
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <input
+                  type={showKey ? 'text' : 'password'}
+                  value={geminiKey}
+                  onChange={(e) => setGeminiKey(e.target.value)}
+                  placeholder="AIzaSy..."
+                  className="w-full pl-3 pr-10 py-2 bg-white border border-blue-300 rounded-xl text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowKey(!showKey)}
+                  className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600"
+                >
+                  {showKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleTestAI}
+                disabled={testingAIKey || !geminiKey}
+                className="px-4 py-2 bg-blue-700 hover:bg-blue-800 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shrink-0 active:scale-95 flex items-center gap-1.5"
+              >
+                {testingAIKey ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+                <span>{testingAIKey ? 'Testing...' : 'Test Key'}</span>
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2 text-xs text-slate-600">
+              <span className="font-semibold">Model:</span>
+              <select
+                value={geminiModel}
+                onChange={(e) => setGeminiModel(e.target.value)}
+                className="bg-white border border-slate-300 rounded-lg px-2.5 py-1 text-xs font-medium"
+              >
+                <option value="gemini-1.5-flash">gemini-1.5-flash (Fast & Recommended)</option>
+                <option value="gemini-2.0-flash">gemini-2.0-flash</option>
+                <option value="gemini-1.5-pro">gemini-1.5-pro</option>
+              </select>
+            </div>
+          </div>
+        )}
+
+        {/* OpenAI Key Config */}
+        {aiProvider === 'openai' && (
+          <div className="p-4 bg-emerald-50/70 border border-emerald-200 rounded-xl space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-emerald-900">
+                OpenAI API Key
+              </label>
+              <a
+                href="https://platform.openai.com/api-keys"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[11px] text-emerald-700 hover:underline flex items-center gap-1 font-semibold"
+              >
+                <span>Get OpenAI Key</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
+
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <input
+                  type={showKey ? 'text' : 'password'}
+                  value={openaiKey}
+                  onChange={(e) => setOpenaiKey(e.target.value)}
+                  placeholder="sk-proj-..."
+                  className="w-full pl-3 pr-10 py-2 bg-white border border-emerald-300 rounded-xl text-xs font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowKey(!showKey)}
+                  className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600"
+                >
+                  {showKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleTestAI}
+                disabled={testingAIKey || !openaiKey}
+                className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shrink-0 active:scale-95 flex items-center gap-1.5"
+              >
+                {testingAIKey ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+                <span>{testingAIKey ? 'Testing...' : 'Test Key'}</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Test AI Result */}
+        {aiTestResult && (
+          <div className={`p-3 rounded-xl text-xs font-medium border flex items-center gap-2 ${
+            aiTestResult.success 
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-800' 
+              : 'bg-rose-50 border-rose-200 text-rose-800'
+          }`}>
+            {aiTestResult.success ? (
+              <>
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>{aiTestResult.message}</span>
+              </>
+            ) : (
+              <>
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{aiTestResult.error}</span>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* USB Hardware Ingestion */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+        <div className="bg-slate-900 px-6 py-4 flex items-center justify-between text-white">
+          <div className="flex items-center gap-2.5">
+            <Cpu className="w-5 h-5 text-emerald-400" />
+            <h3 className="font-extrabold text-sm">Physical ESP32 USB-to-HTTP Ingestion</h3>
+          </div>
           <div className="flex items-center gap-2">
             <span className={`w-2.5 h-2.5 rounded-full ${usbStatus === 'connected' ? 'bg-emerald-500 animate-ping' : 'bg-slate-400'}`}></span>
-            <span className="text-xs font-mono font-bold text-slate-700">
+            <span className="text-xs font-mono font-bold text-slate-300">
               {usbStatus === 'connected' ? `ESP32 Connected (${usbPort})` : 'Bridge Disconnected'}
             </span>
           </div>
@@ -259,40 +511,61 @@ export default function Settings() {
         </div>
       </div>
 
-      {/* Cloud Backend Integration (Optional Future Stage) */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs opacity-80 hover:opacity-100 transition-opacity">
+      {/* Cloud Backend Integration */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs">
         <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
           <div className="flex items-center gap-2">
-            <Server className="w-4 h-4 text-slate-600" />
-            <h3 className="font-extrabold text-sm text-slate-900">Optional Cloud Backend (Future Stages)</h3>
+            <Server className="w-4 h-4 text-purple-600" />
+            <h3 className="font-extrabold text-sm text-slate-900">Render Cloud Backend Web Service</h3>
           </div>
-          <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
-            Currently Inactive
+          <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${
+            cloudStatus === 'connected' ? 'bg-purple-50 text-purple-700 border-purple-200' : 'bg-slate-100 text-slate-600 border-slate-200'
+          }`}>
+            {cloudStatus === 'connected' ? 'Connected' : 'Standby'}
           </span>
         </div>
         <p className="text-xs text-slate-500 mb-3">
-          For future deployments requiring internet Wi-Fi streaming. In current USB cable mode, this cloud backend is not used.
+          Deployed backend at <code>https://smartfarming-e3b2.onrender.com</code>. Ingests ESP32 Wi-Fi telemetry and serves multi-zone data.
         </p>
         <div className="flex gap-2">
           <input 
             type="text" 
             value={inputCloudUrl}
             onChange={(e) => setInputCloudUrl(e.target.value)}
-            placeholder="https://your-app-name.onrender.com (Optional)"
+            placeholder="https://smartfarming-e3b2.onrender.com"
             className="flex-1 border border-slate-300 rounded-xl px-3.5 py-2 text-xs font-mono bg-slate-50"
           />
           <button
             type="button"
             onClick={handleTestCloud}
             disabled={testingCloud || !inputCloudUrl}
-            className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition-all"
+            className="px-3.5 py-2 bg-purple-700 hover:bg-purple-800 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
           >
-            {testingCloud ? 'Testing...' : 'Test Cloud'}
+            {testingCloud ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Activity className="w-3.5 h-3.5" />}
+            <span>{testingCloud ? 'Testing...' : 'Test Backend'}</span>
           </button>
         </div>
+
+        {cloudResult && (
+          <div className={`mt-3 p-3 rounded-xl text-xs font-medium border flex items-center gap-2 ${
+            cloudResult.success ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-rose-50 border-rose-200 text-rose-800'
+          }`}>
+            {cloudResult.success ? (
+              <>
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <div><strong>Render Backend Online!</strong> Status: {cloudResult.data?.status || 'healthy'}.</div>
+              </>
+            ) : (
+              <>
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                <div><strong>Connection Failed:</strong> {cloudResult.error}</div>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* International Agronomic Standards & Measurement Units */}
+      {/* Measurement Units & Language */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Unit System */}
         <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs">

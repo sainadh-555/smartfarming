@@ -8,19 +8,45 @@ import {
   Bell, 
   RefreshCw, 
   ChevronRight,
-  Volume2,
-  VolumeX,
-  X
+  Volume2, 
+  VolumeX, 
+  X,
+  Settings,
+  Key,
+  CheckCircle2,
+  AlertCircle,
+  ExternalLink,
+  Eye,
+  EyeOff,
+  Zap
 } from 'lucide-react';
+import { 
+  executeAIChatQuery, 
+  getAIConfig, 
+  saveAIConfig, 
+  testAIConnection 
+} from '../services/aiChatService';
 
 export default function AIAgronomistChat() {
-  const { zones, simulateAction, logPesticideSpray } = useFarmData();
+  const { zones, alerts, simulateAction, logPesticideSpray } = useFarmData();
   const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [showNotificationBanner, setShowNotificationBanner] = useState(true);
   const messagesEndRef = useRef(null);
+
+  // AI Engine Configuration
+  const [aiConfig, setAiConfig] = useState(getAIConfig());
+  const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
+  const [tempProvider, setTempProvider] = useState(aiConfig.provider);
+  const [tempGeminiKey, setTempGeminiKey] = useState(aiConfig.geminiKey);
+  const [tempOpenAIKey, setTempOpenAIKey] = useState(aiConfig.openaiKey);
+  const [tempModel, setTempModel] = useState(aiConfig.model || 'gemini-1.5-flash');
+  const [showKey, setShowKey] = useState(false);
+  const [testStatus, setTestStatus] = useState(null);
+  const [testingKey, setTestingKey] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
 
   // Play a soft notification chime using Web Audio API
   const playNotificationSound = () => {
@@ -103,7 +129,7 @@ export default function AIAgronomistChat() {
         id: 'msg-init-1',
         sender: 'ai',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        text: `🌾 **Hello Farm Manager!** I am your **SmartFarm AI Agronomist Copilot**. I continuously monitor your 1-Acre quadrants via real-time ESP32 sensor streams.\n\n⚠️ **Proactive Notification:**\n• **${criticalZone?.name || 'Zone D'} (${criticalZone?.cropType || 'Groundnut'}):** Moisture is at a critical deficit (**${criticalZone?.sensorData?.soilMoisture?.toFixed(0) || 15}%**) under elevated temperature (**${criticalZone?.sensorData?.airTemperature?.toFixed(0) || 38}°C**).\n• **${attentionZone?.name || 'Zone A'} (${attentionZone?.cropType || 'Tomato'}):** Moderate moisture deficit (**${attentionZone?.sensorData?.soilMoisture?.toFixed(0) || 28}%**).\n\nWould you like me to activate automated drip irrigation or advise on disease prevention?`,
+        text: `🌾 **Hello Farm Manager!** I am your **SmartFarm AI Agronomist Copilot**.\n\nI continuously monitor your 1-Acre field and ESP32 telemetry.\n\n⚠️ **Proactive Notification:**\n• **${criticalZone?.name || 'Zone D'} (${criticalZone?.cropType || 'Groundnut'}):** Moisture is at a critical deficit (**${criticalZone?.sensorData?.soilMoisture?.toFixed(0) || 15}%**) under elevated temperature (**${criticalZone?.sensorData?.airTemperature?.toFixed(0) || 38}°C**).\n• **${attentionZone?.name || 'Zone A'} (${attentionZone?.cropType || 'Tomato'}):** Moderate moisture deficit (**${attentionZone?.sensorData?.soilMoisture?.toFixed(0) || 28}%**).\n\nWould you like me to activate automated drip irrigation or provide pesticide/fertilizer guidelines?`,
         actions: [
           { label: `💧 Irrigate ${criticalZone?.name || 'Zone D'} Now`, type: 'IRRIGATE', zoneId: criticalZone?.zoneId || 'ZONE-D' },
           { label: '🧪 Prescribe Pesticide for Zone A', type: 'SPRAY', zoneId: 'ZONE-A' }
@@ -126,131 +152,8 @@ export default function AIAgronomistChat() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isTyping]);
 
-  // AI Response Generator based on farmer queries
-  const generateAIResponse = (userQuery) => {
-    const query = userQuery.toLowerCase().trim();
-
-    // 1. Irrigation Intent
-    if (query.includes('irrigate') || query.includes('water') || query.includes('drip') || query.includes('pump')) {
-      let targetZoneId = 'ZONE-D';
-      if (query.includes('zone a') || query.includes('tomato')) targetZoneId = 'ZONE-A';
-      else if (query.includes('zone b') || query.includes('chili')) targetZoneId = 'ZONE-B';
-      else if (query.includes('zone c') || query.includes('paddy')) targetZoneId = 'ZONE-C';
-      else if (query.includes('zone d') || query.includes('groundnut')) targetZoneId = 'ZONE-D';
-
-      const targetZone = zones.find(z => z.zoneId === targetZoneId) || zones[3];
-
-      // Execute simulation
-      simulateAction('IRRIGATE', targetZoneId);
-
-      return {
-        text: `💧 **Irrigation Executed for ${targetZone.name} (${targetZone.cropType})!**\n\n• Command sent to **${targetZone.sensorData.deviceId}** solenoid valve relay.\n• Applied **400 Gallons** via 16mm inline drip laterals.\n• Expected soil moisture increase: **+40%**.\n• Soil temperature cooled by **2°C** to relieve thermal root stress.`,
-        actions: [
-          { label: `Check ${targetZone.name} Moisture`, type: 'CHECK', zoneId: targetZoneId }
-        ],
-        suggestions: [
-          'What is the next zone that needs water?',
-          'Check pesticide schedule',
-          'Give me a farm-wide summary'
-        ]
-      };
-    }
-
-    // 2. Pesticide / Chemical / Fungicide Intent
-    if (query.includes('pesticide') || query.includes('spray') || query.includes('fungicide') || query.includes('pest') || query.includes('disease') || query.includes('chemical') || query.includes('blight') || query.includes('thrips')) {
-      let targetZoneId = 'ZONE-A';
-      if (query.includes('zone b') || query.includes('chili')) targetZoneId = 'ZONE-B';
-      else if (query.includes('zone c') || query.includes('paddy')) targetZoneId = 'ZONE-C';
-      else if (query.includes('zone d') || query.includes('groundnut')) targetZoneId = 'ZONE-D';
-
-      const targetZone = zones.find(z => z.zoneId === targetZoneId) || zones[0];
-      const agronomy = targetZone.agronomy;
-      const pest = agronomy?.pesticideUsage?.activePestThreat || 'Foliar pathogens & insects';
-      const lastTreatment = agronomy?.pesticideUsage?.treatments?.[0];
-
-      return {
-        text: `🧪 **Pesticide & Agrochemical Advisory for ${targetZone.name} (${targetZone.cropType})**:\n\n• **Active Target Threat:** ${pest}\n• **Recommended Chemical Spray:** **Copper Oxychloride 50% WP** @ 2.5 g/L OR **NeemAzal 1% EC (Organic)** @ 3 ml/L.\n• **Safety Pre-Harvest Interval (PHI):** 7 Days before harvest.\n• **Last Applied:** ${lastTreatment?.pesticideName || 'NeemAzal 1%'} on ${lastTreatment?.date || 'Oct 18, 2026'}.\n• **Total Applied This Season:** ${agronomy?.pesticideUsage?.totalChemicalUsed || '550 ml / 0.25 Acre'}.`,
-        actions: [
-          { 
-            label: `Log 250ml Spray for ${targetZone.name}`, 
-            type: 'LOG_SPRAY', 
-            zoneId: targetZoneId,
-            details: {
-              pesticideName: 'NeemAzal-T/S (Azadirachtin 1% EC)',
-              dosage: '250 ml / 0.25 acre',
-              targetPest: pest
-            }
-          }
-        ],
-        suggestions: [
-          `Irrigate ${targetZone.name}`,
-          'What are organic alternatives?',
-          'Show me fertilizer dosages'
-        ]
-      };
-    }
-
-    // 3. Farm-wide Summary / Health Report
-    if (query.includes('summary') || query.includes('report') || query.includes('all zones') || query.includes('overview') || query.includes('farm')) {
-      const summaryLines = zones.map(z => 
-        `• **${z.name} (${z.cropType} - 0.25 Ac):** Health: **${z.analysis.overallHealthScore}%** | Moisture: **${z.sensorData.soilMoisture.toFixed(0)}%** | Temp: **${z.sensorData.airTemperature.toFixed(0)}°C** (${z.analysis.plantStatus})`
-      ).join('\n');
-
-      return {
-        text: `📊 **1-Acre Farm Overview (4 Quadrants × 0.25 Acre)**:\n\n${summaryLines}\n\n💡 **AI Priority Recommendation:**\nZone D Groundnut requires immediate moisture intervention. Zone C Paddy is thriving under optimal flood conditions. Zone A Tomato has mild aphid risk.`,
-        actions: [
-          { label: '💧 Water Zone D Now', type: 'IRRIGATE', zoneId: 'ZONE-D' },
-          { label: '💧 Water Zone A Now', type: 'IRRIGATE', zoneId: 'ZONE-A' }
-        ],
-        suggestions: [
-          'Irrigate Zone D',
-          'What pesticide should I spray for Tomato?',
-          'Why is Paddy moisture 75%?'
-        ]
-      };
-    }
-
-    // 4. Specific Crop / Zone queries
-    if (query.includes('zone b') || query.includes('chili')) {
-      const zb = zones.find(z => z.zoneId === 'ZONE-B');
-      return {
-        text: `🌶️ **Zone B — Chili Quadrant (0.25 Acre)**:\n\n• **Variety:** Guntur Sannam / Teja (Pre-flowering)\n• **Health Score:** ${zb?.analysis?.overallHealthScore || 82}% (Healthy)\n• **Soil Moisture:** ${zb?.sensorData?.soilMoisture?.toFixed(1) || 35.0}%\n• **Temperature:** ${zb?.sensorData?.airTemperature?.toFixed(1) || 29.5}°C\n• **Pesticide Status:** Imidacloprid applied on Oct 14 against thrips. Vector population suppressed by 96%.`,
-        suggestions: ['Irrigate Zone B', 'Give me fertilizer schedule for Chili', 'Show me all 4 zones']
-      };
-    }
-
-    if (query.includes('zone c') || query.includes('paddy') || query.includes('rice')) {
-      const zc = zones.find(z => z.zoneId === 'ZONE-C');
-      return {
-        text: `🌾 **Zone C — Paddy Basin (0.25 Acre)**:\n\n• **Variety:** Basmati 1509 (Active Tillering)\n• **Health Score:** ${zc?.analysis?.overallHealthScore || 90}% (Optimal)\n• **Soil Moisture:** ${zc?.sensorData?.soilMoisture?.toFixed(1) || 75.0}% (Standing water ponding)\n• **Canopy Humidity:** ${zc?.sensorData?.humidity?.toFixed(0) || 72}%\n• **Advisory:** High humidity creates favorable conditions for Sheath Blight spores. Monitor base tillers for lesions.`,
-        suggestions: ['Show Sheath Blight spray', 'Irrigate Zone D', 'Farm summary']
-      };
-    }
-
-    if (query.includes('fertilizer') || query.includes('nutrient') || query.includes('npk') || query.includes('urea') || query.includes('dap')) {
-      return {
-        text: `🌱 **Agronomic Fertilizer Schedules (0.25 Acre Dosage)**:\n\n• **Zone A (Tomato):** Water-soluble NPK 19:19:19 @ 12.5 kg via drip fertigation for fruit sizing.\n• **Zone B (Chili):** DAP @ 15 kg + Urea @ 8 kg for vegetative branches.\n• **Zone C (Paddy):** Neem-coated Urea @ 20 kg top-dressing for tillering.\n• **Zone D (Groundnut):** Agricultural Gypsum @ 50 kg for pod calcium filling.`,
-        suggestions: ['Irrigate Zone D', 'Check pesticide schedule', 'Farm summary']
-      };
-    }
-
-    // Default Fallback Response
-    return {
-      text: `🤖 **AI Agronomist Analysis:**\nI reviewed your question regarding: "*${userQuery}*".\n\nBased on your 1-Acre farm telemetry, the primary limiting factor right now is **soil moisture deficit in Zone D (15%) and Zone A (28%)**. Would you like me to trigger drip irrigation or provide pesticide/fertilizer guidelines?`,
-      actions: [
-        { label: '💧 Water Zone D Now', type: 'IRRIGATE', zoneId: 'ZONE-D' },
-        { label: '📊 View Full Farm Status', type: 'SUMMARY' }
-      ],
-      suggestions: [
-        'Turn on irrigation for Zone D',
-        'What pesticide should I spray for Tomato?',
-        'Give me a farm-wide summary'
-      ]
-    };
-  };
-
   // Handle User Message Submission
-  const handleSendMessage = (textToSend = null) => {
+  const handleSendMessage = async (textToSend = null) => {
     const text = textToSend || inputValue;
     if (!text.trim()) return;
 
@@ -265,22 +168,33 @@ export default function AIAgronomistChat() {
     setInputValue('');
     setIsTyping(true);
 
-    // AI typing delay simulation
-    setTimeout(() => {
-      const aiReply = generateAIResponse(text);
+    try {
+      const aiReply = await executeAIChatQuery(text, zones, alerts, simulateAction);
       const aiMessage = {
         id: `ai-${Date.now()}`,
         sender: 'ai',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         text: aiReply.text,
         actions: aiReply.actions,
-        suggestions: aiReply.suggestions
+        suggestions: aiReply.suggestions,
+        source: aiReply.source,
+        warning: aiReply.warning
       };
 
       setMessages(prev => [...prev, aiMessage]);
+    } catch (err) {
+      const fallbackMessage = {
+        id: `ai-${Date.now()}`,
+        sender: 'ai',
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        text: `🌾 **AI Copilot Response:** Unable to connect to cloud model (${err.message}). Using local agronomist rules.\n\nAll 4 zones are monitored and valves remain operational.`,
+        suggestions: ['Give me a farm-wide summary', 'Check pesticide schedule']
+      };
+      setMessages(prev => [...prev, fallbackMessage]);
+    } finally {
       setIsTyping(false);
       playNotificationSound();
-    }, 750);
+    }
   };
 
   // Handle clicking an action button inside an AI bubble
@@ -303,8 +217,35 @@ export default function AIAgronomistChat() {
     }
   };
 
+  // Test API Key
+  const handleTestKey = async () => {
+    setTestingKey(true);
+    setTestStatus(null);
+    const key = tempProvider === 'gemini' ? tempGeminiKey : tempOpenAIKey;
+    const res = await testAIConnection(tempProvider, key, tempModel);
+    setTestStatus(res);
+    setTestingKey(false);
+  };
+
+  // Save AI Config
+  const handleSaveConfig = () => {
+    const newConfig = {
+      provider: tempProvider,
+      geminiKey: tempGeminiKey,
+      openaiKey: tempOpenAIKey,
+      model: tempModel
+    };
+    saveAIConfig(newConfig);
+    setAiConfig(newConfig);
+    setSaveSuccess(true);
+    setTimeout(() => {
+      setSaveSuccess(false);
+      setIsConfigModalOpen(false);
+    }, 1200);
+  };
+
   return (
-    <div className="bg-white rounded-2xl border border-slate-200/90 shadow-md overflow-hidden flex flex-col h-[650px] animate-fadeIn">
+    <div className="bg-white rounded-2xl border border-slate-200/90 shadow-md overflow-hidden flex flex-col h-[650px] animate-fadeIn relative">
       
       {/* Top Copilot Header */}
       <div className="bg-gradient-to-r from-purple-900 via-indigo-900 to-slate-900 text-white px-5 py-4 flex items-center justify-between border-b border-indigo-950">
@@ -317,20 +258,49 @@ export default function AIAgronomistChat() {
           </div>
 
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h3 className="font-black text-sm tracking-tight">SmartFarm AI Agronomist Copilot</h3>
-              <span className="text-[10px] bg-purple-500/30 text-purple-200 border border-purple-400/30 px-2 py-0.5 rounded-full font-bold">
-                GPT-Agri Engine
-              </span>
+              
+              {/* Dynamic Engine Badge */}
+              {aiConfig.provider === 'gemini' && aiConfig.geminiKey ? (
+                <span className="text-[10px] bg-blue-500/30 text-blue-200 border border-blue-400/30 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
+                  <span>Google Gemini Live</span>
+                </span>
+              ) : aiConfig.provider === 'openai' && aiConfig.openaiKey ? (
+                <span className="text-[10px] bg-emerald-500/30 text-emerald-200 border border-emerald-400/30 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
+                  <span>OpenAI GPT Live</span>
+                </span>
+              ) : (
+                <span className="text-[10px] bg-purple-500/30 text-purple-200 border border-purple-400/30 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
+                  <span>Built-in Farm AI (Free)</span>
+                </span>
+              )}
             </div>
             <p className="text-[11px] text-slate-300 font-medium">
-              Live link with ESP32 sensors & 1-Acre crop decision engine
+              Real-time ESP32 sensor link • Conversational crop guidance
             </p>
           </div>
         </div>
 
         {/* Header Controls */}
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-2">
+          {/* AI Settings / Key button */}
+          <button
+            onClick={() => {
+              setTempProvider(aiConfig.provider);
+              setTempGeminiKey(aiConfig.geminiKey);
+              setTempOpenAIKey(aiConfig.openaiKey);
+              setTempModel(aiConfig.model || 'gemini-1.5-flash');
+              setTestStatus(null);
+              setIsConfigModalOpen(true);
+            }}
+            className="px-2.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-semibold flex items-center gap-1.5 border border-white/20 transition-all active:scale-95"
+            title="Configure AI Model or Provide API Key"
+          >
+            <Key className="w-3.5 h-3.5 text-purple-300" />
+            <span className="hidden sm:inline">AI Settings</span>
+          </button>
+
           <button
             onClick={() => setSoundEnabled(!soundEnabled)}
             className="p-2 text-slate-300 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
@@ -406,14 +376,27 @@ export default function AIAgronomistChat() {
                     ? 'bg-white border border-slate-200/90 text-slate-800 rounded-tl-xs' 
                     : 'bg-emerald-600 text-white rounded-tr-xs'
                 }`}>
+                  {/* Warning banner if fallback happened */}
+                  {msg.warning && (
+                    <div className="mb-2 p-2 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg text-[11px] font-medium flex items-center gap-1.5">
+                      <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                      <span>{msg.warning}</span>
+                    </div>
+                  )}
+
                   {/* Formatted rich text */}
                   <div className="font-medium space-y-1">
                     {renderFormattedMessage(msg.text, isAI)}
                   </div>
 
-                  {/* Timestamp */}
-                  <div className={`text-[10px] mt-2 text-right ${isAI ? 'text-slate-400' : 'text-emerald-200'}`}>
-                    {msg.timestamp}
+                  {/* Timestamp & Source badge */}
+                  <div className={`text-[10px] mt-2 flex items-center justify-between ${isAI ? 'text-slate-400' : 'text-emerald-200'}`}>
+                    <span>
+                      {isAI && msg.source === 'gemini' && '⚡ Powered by Gemini'}
+                      {isAI && msg.source === 'openai' && '⚡ Powered by OpenAI'}
+                      {isAI && msg.source === 'builtin' && '🌱 Built-in Farm AI'}
+                    </span>
+                    <span>{msg.timestamp}</span>
                   </div>
                 </div>
 
@@ -463,7 +446,7 @@ export default function AIAgronomistChat() {
               <span className="w-2 h-2 rounded-full bg-purple-500 animate-bounce" />
               <span className="w-2 h-2 rounded-full bg-purple-500 animate-bounce [animation-delay:0.2s]" />
               <span className="w-2 h-2 rounded-full bg-purple-500 animate-bounce [animation-delay:0.4s]" />
-              <span className="text-xs text-slate-400 ml-1">AI Copilot analyzing telemetry...</span>
+              <span className="text-xs text-slate-400 ml-1">AI Copilot analyzing farm telemetry...</span>
             </div>
           </div>
         )}
@@ -484,7 +467,7 @@ export default function AIAgronomistChat() {
             type="text"
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
-            placeholder="Ask AI Copilot (e.g. 'Irrigate Zone D', 'What pesticide for Tomato?')..."
+            placeholder="Ask AI Copilot (e.g. 'Irrigate Zone D', 'What pesticide for Tomato?', 'How are my crops?')..."
             className="flex-1 px-4 py-2.5 text-xs border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 bg-slate-50/50"
           />
 
@@ -499,10 +482,270 @@ export default function AIAgronomistChat() {
         </form>
 
         <div className="flex justify-between items-center mt-2 text-[10px] text-slate-400 font-medium px-1">
-          <span>Supported: Voice/Text queries, remote irrigation commands, pesticide logging</span>
-          <span>Powered by SmartFarm Decision Engine</span>
+          <span>Zero API key required for built-in AI • Natural conversations enabled</span>
+          <button 
+            type="button" 
+            onClick={() => setIsConfigModalOpen(true)}
+            className="text-purple-600 hover:text-purple-800 font-semibold underline flex items-center gap-1"
+          >
+            <span>Optional API Key Settings</span>
+          </button>
         </div>
       </div>
+
+      {/* AI Engine & API Key Configuration Modal */}
+      {isConfigModalOpen && (
+        <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full p-6 space-y-5 animate-scaleUp">
+            
+            {/* Modal Header */}
+            <div className="flex items-start justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-purple-50 rounded-xl text-purple-700">
+                  <Key className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-sm text-slate-900">AI Model & API Key Configuration</h3>
+                  <p className="text-xs text-slate-500">Configure how the SmartFarm AI Copilot responds</p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setIsConfigModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Provider Options */}
+            <div className="space-y-3">
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                Select AI Engine
+              </label>
+
+              {/* 1. Built-in Farm AI */}
+              <div
+                onClick={() => setTempProvider('builtin')}
+                className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all flex items-start justify-between gap-3 ${
+                  tempProvider === 'builtin'
+                    ? 'border-purple-600 bg-purple-50/50 shadow-xs'
+                    : 'border-slate-200 hover:border-slate-300'
+                }`}
+              >
+                <div className="flex items-start gap-2.5">
+                  <div className="mt-0.5 w-4 h-4 rounded-full border-2 border-purple-600 flex items-center justify-center">
+                    {tempProvider === 'builtin' && <span className="w-2 h-2 rounded-full bg-purple-600" />}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-xs text-slate-900">Built-in Smart Agronomist</span>
+                      <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.2 rounded">
+                        100% Free • No Key Needed
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+                      Instant natural responses, conversational greetings, live ESP32 checks, and drip control with zero setup.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* 2. Google Gemini */}
+              <div
+                onClick={() => setTempProvider('gemini')}
+                className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all flex items-start justify-between gap-3 ${
+                  tempProvider === 'gemini'
+                    ? 'border-blue-600 bg-blue-50/50 shadow-xs'
+                    : 'border-slate-200 hover:border-slate-300'
+                }`}
+              >
+                <div className="flex items-start gap-2.5">
+                  <div className="mt-0.5 w-4 h-4 rounded-full border-2 border-blue-600 flex items-center justify-center">
+                    {tempProvider === 'gemini' && <span className="w-2 h-2 rounded-full bg-blue-600" />}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-xs text-slate-900">Google Gemini AI</span>
+                      <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-1.5 py-0.2 rounded">
+                        Free API Key Available
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+                      Deep agricultural reasoning and unrestricted language generation using Google Gemini 1.5 / 2.0 Flash.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* 3. OpenAI */}
+              <div
+                onClick={() => setTempProvider('openai')}
+                className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all flex items-start justify-between gap-3 ${
+                  tempProvider === 'openai'
+                    ? 'border-emerald-600 bg-emerald-50/50 shadow-xs'
+                    : 'border-slate-200 hover:border-slate-300'
+                }`}
+              >
+                <div className="flex items-start gap-2.5">
+                  <div className="mt-0.5 w-4 h-4 rounded-full border-2 border-emerald-600 flex items-center justify-center">
+                    {tempProvider === 'openai' && <span className="w-2 h-2 rounded-full bg-emerald-600" />}
+                  </div>
+                  <div>
+                    <span className="font-bold text-xs text-slate-900">OpenAI (GPT-4o / GPT-3.5)</span>
+                    <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+                      Connect your OpenAI API key for ChatGPT-grade agricultural advisory.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Conditional Key Input for Gemini */}
+            {tempProvider === 'gemini' && (
+              <div className="space-y-3 p-3.5 bg-blue-50/60 border border-blue-200 rounded-xl">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-blue-900">
+                    Google Gemini API Key
+                  </label>
+                  <a
+                    href="https://aistudio.google.com/app/apikey"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[11px] text-blue-700 hover:underline flex items-center gap-1 font-semibold"
+                  >
+                    <span>Get Free Gemini Key</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+
+                <div className="relative">
+                  <input
+                    type={showKey ? 'text' : 'password'}
+                    value={tempGeminiKey}
+                    onChange={(e) => setTempGeminiKey(e.target.value)}
+                    placeholder="AIzaSy..."
+                    className="w-full pl-3 pr-10 py-2 bg-white border border-blue-300 rounded-lg text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowKey(!showKey)}
+                    className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600"
+                  >
+                    {showKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between text-[11px] text-slate-500">
+                  <span>Model: <strong>{tempModel}</strong></span>
+                  <select
+                    value={tempModel}
+                    onChange={(e) => setTempModel(e.target.value)}
+                    className="bg-white border border-slate-300 rounded px-2 py-0.5 text-xs font-medium"
+                  >
+                    <option value="gemini-1.5-flash">Gemini 1.5 Flash (Fast & Recommended)</option>
+                    <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+                    <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
+                  </select>
+                </div>
+              </div>
+            )}
+
+            {/* Conditional Key Input for OpenAI */}
+            {tempProvider === 'openai' && (
+              <div className="space-y-3 p-3.5 bg-emerald-50/60 border border-emerald-200 rounded-xl">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-emerald-900">
+                    OpenAI API Key
+                  </label>
+                  <a
+                    href="https://platform.openai.com/api-keys"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[11px] text-emerald-700 hover:underline flex items-center gap-1 font-semibold"
+                  >
+                    <span>Get OpenAI Key</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+
+                <div className="relative">
+                  <input
+                    type={showKey ? 'text' : 'password'}
+                    value={tempOpenAIKey}
+                    onChange={(e) => setTempOpenAIKey(e.target.value)}
+                    placeholder="sk-proj-..."
+                    className="w-full pl-3 pr-10 py-2 bg-white border border-emerald-300 rounded-lg text-xs font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowKey(!showKey)}
+                    className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600"
+                  >
+                    {showKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Test Status Banner */}
+            {testStatus && (
+              <div className={`p-3 rounded-xl text-xs font-medium border flex items-center gap-2 ${
+                testStatus.success 
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-800' 
+                  : 'bg-rose-50 border-rose-200 text-rose-800'
+              }`}>
+                {testStatus.success ? (
+                  <>
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>{testStatus.message}</span>
+                  </>
+                ) : (
+                  <>
+                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                    <span>{testStatus.error}</span>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Modal Actions */}
+            <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+              {tempProvider !== 'builtin' ? (
+                <button
+                  type="button"
+                  onClick={handleTestKey}
+                  disabled={testingKey || (tempProvider === 'gemini' && !tempGeminiKey) || (tempProvider === 'openai' && !tempOpenAIKey)}
+                  className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-700 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
+                >
+                  {testingKey ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5 text-amber-600" />}
+                  <span>{testingKey ? 'Verifying...' : 'Test Connection'}</span>
+                </button>
+              ) : <div />}
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsConfigModalOpen(false)}
+                  className="px-4 py-2 border border-slate-300 text-slate-700 hover:bg-slate-50 rounded-xl text-xs font-bold transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveConfig}
+                  className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 active:scale-95"
+                >
+                  {saveSuccess ? <CheckCircle2 className="w-3.5 h-3.5" /> : null}
+                  <span>{saveSuccess ? 'Saved!' : 'Save Configuration'}</span>
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
