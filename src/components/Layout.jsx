@@ -86,15 +86,6 @@ export default function Layout() {
           </button>
         </div>
       </div>
-      
-      {/* Standards Compliance Banner */}
-      <div className="px-4 py-3 mx-3 my-3 bg-slate-800/60 rounded-xl border border-slate-700/60 flex items-center gap-2.5">
-        <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-        <div className="text-[11px]">
-          <span className="font-semibold text-slate-200">ISO 11783 & GlobalG.A.P.</span>
-          <p className="text-[10px] text-emerald-400/90 font-mono">IFA v6.0 Compliant</p>
-        </div>
-      </div>
 
       {/* Nav List */}
       <nav className="flex-1 px-3 space-y-1 overflow-y-auto">
@@ -131,7 +122,7 @@ export default function Layout() {
       <div className="p-4 border-t border-slate-800 bg-slate-950/60">
         <div className="bg-slate-900/90 rounded-xl p-3 border border-slate-800">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">ISOBUS Gateway</span>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Sensor Gateway</span>
             <span className="text-[10px] font-mono text-emerald-400 flex items-center gap-1">
               <Wifi className="w-3 h-3 animate-pulse" /> 10 Hz
             </span>
@@ -208,9 +199,6 @@ export default function Layout() {
             <div className="flex flex-col">
               <div className="flex items-center gap-2">
                 <h2 className="text-sm sm:text-base font-bold text-slate-900 tracking-tight">Green Valley Farm</h2>
-                <span className="hidden xl:inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold border border-emerald-200">
-                  <ShieldCheck className="w-3 h-3 text-emerald-600" /> Farm Certified
-                </span>
                 {operatingMode === 'live_hardware' && (
                   <span className={`hidden sm:inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-mono font-bold border ${
                     hardwareData?.connectionStatus === 'connected' && !hardwareData?.isStale
