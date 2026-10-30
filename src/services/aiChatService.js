@@ -8,18 +8,40 @@
  */
 
 export const getAIConfig = () => {
+  // Check URL hash/query on page load for one-click direct activation
+  if (typeof window !== 'undefined') {
+    try {
+      const hashParams = new URLSearchParams(window.location.hash.replace(/^#\/?/, ''));
+      const searchParams = new URLSearchParams(window.location.search);
+      const urlGroqKey = hashParams.get('groqKey') || searchParams.get('groqKey');
+      if (urlGroqKey && urlGroqKey.startsWith('gsk_')) {
+        localStorage.setItem('smartfarm_groq_key', urlGroqKey.trim());
+        localStorage.setItem('smartfarm_ai_provider', 'groq');
+        // Clean URL to prevent key staying in browser history
+        window.history.replaceState(null, '', window.location.pathname);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
   const envGroqKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GROQ_API_KEY) || '';
   const envGeminiKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GEMINI_API_KEY) || '';
   const envOpenAIKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_OPENAI_API_KEY) || '';
 
   const savedProvider = localStorage.getItem('smartfarm_ai_provider');
   const storedGroq = localStorage.getItem('smartfarm_groq_key');
-  const groqKey = storedGroq !== null && storedGroq !== '' ? storedGroq : envGroqKey;
+  const groqKey = (storedGroq !== null && storedGroq !== '') ? storedGroq.trim() : (envGroqKey ? envGroqKey.trim() : '');
+
+  let provider = savedProvider;
+  if (!provider || provider === 'builtin') {
+    provider = groqKey ? 'groq' : 'builtin';
+  }
 
   return {
-    provider: savedProvider || (groqKey ? 'groq' : 'builtin'), // 'builtin' | 'groq' | 'gemini' | 'openai'
+    provider: provider, // 'builtin' | 'groq' | 'gemini' | 'openai'
     groqKey: groqKey,
-    groqModel: localStorage.getItem('smartfarm_groq_model') || 'llama-3.3-70b-versatile',
+    groqModel: localStorage.getItem('smartfarm_groq_model') || 'qwen/qwen3.8-27b',
     geminiKey: localStorage.getItem('smartfarm_gemini_key') || envGeminiKey,
     geminiModel: localStorage.getItem('smartfarm_gemini_model') || 'gemini-1.5-flash',
     openaiKey: localStorage.getItem('smartfarm_openai_key') || envOpenAIKey,
@@ -87,7 +109,7 @@ export const testAIConnection = async (provider, apiKey, model) => {
         return { success: false, error: err.error?.message || `HTTP ${res.status}: Invalid Groq API key` };
       }
 
-      const activeModel = model || 'llama-3.3-70b-versatile';
+      const activeModel = model || 'qwen/qwen3.8-27b';
       return { success: true, message: `Connected successfully to Groq Cloud (${activeModel})!` };
     } catch (err) {
       return { success: false, error: err.message || 'Network error reaching Groq API' };
@@ -140,9 +162,9 @@ export const testAIConnection = async (provider, apiKey, model) => {
 };
 
 /**
- * Query Groq Cloud API (Llama 3.3 70B / Llama 3.1 8B / Mixtral)
+ * Query Groq Cloud API (Qwen 27B / GPT-OSS 120B / Llama)
  */
-const queryGroq = async (prompt, zones, alerts, apiKey, model = 'llama-3.3-70b-versatile') => {
+const queryGroq = async (prompt, zones, alerts, apiKey, model = 'qwen/qwen3.8-27b') => {
   const systemPrompt = buildFarmSystemPrompt(zones, alerts);
 
   const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -152,7 +174,7 @@ const queryGroq = async (prompt, zones, alerts, apiKey, model = 'llama-3.3-70b-v
       'Authorization': `Bearer ${apiKey}`
     },
     body: JSON.stringify({
-      model: model || 'llama-3.3-70b-versatile',
+      model: model || 'qwen/qwen3.8-27b',
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: prompt }
@@ -393,7 +415,7 @@ export const executeAIChatQuery = async (query, zones, alerts, simulateAction) =
       return {
         text,
         source: 'groq',
-        model: config.groqModel || 'llama-3.3-70b-versatile',
+        model: config.groqModel || 'qwen/qwen3.8-27b',
         actions: query.toLowerCase().includes('irrigate') ? [
           { label: '💧 Water Zone D Now', type: 'IRRIGATE', zoneId: 'ZONE-D' }
         ] : []

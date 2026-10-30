@@ -41,7 +41,7 @@ export default function AIAgronomistChat() {
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
   const [tempProvider, setTempProvider] = useState(aiConfig.provider);
   const [tempGroqKey, setTempGroqKey] = useState(aiConfig.groqKey || '');
-  const [tempGroqModel, setTempGroqModel] = useState(aiConfig.groqModel || 'llama-3.3-70b-versatile');
+  const [tempGroqModel, setTempGroqModel] = useState(aiConfig.groqModel || 'qwen/qwen3.8-27b');
   const [tempGeminiKey, setTempGeminiKey] = useState(aiConfig.geminiKey || '');
   const [tempOpenAIKey, setTempOpenAIKey] = useState(aiConfig.openaiKey || '');
   const [tempModel, setTempModel] = useState(aiConfig.model || 'gemini-1.5-flash');
@@ -285,8 +285,16 @@ export default function AIAgronomistChat() {
               {aiConfig.provider === 'groq' && aiConfig.groqKey ? (
                 <span className="text-[10px] bg-amber-500/30 text-amber-200 border border-amber-400/30 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
                   <Zap className="w-3 h-3 text-amber-300" />
-                  <span>Groq Llama 3.3 Live</span>
+                  <span>Groq Cloud Live ({aiConfig.groqModel?.split('/')?.pop() || 'Qwen 27B'})</span>
                 </span>
+              ) : aiConfig.provider === 'groq' && !aiConfig.groqKey ? (
+                <button
+                  onClick={() => setIsConfigModalOpen(true)}
+                  className="text-[10px] bg-amber-500/20 hover:bg-amber-500/40 text-amber-300 border border-amber-400/40 px-2 py-0.5 rounded-full font-bold flex items-center gap-1 transition-all"
+                >
+                  <Key className="w-3 h-3 text-amber-400" />
+                  <span>Click to Enter Groq Key</span>
+                </button>
               ) : aiConfig.provider === 'gemini' && aiConfig.geminiKey ? (
                 <span className="text-[10px] bg-blue-500/30 text-blue-200 border border-blue-400/30 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
                   <span>Google Gemini Live</span>
@@ -314,7 +322,7 @@ export default function AIAgronomistChat() {
             onClick={() => {
               setTempProvider(aiConfig.provider);
               setTempGroqKey(aiConfig.groqKey || '');
-              setTempGroqModel(aiConfig.groqModel || 'llama-3.3-70b-versatile');
+              setTempGroqModel(aiConfig.groqModel || 'qwen/qwen3.8-27b');
               setTempGeminiKey(aiConfig.geminiKey || '');
               setTempOpenAIKey(aiConfig.openaiKey || '');
               setTempModel(aiConfig.model || 'gemini-1.5-flash');
@@ -701,9 +709,12 @@ export default function AIAgronomistChat() {
                     onChange={(e) => setTempGroqModel(e.target.value)}
                     className="bg-white border border-slate-300 rounded px-2 py-0.5 text-xs font-medium"
                   >
-                    <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile (Best & Recommended)</option>
-                    <option value="llama-3.1-8b-instant">llama-3.1-8b-instant (Fastest)</option>
-                    <option value="mixtral-8x7b-32768">mixtral-8x7b-32768</option>
+                    <option value="qwen/qwen3.8-27b">qwen/qwen3.8-27b (Fast & Recommended)</option>
+                    <option value="openai/gpt-oss-120b">openai/gpt-oss-120b (Flagship 120B)</option>
+                    <option value="openai/gpt-oss-20b">openai/gpt-oss-20b (Lightweight 20B)</option>
+                    <option value="allam-2-7b">allam-2-7b (Multilingual 7B)</option>
+                    <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile</option>
+                    <option value="llama-3.1-8b-instant">llama-3.1-8b-instant</option>
                   </select>
                 </div>
               </div>
