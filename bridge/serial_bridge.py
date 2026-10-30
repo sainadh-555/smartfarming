@@ -16,6 +16,7 @@ Features:
 import sys
 import time
 import json
+import random
 import argparse
 import threading
 from datetime import datetime, timezone
@@ -303,6 +304,35 @@ def create_app(state):
     def get_readings():
         snapshot = state.get_snapshot()
         return jsonify(snapshot)
+
+    @app.route("/api/simulate", methods=["GET", "POST"])
+    def simulate_telemetry():
+        """
+        Generates realistic random sensor readings using Python's random module:
+        - Temperature: 20 to 40 °C
+        - Humidity: 30 to 90 %
+        - Soil Moisture: 20 to 80 %
+        - Relative Light Intensity: 10 to 100 %
+        """
+        temp = round(random.uniform(20.0, 40.0), 1)
+        if temp > 33.0:
+            hum = round(random.uniform(30.0, 65.0), 1)
+        else:
+            hum = round(random.uniform(45.0, 90.0), 1)
+            
+        moist = round(random.uniform(20.0, 80.0), 1)
+        light = round(random.uniform(10.0, 100.0), 1)
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        return jsonify({
+            "status": "success",
+            "source": "PYTHON_RANDOM_GENERATOR",
+            "temperature": temp,
+            "humidity": hum,
+            "soilMoisture": moist,
+            "lightIntensity": light,
+            "timestamp": now_iso
+        })
 
     @app.route("/api/ports", methods=["GET"])
     def list_ports():

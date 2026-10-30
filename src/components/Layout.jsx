@@ -143,21 +143,10 @@ export default function Layout() {
             </span>
           </div>
 
-          {operatingMode === 'simulation' || operatingMode === 'manual' ? (
-            <button 
-              onClick={exitSimulation}
-              className="w-full py-1.5 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-semibold transition-all active:scale-95"
-            >
-              Exit Simulation
-            </button>
-          ) : (
-            <button 
-              onClick={startRealSimulation}
-              className="w-full py-1.5 px-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-lg text-xs font-bold transition-all shadow-xs active:scale-95 flex items-center justify-center gap-1.5"
-            >
-              <Activity className="w-3.5 h-3.5" /> Simulate Data
-            </button>
-          )}
+          <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-[10px] text-slate-400 font-mono">
+            <span>Interface</span>
+            <span className="text-slate-300">USB Serial Bridge</span>
+          </div>
         </div>
       </div>
     </div>

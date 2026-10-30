@@ -1,855 +1,759 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useFarmData } from '../context/FarmContext';
 import { generateFarmHealthScore } from '../ai/farmDecisionEngine';
+import { fetchLiveWeather, DEFAULT_FARM_LOCATION } from '../services/weatherService';
 import { 
-  calculateCropETc 
-} from '../services/standardsEngine';
-import { 
-  Droplets, 
   Thermometer, 
+  Droplets, 
+  Sun, 
   Wind, 
+  CloudRain, 
   Activity, 
   CheckCircle2, 
   AlertTriangle, 
-  Bell, 
-  CloudRain, 
-  Sun, 
-  TrendingUp, 
-  ShieldCheck, 
-  Cpu, 
-  Gauge, 
+  Layers, 
   ArrowUpRight, 
   Download,
-  Zap,
-  Layers,
-  FileSpreadsheet,
-  Globe,
-  Cable,
-  Sliders,
   Sparkles,
-  RotateCcw,
   X,
-  Radio
+  Radio,
+  MapPin,
+  Clock,
+  Compass,
+  CloudSun,
+  CloudFog,
+  CloudDrizzle,
+  CloudSnow,
+  CloudLightning,
+  Snowflake,
+  TrendingUp,
+  FileSpreadsheet
 } from 'lucide-react';
+import { 
+  ResponsiveContainer, 
+  AreaChart, 
+  Area, 
+  XAxis, 
+  YAxis, 
+  Tooltip, 
+  CartesianGrid 
+} from 'recharts';
 import ZoneDetailModal from '../components/ZoneDetailModal';
-import SimulationControlPanel from '../components/SimulationControlPanel';
 
-const ExecutiveKPICard = ({ title, value, unit, statusText, statusColor, subtext, icon: Icon, badge, colorClass }) => (
-  <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-xs hover:shadow-md transition-all flex flex-col justify-between group">
-    <div className="flex items-start justify-between">
-      <div className={`p-2.5 rounded-xl ${colorClass} transition-transform group-hover:scale-105`}>
-        <Icon className="w-5 h-5" />
-      </div>
-      {badge && (
-        <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200 truncate max-w-[140px]">
-          {badge}
-        </span>
-      )}
-    </div>
-
-    <div className="mt-4">
-      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{title}</p>
-      <div className="flex items-baseline gap-1 mt-1">
-        <h3 className="text-2xl font-black text-slate-900 tracking-tight font-mono">{value}</h3>
-        {unit && <span className="text-xs font-bold text-slate-500">{unit}</span>}
-      </div>
-      <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100 text-[11px]">
-        <span className={`font-bold flex items-center gap-1 ${statusColor}`}>
-          {statusText}
-        </span>
-        {subtext && <span className="text-slate-400 font-mono truncate">{subtext}</span>}
-      </div>
-    </div>
-  </div>
-);
+// Clean Weather Icon Resolver
+function WeatherIconComponent({ iconName, className }) {
+  switch (iconName) {
+    case 'Sun': return <Sun className={className} />;
+    case 'CloudSun': return <CloudSun className={className} />;
+    case 'Cloud': return <CloudRain className={className} />;
+    case 'CloudFog': return <CloudFog className={className} />;
+    case 'CloudDrizzle': return <CloudDrizzle className={className} />;
+    case 'CloudRain': return <CloudRain className={className} />;
+    case 'CloudSnow': return <CloudSnow className={className} />;
+    case 'CloudLightning': return <CloudLightning className={className} />;
+    case 'Snowflake': return <Snowflake className={className} />;
+    default: return <CloudSun className={className} />;
+  }
+}
 
 export default function Dashboard() {
   const { 
     zones, 
     alerts, 
-    simulateAction, 
-    faoEt0, 
-    globalGap, 
-    formatTemp, 
-    formatArea,
-    downloadAuditCSV,
-    // Hybrid Operating Mode & Data Objects
-    operatingMode,
-    setOperatingMode,
-    sourceLabel,
-    hardwareData,
-    simulationBaseline,
-    simulationData,
-    manualData,
-    simulationDeltas,
-    startRealSimulation,
-    resetSimulationToBaseline,
-    resetSimulationToDefaults,
+    history = [],
+    operatingMode, 
+    hardwareData, 
+    simulationData, 
+    triggerSimulateData, 
     exitSimulation,
-    // Hardware Protocol State
-    hardwareSource,
     usbStatus,
     usbPort,
-    usbLastSync,
-    usbRawReadings,
-    usbError,
-    bridgeUrl,
-    backendUrl,
-    cloudStatus,
-    lastCloudSync
+    downloadAuditCSV
   } = useFarmData();
 
   const [selectedZone, setSelectedZone] = useState(null);
-  
-  if (!zones || zones.length === 0) return null;
+  const [activeTrendMetric, setActiveTrendMetric] = useState('temperature');
+  const [currentTime, setCurrentTime] = useState(new Date());
+  const [weatherData, setWeatherData] = useState(null);
+  const [weatherLoading, setWeatherLoading] = useState(true);
+  const [isSimulating, setIsSimulating] = useState(false);
 
-  const isLiveMode = operatingMode === 'live_hardware';
-  const isSimulationMode = operatingMode === 'simulation';
-  const isManualMode = operatingMode === 'manual';
-  const liveZoneA = zones.find(z => z.zoneId === 'ZONE-A') || zones[0];
+  // Live ticking clock (seconds precision)
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Fetch real external weather from Open-Meteo independently of ESP32
+  useEffect(() => {
+    let mounted = true;
+    const loadWeather = async () => {
+      setWeatherLoading(true);
+      const res = await fetchLiveWeather();
+      if (mounted) {
+        setWeatherData(res);
+        setWeatherLoading(false);
+      }
+    };
+    loadWeather();
+    const interval = setInterval(loadWeather, 120000); // 2-min refresh
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  // Handler for ONE SIMULATE DATA button
+  const handleSimulateClick = async () => {
+    setIsSimulating(true);
+    try {
+      await triggerSimulateData();
+    } finally {
+      setIsSimulating(false);
+    }
+  };
+
+  const isLive = operatingMode === 'live_hardware';
+  const isSimulated = operatingMode === 'simulation';
+  const hasHardware = isLive && hardwareData?.hasReadings && hardwareData?.connectionStatus === 'connected' && !hardwareData?.isStale;
 
   // ----------------------------------------------------
-  // Aggregate / Live Sensor Calculations
+  // Sensor Value Extraction (Strict N/A Rules)
   // ----------------------------------------------------
-  let displayMoisture = '0%';
-  let displayMoistureStatus = 'Optimal Level';
-  let displayMoistureColor = 'text-emerald-600';
-  let displayMoistureSub = '';
+  let tempDisplay = 'N/A';
+  let humidityDisplay = 'N/A';
+  let moistureDisplay = 'N/A';
+  let lightDisplay = 'N/A';
 
-  let displayTempObj = { value: 'Unavailable', symbol: '' };
-  let displayTempStatus = 'Normal Temperature';
-  let displayTempColor = 'text-emerald-600';
-  let displayTempSub = '';
-
-  let avgHumidity = 55;
-
-  if (isLiveMode) {
-    if (hardwareData.hasReadings && hardwareData.soilMoisture !== null) {
-      displayMoisture = `${hardwareData.soilMoisture.toFixed(1)}%`;
-      displayMoistureStatus = hardwareData.soilMoisture < 30 ? 'Low Moisture' : hardwareData.soilMoisture > 75 ? 'High Moisture' : 'Optimal Level';
-      displayMoistureColor = hardwareData.soilMoisture < 30 ? 'text-rose-600' : 'text-emerald-600';
-      displayMoistureSub = hardwareData.isStale ? `[STALE] Synced ${hardwareData.lastUpdated}` : `Raw ADC: ${hardwareData.soilRaw ?? 'N/A'}`;
-    } else if (usbStatus === 'waiting_data') {
-      displayMoisture = 'Waiting...';
-      displayMoistureStatus = 'Waiting for Sensor';
-      displayMoistureColor = 'text-amber-600';
-      displayMoistureSub = 'Waiting for first packet';
+  if (isLive) {
+    if (hasHardware) {
+      tempDisplay = typeof hardwareData.temperature === 'number' ? `${hardwareData.temperature.toFixed(1)}°C` : 'N/A';
+      humidityDisplay = typeof hardwareData.humidity === 'number' ? `${hardwareData.humidity.toFixed(1)}%` : 'N/A';
+      moistureDisplay = typeof hardwareData.soilMoisture === 'number' ? `${hardwareData.soilMoisture.toFixed(1)}%` : 'N/A';
+      lightDisplay = typeof hardwareData.lightIntensity === 'number' ? `${hardwareData.lightIntensity.toFixed(0)}%` : 'N/A';
     } else {
-      displayMoisture = 'Unavailable';
-      displayMoistureStatus = 'Hardware Disconnected';
-      displayMoistureColor = 'text-slate-400';
-      displayMoistureSub = 'Check USB cable / Bridge';
+      // Disconnected or awaiting data: Strictly N/A per instructions
+      tempDisplay = 'N/A';
+      humidityDisplay = 'N/A';
+      moistureDisplay = 'N/A';
+      lightDisplay = 'N/A';
     }
-
-    if (hardwareData.hasReadings && hardwareData.temperature !== null) {
-      displayTempObj = formatTemp(hardwareData.temperature);
-      displayTempStatus = hardwareData.temperature > 34 ? 'High Heat Stress' : 'Normal Temperature';
-      displayTempColor = hardwareData.temperature > 34 ? 'text-amber-600' : 'text-emerald-600';
-      avgHumidity = hardwareData.humidity !== null ? Math.round(hardwareData.humidity) : 60;
-      displayTempSub = hardwareData.isStale ? `[STALE] Synced ${hardwareData.lastUpdated}` : `Humidity: ${hardwareData.humidity?.toFixed(1)}%`;
-    } else if (usbStatus === 'waiting_data') {
-      displayTempObj = { value: 'Waiting...', symbol: '' };
-      displayTempStatus = 'Waiting for Data';
-      displayTempColor = 'text-amber-600';
-      displayTempSub = 'Sensor initializing';
-    } else {
-      displayTempObj = { value: 'Unavailable', symbol: '' };
-      displayTempStatus = hardwareData.dhtOk === false ? 'DHT11 Check Wiring' : 'Sensor Offline';
-      displayTempColor = 'text-rose-600';
-      displayTempSub = 'Connect ESP32';
-    }
-  } else {
-    // In Simulation or Manual Mode: values come from the respective state
-    const currentVal = isSimulationMode ? simulationData : manualData;
-    const m = currentVal.soilMoisture ?? 45;
-    const t = currentVal.temperature ?? 28;
-    const h = currentVal.humidity ?? 60;
-
-    displayMoisture = `${m.toFixed(1)}%`;
-    displayMoistureStatus = m < 30 ? 'Low Moisture' : m > 75 ? 'High Moisture' : 'Optimal Level';
-    displayMoistureColor = m < 30 ? 'text-rose-600' : 'text-emerald-600';
-    displayMoistureSub = isSimulationMode 
-      ? (simulationBaseline?.hasRealBaseline ? 'Simulated from ESP32' : 'Synthetic Baseline')
-      : 'Manual User Input';
-
-    displayTempObj = formatTemp(t);
-    displayTempStatus = t > 34 ? 'High Heat Stress' : 'Normal Temperature';
-    displayTempColor = t > 34 ? 'text-amber-600' : 'text-emerald-600';
-    avgHumidity = Math.round(h);
-    displayTempSub = `Simulated RH: ${h.toFixed(1)}%`;
+  } else if (isSimulated && simulationData) {
+    tempDisplay = typeof simulationData.temperature === 'number' ? `${simulationData.temperature.toFixed(1)}°C` : 'N/A';
+    humidityDisplay = typeof simulationData.humidity === 'number' ? `${simulationData.humidity.toFixed(1)}%` : 'N/A';
+    moistureDisplay = typeof simulationData.soilMoisture === 'number' ? `${simulationData.soilMoisture.toFixed(1)}%` : 'N/A';
+    lightDisplay = typeof simulationData.lightIntensity === 'number' ? `${simulationData.lightIntensity.toFixed(0)}%` : 'N/A';
   }
 
-  const overallHealth = generateFarmHealthScore(zones.map(z => ({...z.sensorData, cropType: z.cropType})));
-  const activeAlerts = alerts.filter(a => !a.resolved);
-  const needsIrrigation = zones.some(z => z.analysis?.irrigationRecommendation);
+  // ----------------------------------------------------
+  // Farm Health Evaluation
+  // ----------------------------------------------------
+  const healthScore = useMemo(() => {
+    if (!zones || zones.length === 0) return null;
+    return generateFarmHealthScore(zones.map(z => ({ ...z.sensorData, cropType: z.cropType })));
+  }, [zones]);
+
+  let healthStatus = 'Awaiting Data';
+  let healthColor = 'text-slate-400 bg-slate-100 border-slate-200';
+  let irrigationRecommendation = 'Awaiting live sensor readings to determine moisture requirements.';
+
+  if (typeof healthScore === 'number') {
+    if (healthScore >= 80) {
+      healthStatus = 'Optimal';
+      healthColor = 'text-emerald-700 bg-emerald-50 border-emerald-200';
+    } else if (healthScore >= 60) {
+      healthStatus = 'Attention Needed';
+      healthColor = 'text-amber-700 bg-amber-50 border-amber-200';
+    } else {
+      healthStatus = 'Critical Stress';
+      healthColor = 'text-rose-700 bg-rose-50 border-rose-200';
+    }
+
+    // Irrigation recommendation derived from active soil moisture
+    const currentMoisture = isLive ? hardwareData?.soilMoisture : simulationData?.soilMoisture;
+    if (typeof currentMoisture === 'number') {
+      if (currentMoisture < 30) {
+        irrigationRecommendation = 'Soil moisture is critically depleted (< 30%). Drip irrigation cycle recommended immediately.';
+      } else if (currentMoisture < 45) {
+        irrigationRecommendation = 'Soil moisture is moderate (30-45%). Light irrigation scheduled during early morning hours.';
+      } else if (currentMoisture > 80) {
+        irrigationRecommendation = 'Soil moisture is near saturation (> 80%). Suspend irrigation and verify field drainage lines.';
+      } else {
+        irrigationRecommendation = 'Soil moisture is in the optimal range (45-70%). No irrigation needed at this time.';
+      }
+    }
+  }
+
+  // Active alerts list
+  const activeAlerts = (alerts || []).filter(a => !a.resolved);
+
+  // Time-series history data for simple trends
+  const trendData = useMemo(() => {
+    if (!history || history.length === 0) return [];
+    return history.map(h => ({
+      time: h.timestamp || '',
+      temperature: typeof h.temperature === 'number' ? h.temperature : null,
+      humidity: typeof h.humidity === 'number' ? h.humidity : null,
+      soilMoisture: typeof h.soilMoisture === 'number' ? h.soilMoisture : null,
+      lightIntensity: typeof h.lightIntensity === 'number' ? h.lightIntensity : null,
+      type: h.isSimulation ? 'Simulated' : 'Actual'
+    }));
+  }, [history]);
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
-      
-      {/* 3-Mode Global Operating Switcher & Top Header */}
-      <div className="bg-gradient-to-r from-slate-900 via-slate-850 to-slate-900 p-6 rounded-2xl text-white shadow-lg border border-slate-800 space-y-4">
-        
+    <div className="space-y-6 max-w-7xl mx-auto pb-10">
+
+      {/* ======================================================== */}
+      {/* 1. PROFESSIONAL SAAS HEADER                              */}
+      {/* ======================================================== */}
+      <header className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-5 md:p-6 transition-all">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className={`text-[10px] font-mono uppercase tracking-widest px-2.5 py-0.5 rounded-full font-bold border ${
-                isLiveMode 
-                  ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' 
-                  : (isSimulationMode ? 'bg-purple-500/20 text-purple-300 border-purple-500/30' : 'bg-amber-500/20 text-amber-300 border-amber-500/30')
-              }`}>
-                {sourceLabel}
+          
+          {/* Farm Branding & Geolocation */}
+          <div>
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <span className="text-xs font-black uppercase tracking-wider text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full">
+                SmartFarm AI
               </span>
-              <span className="text-[10px] font-mono text-slate-400 hidden sm:inline">
-                {isLiveMode 
-                  ? (hardwareData.hasReadings ? `ESP32 ${usbPort || 'USB'} • ${hardwareData.readingsCount} readings collected` : 'Awaiting physical hardware')
-                  : (isSimulationMode 
-                      ? (simulationBaseline?.hasRealBaseline ? `Baseline from ESP32 at ${simulationBaseline.capturedAt}` : 'Synthetic agro baseline')
-                      : 'Manual user overrides active')}
+              <span className="text-slate-300">•</span>
+              <span className="text-xs font-semibold text-slate-600 flex items-center gap-1">
+                <MapPin className="w-3.5 h-3.5 text-slate-400" />
+                {DEFAULT_FARM_LOCATION.displayLocation}
               </span>
-            </div>
-
-            <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white flex items-center gap-2.5 flex-wrap">
-              <span>Smart Farm Dashboard</span>
-              {isSimulationMode && (
-                <span className="text-xs font-mono font-bold px-2.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/40 animate-pulse">
-                  SIMULATION ACTIVE
-                </span>
-              )}
-              {isManualMode && (
-                <span className="text-xs font-mono font-bold px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                  MANUAL MODE
-                </span>
-              )}
-              {isLiveMode && (
-                <span className={`text-xs font-mono font-bold px-2.5 py-0.5 rounded-full border ${
-                  hardwareData.connectionStatus === 'connected' && !hardwareData.isStale
-                    ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30 animate-pulse' 
-                    : (hardwareData.isStale 
-                        ? 'bg-orange-500/20 text-orange-300 border-orange-500/30' 
-                        : (hardwareData.connectionStatus === 'waiting_data' ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' : 'bg-rose-500/20 text-rose-400 border-rose-500/30'))
-                }`}>
-                  {hardwareData.connectionStatus === 'connected' && !hardwareData.isStale 
-                    ? 'LIVE ESP32' 
-                    : (hardwareData.isStale ? 'STALE TELEMETRY' : (hardwareData.connectionStatus === 'waiting_data' ? 'WAITING DATA' : 'HARDWARE OFFLINE'))}
-                </span>
-              )}
-            </h1>
-
-            <p className="text-xs sm:text-sm text-slate-300">
-              {isLiveMode 
-                ? 'Displaying immutable live physical measurements from ESP32 sensors. Original values are never faked.'
-                : isSimulationMode 
-                ? 'Adjust simulated conditions on top of captured hardware baseline. AI models and farm health recalculate in real-time.'
-                : 'Directly modify all agricultural parameters without physical sensors for stress testing and scenario analysis.'}
-            </p>
-          </div>
-
-          {/* Mode Selector Tabs + Simulate Data Action Button */}
-          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
-            
-            {/* 3 Operating Mode Buttons */}
-            <div className="flex items-center p-1 bg-slate-950/80 rounded-xl border border-slate-700">
-              <button
-                type="button"
-                onClick={() => setOperatingMode('live_hardware')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-                  isLiveMode 
-                    ? 'bg-emerald-600 text-white shadow-xs' 
-                    : 'text-slate-400 hover:text-white'
-                }`}
-                title="Switch to actual ESP32 sensor telemetry"
-              >
-                <Cable className="w-3.5 h-3.5" />
-                <span>Live Hardware</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => startRealSimulation()}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-                  isSimulationMode 
-                    ? 'bg-purple-600 text-white shadow-xs' 
-                    : 'text-slate-400 hover:text-white'
-                }`}
-                title="Simulate based on captured hardware baseline"
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>Simulate Data</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setOperatingMode('manual')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-                  isManualMode 
-                    ? 'bg-amber-600 text-white shadow-xs' 
-                    : 'text-slate-400 hover:text-white'
-                }`}
-                title="Manually enter custom sensor readings"
-              >
-                <Sliders className="w-3.5 h-3.5" />
-                <span>Manual Mode</span>
-              </button>
-            </div>
-
-            {/* Quick Simulate Data Prominent Action Button (if currently in live mode) */}
-            {isLiveMode && (
-              <button 
-                type="button"
-                onClick={() => startRealSimulation()}
-                className="px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-purple-950/40 flex items-center gap-1.5 active:scale-95 animate-pulse"
-                title="Capture real ESP32 readings as baseline and enter simulation"
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>Simulate Data</span>
-              </button>
-            )}
-
-            <button 
-              type="button"
-              onClick={() => simulateAction('IRRIGATE')}
-              className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-emerald-950/40 flex items-center gap-1.5 active:scale-95"
-              title="Start irrigation for dry zones"
-            >
-              <Zap className="w-3.5 h-3.5" />
-              <span>Irrigate</span>
-            </button>
-
-            <button 
-              type="button"
-              onClick={downloadAuditCSV}
-              className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95"
-              title="Download farm data report in CSV"
-            >
-              <Download className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Export CSV</span>
-            </button>
-          </div>
-
-        </div>
-
-      </div>
-
-      {/* STALE HARDWARE WARNING BANNER (When hardware is disconnected or stale) */}
-      {isLiveMode && hardwareData.isStale && (
-        <div className="p-4 rounded-xl border bg-orange-50 border-orange-200 text-orange-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-xs">
-          <div className="flex items-center gap-2.5">
-            <AlertTriangle className="w-4 h-4 text-orange-600 shrink-0" />
-            <div>
-              <strong>STALE TELEMETRY DETECTED:</strong> ESP32 packets paused. Retaining last valid measurement from <strong>{hardwareData.lastUpdated}</strong>.
-              <span className="block opacity-85 text-[11px] mt-0.5">
-                These readings are marked stale and are never represented as live telemetry. Check USB cable and ensure <code>python bridge/serial_bridge.py</code> is running.
+              <span className="text-slate-300">•</span>
+              <span className="text-xs font-mono text-slate-500 flex items-center gap-1">
+                <Clock className="w-3.5 h-3.5 text-slate-400" />
+                {currentTime.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })} • {currentTime.toLocaleTimeString()}
               </span>
             </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => startRealSimulation()}
-            className="px-3 py-1.5 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-lg shrink-0 flex items-center gap-1 text-[11px]"
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Simulate from Last Reading</span>
-          </button>
-        </div>
-      )}
 
-      {/* SIMULATION DELTA COMPARISON CARD (When Simulation Mode is Active) */}
-      {isSimulationMode && (
-        <div className="bg-gradient-to-br from-purple-50 via-white to-indigo-50 rounded-2xl border-2 border-purple-300 p-5 shadow-md space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-purple-200 gap-2">
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs font-black uppercase tracking-wider text-purple-900 flex items-center gap-1.5">
-                  <Sparkles className="w-4 h-4 text-purple-600" />
-                  Simulation Telemetry & Baseline Comparison
-                </span>
-                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 border border-purple-300">
-                  {simulationBaseline?.hasRealBaseline ? 'CAPTURED FROM ESP32' : 'SYNTHETIC BASELINE'}
-                </span>
+            <div className="flex items-baseline gap-3 mt-1.5 flex-wrap">
+              <h1 className="text-2xl font-black text-slate-900 tracking-tight">
+                {DEFAULT_FARM_LOCATION.name}
+              </h1>
+
+              {/* Hardware Connection Status */}
+              <div className="flex items-center gap-1.5">
+                {hasHardware ? (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    Hardware Connected {usbPort ? `(${usbPort})` : ''}
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600 border border-slate-200">
+                    <span className="w-2 h-2 rounded-full bg-slate-400" />
+                    Hardware Disconnected (USB Serial)
+                  </span>
+                )}
+
+                {/* Subtle Simulation Active Pill */}
+                {isSimulated && (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-50 text-purple-700 border border-purple-200">
+                    <span className="w-1.5 h-1.5 rounded-full bg-purple-500 animate-ping" />
+                    Simulation Active
+                  </span>
+                )}
               </div>
-              <p className="text-xs text-slate-600 mt-0.5">
-                Baseline captured at {simulationBaseline?.capturedAt || 'N/A'}. Adjust sliders below to observe AI recommendations and farm health reactions.
-              </p>
             </div>
+          </div>
 
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={resetSimulationToBaseline}
-                className="px-3 py-1.5 bg-white hover:bg-purple-100 text-purple-900 border border-purple-300 rounded-xl text-xs font-bold transition-all flex items-center gap-1 active:scale-95"
-                title="Reset simulation to captured baseline"
-              >
-                <RotateCcw className="w-3.5 h-3.5 text-purple-600" />
-                <span>Reset Simulation</span>
-              </button>
-
+          {/* Action Center: Exactly ONE prominent SIMULATE DATA button */}
+          <div className="flex items-center gap-3 shrink-0">
+            {isSimulated && (
               <button
                 type="button"
                 onClick={exitSimulation}
-                className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1 active:scale-95"
-                title="Exit simulation and return to live hardware"
+                className="px-3.5 py-2 text-xs font-bold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all border border-slate-200 flex items-center gap-1.5 active:scale-95"
+                title="Exit simulation and restore live hardware readings"
               >
-                <X className="w-3.5 h-3.5" />
+                <X className="w-3.5 h-3.5 text-slate-500" />
                 <span>Exit Simulation</span>
               </button>
+            )}
+
+            <button
+              type="button"
+              id="simulate-data-button"
+              onClick={handleSimulateClick}
+              disabled={isSimulating}
+              className={`px-5 py-2.5 rounded-xl text-xs font-extrabold uppercase tracking-wider text-white shadow-sm transition-all flex items-center gap-2 active:scale-95 ${
+                isSimulating 
+                  ? 'bg-emerald-400 cursor-wait' 
+                  : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-700/20'
+              }`}
+              title="Generate fresh, internally consistent sensor readings via Python backend"
+            >
+              <Sparkles className={`w-4 h-4 ${isSimulating ? 'animate-spin' : ''}`} />
+              <span>{isSimulated ? 'Simulate Data' : 'SIMULATE DATA'}</span>
+            </button>
+          </div>
+
+        </div>
+      </header>
+
+      {/* ======================================================== */}
+      {/* 2. MAIN SENSOR CARDS (4 CLEAN CARDS)                     */}
+      {/* ======================================================== */}
+      <section>
+        <div className="flex items-center justify-between mb-3 px-1">
+          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-2">
+            <span>Primary In-Field Sensors</span>
+            <span className="text-[10px] font-mono font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+              {isLive ? 'Physical Hardware Readings' : 'Simulated Readings (Python)'}
+            </span>
+          </h2>
+          <span className="text-xs text-slate-400 font-mono">
+            DHT11 (GPIO 4) • Soil (GPIO 34) • LDR (GPIO 35)
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          
+          {/* Temperature Card */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-xs hover:border-slate-300 transition-all group">
+            <div className="flex items-start justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Air Temperature</span>
+              <div className="p-2 rounded-xl bg-amber-50 text-amber-600 group-hover:scale-105 transition-transform">
+                <Thermometer className="w-5 h-5" />
+              </div>
+            </div>
+            <div className="mt-3">
+              <div className="text-3xl font-black font-mono tracking-tight text-slate-900">
+                {tempDisplay}
+              </div>
+              <p className="text-xs text-slate-500 mt-1 flex items-center justify-between">
+                <span>Target: 22.0 – 30.0°C</span>
+                <span className="font-mono text-[11px] text-slate-400">DHT11</span>
+              </p>
             </div>
           </div>
 
-          {/* 4-Metric Baseline vs Simulated vs Delta Comparison Grid */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            
-            {/* Temperature Delta */}
-            <div className="bg-white p-3 rounded-xl border border-purple-200 shadow-2xs">
-              <span className="text-[10px] font-bold text-slate-500 uppercase block">Air Temperature</span>
-              <div className="text-sm font-black font-mono text-slate-900 mt-1">
-                Simulated: <span className="text-purple-700">{simulationData.temperature}°C</span>
+          {/* Humidity Card */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-xs hover:border-slate-300 transition-all group">
+            <div className="flex items-start justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Air Humidity</span>
+              <div className="p-2 rounded-xl bg-teal-50 text-teal-600 group-hover:scale-105 transition-transform">
+                <Wind className="w-5 h-5" />
               </div>
-              <div className="text-xs text-slate-500 font-mono mt-0.5">
-                Baseline: {simulationBaseline?.temperature !== null ? `${simulationBaseline.temperature}°C` : 'N/A'}
+            </div>
+            <div className="mt-3">
+              <div className="text-3xl font-black font-mono tracking-tight text-slate-900">
+                {humidityDisplay}
               </div>
-              <div className="mt-1 pt-1 border-t border-slate-100 text-xs font-mono font-bold">
-                Difference:{' '}
-                <span className={simulationDeltas?.temperature?.diff > 0 ? 'text-rose-600' : (simulationDeltas?.temperature?.diff < 0 ? 'text-cyan-600' : 'text-slate-600')}>
-                  {simulationDeltas?.temperature?.formattedDiff || simulationDeltas?.temperature?.text || '0°C'}
-                </span>
+              <p className="text-xs text-slate-500 mt-1 flex items-center justify-between">
+                <span>Target: 50.0 – 75.0%</span>
+                <span className="font-mono text-[11px] text-slate-400">DHT11</span>
+              </p>
+            </div>
+          </div>
+
+          {/* Soil Moisture Card */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-xs hover:border-slate-300 transition-all group">
+            <div className="flex items-start justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Soil Moisture</span>
+              <div className="p-2 rounded-xl bg-blue-50 text-blue-600 group-hover:scale-105 transition-transform">
+                <Droplets className="w-5 h-5" />
+              </div>
+            </div>
+            <div className="mt-3">
+              <div className="text-3xl font-black font-mono tracking-tight text-slate-900">
+                {moistureDisplay}
+              </div>
+              <p className="text-xs text-slate-500 mt-1 flex items-center justify-between">
+                <span>Field Capacity: 45 – 70%</span>
+                <span className="font-mono text-[11px] text-slate-400">GPIO 34</span>
+              </p>
+            </div>
+          </div>
+
+          {/* Light Intensity Card */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-xs hover:border-slate-300 transition-all group">
+            <div className="flex items-start justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Light Intensity</span>
+              <div className="p-2 rounded-xl bg-amber-50 text-amber-600 group-hover:scale-105 transition-transform">
+                <Sun className="w-5 h-5" />
+              </div>
+            </div>
+            <div className="mt-3">
+              <div className="text-3xl font-black font-mono tracking-tight text-slate-900">
+                {lightDisplay}
+              </div>
+              <p className="text-xs text-slate-500 mt-1 flex items-center justify-between">
+                <span>Photosynthetic Band</span>
+                <span className="font-mono text-[11px] text-slate-400">LDR (GPIO 35)</span>
+              </p>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      {/* ======================================================== */}
+      {/* 3. LIVE WEATHER & FARM HEALTH GRID                       */}
+      {/* ======================================================== */}
+      <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+        {/* Dedicated Live Weather Section (Open-Meteo) */}
+        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-5 md:p-6 flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-sky-50 text-sky-600">
+                  <CloudSun className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-sm text-slate-900">
+                    Live Outdoor Weather
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    Hyper-local agrometeorological feed via Open-Meteo API
+                  </p>
+                </div>
+              </div>
+              <span className="text-[10px] font-mono font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                {weatherLoading ? 'Updating...' : (weatherData?.timestamp ? `Synced ${weatherData.timestamp}` : 'Satellite Link')}
+              </span>
+            </div>
+
+            {/* Current Outdoor Weather Headline */}
+            <div className="flex items-center justify-between my-5">
+              <div>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-3xl font-black font-mono tracking-tight text-slate-900">
+                    {weatherData?.outdoorTemperature !== null && weatherData?.outdoorTemperature !== undefined 
+                      ? `${weatherData.outdoorTemperature.toFixed(1)}°C` 
+                      : 'N/A'}
+                  </span>
+                  <span className="text-xs font-bold text-slate-500">Outdoor</span>
+                </div>
+                <div className="text-xs font-semibold text-slate-600 mt-1 flex items-center gap-1.5">
+                  <span>{weatherData?.weatherCondition || 'N/A'}</span>
+                </div>
+              </div>
+
+              <div className="p-3 bg-sky-50 rounded-2xl text-sky-600">
+                <WeatherIconComponent iconName={weatherData?.weatherIcon} className="w-9 h-9" />
               </div>
             </div>
 
-            {/* Soil Moisture Delta */}
-            <div className="bg-white p-3 rounded-xl border border-purple-200 shadow-2xs">
-              <span className="text-[10px] font-bold text-slate-500 uppercase block">Soil Moisture</span>
-              <div className="text-sm font-black font-mono text-slate-900 mt-1">
-                Simulated: <span className="text-blue-700">{simulationData.soilMoisture}%</span>
+            {/* Weather Metric Breakdown */}
+            <div className="grid grid-cols-3 gap-3 pt-3 border-t border-slate-100 text-center">
+              <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                <span className="text-[10px] text-slate-400 font-bold uppercase block">Outdoor RH</span>
+                <span className="text-sm font-black font-mono text-slate-800 block mt-0.5">
+                  {weatherData?.outdoorHumidity !== null && weatherData?.outdoorHumidity !== undefined 
+                    ? `${weatherData.outdoorHumidity}%` 
+                    : 'N/A'}
+                </span>
               </div>
-              <div className="text-xs text-slate-500 font-mono mt-0.5">
-                Baseline: {simulationBaseline?.soilMoisture !== null ? `${simulationBaseline.soilMoisture}%` : 'N/A'}
+
+              <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                <span className="text-[10px] text-slate-400 font-bold uppercase block">Wind Speed</span>
+                <span className="text-sm font-black font-mono text-slate-800 block mt-0.5">
+                  {weatherData?.windSpeed !== null && weatherData?.windSpeed !== undefined 
+                    ? `${weatherData.windSpeed} km/h` 
+                    : 'N/A'}
+                </span>
               </div>
-              <div className="mt-1 pt-1 border-t border-slate-100 text-xs font-mono font-bold">
-                Difference:{' '}
-                <span className={simulationDeltas?.soilMoisture?.diff > 0 ? 'text-blue-600' : (simulationDeltas?.soilMoisture?.diff < 0 ? 'text-amber-600' : 'text-slate-600')}>
-                  {simulationDeltas?.soilMoisture?.formattedDiff || simulationDeltas?.soilMoisture?.text || '0%'}
+
+              <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                <span className="text-[10px] text-slate-400 font-bold uppercase block">Rainfall</span>
+                <span className="text-sm font-black font-mono text-blue-700 block mt-0.5">
+                  {weatherData?.rainfall !== null && weatherData?.rainfall !== undefined 
+                    ? `${weatherData.rainfall} mm` 
+                    : 'N/A'}
                 </span>
               </div>
             </div>
+          </div>
 
-            {/* Humidity Delta */}
-            <div className="bg-white p-3 rounded-xl border border-purple-200 shadow-2xs">
-              <span className="text-[10px] font-bold text-slate-500 uppercase block">Relative Humidity</span>
-              <div className="text-sm font-black font-mono text-slate-900 mt-1">
-                Simulated: <span className="text-teal-700">{simulationData.humidity}%</span>
-              </div>
-              <div className="text-xs text-slate-500 font-mono mt-0.5">
-                Baseline: {simulationBaseline?.humidity !== null ? `${simulationBaseline.humidity}%` : 'N/A'}
-              </div>
-              <div className="mt-1 pt-1 border-t border-slate-100 text-xs font-mono font-bold">
-                Difference:{' '}
-                <span className={simulationDeltas?.humidity?.diff > 0 ? 'text-teal-600' : (simulationDeltas?.humidity?.diff < 0 ? 'text-amber-600' : 'text-slate-600')}>
-                  {simulationDeltas?.humidity?.formattedDiff || simulationDeltas?.humidity?.text || '0%'}
-                </span>
-              </div>
-            </div>
-
-            {/* Light Intensity Delta */}
-            <div className="bg-white p-3 rounded-xl border border-purple-200 shadow-2xs">
-              <span className="text-[10px] font-bold text-slate-500 uppercase block">Light Intensity</span>
-              <div className="text-sm font-black font-mono text-slate-900 mt-1">
-                Simulated: <span className="text-amber-700">{simulationData.lightIntensity}%</span>
-              </div>
-              <div className="text-xs text-slate-500 font-mono mt-0.5">
-                Baseline: {simulationBaseline?.lightIntensity !== null ? `${simulationBaseline.lightIntensity}%` : 'N/A'}
-              </div>
-              <div className="mt-1 pt-1 border-t border-slate-100 text-xs font-mono font-bold">
-                Difference:{' '}
-                <span className={simulationDeltas?.lightIntensity?.diff > 0 ? 'text-amber-600' : (simulationDeltas?.lightIntensity?.diff < 0 ? 'text-slate-600' : 'text-slate-600')}>
-                  {simulationDeltas?.lightIntensity?.formattedDiff || simulationDeltas?.lightIntensity?.text || '0%'}
-                </span>
-              </div>
-            </div>
-
+          <div className="mt-4 pt-3 border-t border-slate-100 text-[10px] text-slate-400 flex items-center justify-between font-mono">
+            <span>Independent external satellite data</span>
+            <span>Does not substitute ESP32 soil probes</span>
           </div>
         </div>
-      )}
 
-      {/* INTERACTIVE SIMULATION & MANUAL CONTROL PANEL */}
-      {(isSimulationMode || isManualMode) && (
-        <SimulationControlPanel />
-      )}
-
-      {/* 6-Card Executive KPI Matrix */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-        <ExecutiveKPICard 
-          title="Soil Moisture" 
-          value={displayMoisture}
-          unit=""
-          statusText={displayMoistureStatus}
-          statusColor={displayMoistureColor}
-          subtext={displayMoistureSub}
-          icon={Droplets}
-          badge={sourceLabel}
-          colorClass="bg-blue-50 text-blue-600"
-        />
-
-        <ExecutiveKPICard 
-          title="Air Temperature" 
-          value={`${displayTempObj.value}`}
-          unit={displayTempObj.symbol}
-          statusText={displayTempStatus}
-          statusColor={displayTempColor}
-          subtext={displayTempSub}
-          icon={Thermometer}
-          badge={sourceLabel}
-          colorClass="bg-amber-50 text-amber-600"
-        />
-
-        <ExecutiveKPICard 
-          title="Water Loss (Evap)" 
-          value={`${faoEt0}`}
-          unit="mm/day"
-          statusText="FAO-56 Rate"
-          statusColor="text-cyan-700"
-          subtext="Daily water loss"
-          icon={Gauge}
-          badge="FAO-56 ET0"
-          colorClass="bg-cyan-50 text-cyan-600"
-        />
-
-        <ExecutiveKPICard 
-          title="Crop Safety Score" 
-          value={`${globalGap.ipmScore}%`}
-          unit=""
-          statusText="Grade A (Good)"
-          statusColor="text-emerald-600"
-          subtext="GlobalG.A.P. IFA"
-          icon={ShieldCheck}
-          badge="Compliance"
-          colorClass="bg-emerald-50 text-emerald-600"
-        />
-
-        <ExecutiveKPICard 
-          title="Farm Health Score" 
-          value={`${overallHealth} / 100`}
-          unit=""
-          statusText={overallHealth > 80 ? 'Healthy Crops' : (overallHealth > 60 ? 'Needs Attention' : 'Critical Stress')}
-          statusColor={overallHealth > 80 ? 'text-emerald-600' : (overallHealth > 60 ? 'text-amber-600' : 'text-rose-600')}
-          subtext={isSimulationMode ? 'Simulated AI health' : 'Threshold-based score'}
-          icon={Activity}
-          badge={isSimulationMode ? 'Simulated' : 'Evaluated'}
-          colorClass="bg-purple-50 text-purple-600"
-        />
-
-        <ExecutiveKPICard 
-          title="System Ingestion" 
-          value={isLiveMode ? (hardwareData.connectionStatus === 'connected' && !hardwareData.isStale ? 'Live ESP32' : (hardwareData.isStale ? 'Stale' : 'Offline')) : (isSimulationMode ? 'Simulation' : 'Manual')}
-          unit=""
-          statusText={isLiveMode 
-            ? (hardwareData.connectionStatus === 'connected' && !hardwareData.isStale ? `Synced ${hardwareData.lastUpdated}` : (hardwareData.isStale ? 'Packets paused' : 'Check cable')) 
-            : (isSimulationMode ? 'Real baseline synced' : 'User input active')}
-          statusColor={isLiveMode 
-            ? (hardwareData.connectionStatus === 'connected' && !hardwareData.isStale ? 'text-emerald-600' : 'text-rose-600') 
-            : (isSimulationMode ? 'text-purple-600' : 'text-amber-600')}
-          subtext={isLiveMode ? (hardwareData.port || 'USB Serial') : sourceLabel}
-          icon={isLiveMode ? Cable : Sliders}
-          badge={sourceLabel}
-          colorClass={isLiveMode ? 'bg-emerald-50 text-emerald-700' : (isSimulationMode ? 'bg-purple-50 text-purple-700' : 'bg-amber-50 text-amber-700')}
-        />
-      </div>
-
-      {/* Farm Zones: Telemetry & 3D View */}
-      <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 mb-4 border-b border-slate-100 gap-2">
+        {/* Farm Health & Irrigation Advisory */}
+        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-5 md:p-6 flex flex-col justify-between">
           <div>
-            <h2 className="text-base sm:text-lg font-black text-slate-900 tracking-tight flex items-center gap-2">
-              <Layers className="w-5 h-5 text-emerald-600" />
-              <span>Farm Zones & Crops (4 Zones)</span>
-              <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
-                {sourceLabel}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-emerald-50 text-emerald-600">
+                  <Activity className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-sm text-slate-900">
+                    Farm Health & Irrigation
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    Threshold analysis derived from available valid telemetry
+                  </p>
+                </div>
+              </div>
+              <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${healthColor}`}>
+                {healthStatus}
               </span>
-            </h2>
-            <p className="text-xs text-slate-500">
-              Click any zone to inspect live readings, watering status, crop guidelines, or open the 3D field view.
+            </div>
+
+            {/* Health Score Overview */}
+            <div className="flex items-center justify-between my-4">
+              <div>
+                <span className="text-[10px] uppercase font-bold text-slate-400 block">Overall Health Score</span>
+                <div className="text-3xl font-black font-mono tracking-tight text-slate-900 mt-0.5">
+                  {typeof healthScore === 'number' ? `${healthScore} / 100` : 'N/A'}
+                </div>
+              </div>
+              <div className="text-right">
+                <span className="text-[10px] uppercase font-bold text-slate-400 block">Status</span>
+                <span className="text-sm font-bold text-slate-800">
+                  {healthStatus}
+                </span>
+              </div>
+            </div>
+
+            {/* Irrigation Advisory Note */}
+            <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs">
+              <span className="font-bold text-slate-700 block mb-1">Irrigation Recommendation:</span>
+              <p className="text-slate-600 leading-relaxed">
+                {irrigationRecommendation}
+              </p>
+            </div>
+
+            {/* Basic Farming Alerts */}
+            <div className="mt-3">
+              <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1.5">Active Alerts:</span>
+              {activeAlerts.length > 0 ? (
+                <div className="space-y-1.5">
+                  {activeAlerts.slice(0, 2).map(alert => (
+                    <div key={alert.id} className="flex items-start gap-2 p-2 rounded-lg bg-amber-50 text-amber-900 text-xs border border-amber-200">
+                      <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                      <span className="line-clamp-1">{alert.message}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 p-2 rounded-lg bg-emerald-50 text-emerald-800 text-xs border border-emerald-200">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span>All biophysical thresholds within normal operating limits.</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-4 pt-3 border-t border-slate-100 text-[10px] text-slate-400 flex items-center justify-between font-mono">
+            <span>Automated valve actuators disengaged</span>
+            <span>Manual confirmation required for pump</span>
+          </div>
+        </div>
+
+      </section>
+
+      {/* ======================================================== */}
+      {/* 4. SIMPLE PROFESSIONAL ANALYTICS                         */}
+      {/* ======================================================== */}
+      <section className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-5 md:p-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 mb-4 border-b border-slate-100 gap-3">
+          <div>
+            <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-emerald-600" />
+              <span>Sensor Analytics & Telemetry History</span>
+            </h3>
+            <p className="text-xs text-slate-400">
+              Chronological log of actual physical measurements and simulation iterations
             </p>
           </div>
 
-          <span className="text-xs font-mono font-bold text-slate-500 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
-            4 Active Quadrants
-          </span>
+          {/* Metric Selector Tabs */}
+          <div className="flex items-center p-1 bg-slate-100 rounded-xl border border-slate-200 text-xs">
+            {[
+              { id: 'temperature', label: 'Temperature (°C)' },
+              { id: 'humidity', label: 'Humidity (%)' },
+              { id: 'soilMoisture', label: 'Soil Moisture (%)' },
+              { id: 'lightIntensity', label: 'Light (%)' }
+            ].map(tab => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTrendMetric(tab.id)}
+                className={`px-3 py-1.5 rounded-lg font-bold transition-all ${
+                  activeTrendMetric === tab.id
+                    ? 'bg-white text-slate-900 shadow-2xs'
+                    : 'text-slate-500 hover:text-slate-900'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Analytics Chart or Clean Empty State */}
+        {trendData.length > 0 ? (
+          <div className="h-64 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={trendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="metricGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#059669" stopOpacity={0.25} />
+                    <stop offset="95%" stopColor="#059669" stopOpacity={0.0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#94a3b8' }} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} tickLine={false} domain={['auto', 'auto']} />
+                <Tooltip 
+                  contentStyle={{ 
+                    backgroundColor: '#0f172a', 
+                    borderRadius: '12px', 
+                    border: 'none', 
+                    color: '#fff', 
+                    fontSize: '12px',
+                    fontFamily: 'monospace' 
+                  }}
+                  formatter={(val) => [`${val}`, activeTrendMetric]}
+                />
+                <Area 
+                  type="monotone" 
+                  dataKey={activeTrendMetric} 
+                  stroke="#059669" 
+                  strokeWidth={2.5} 
+                  fillOpacity={1} 
+                  fill="url(#metricGradient)" 
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        ) : (
+          <div className="py-12 px-4 text-center rounded-xl bg-slate-50 border border-slate-200/80">
+            <div className="w-10 h-10 rounded-full bg-slate-200 text-slate-500 mx-auto flex items-center justify-center mb-3">
+              <TrendingUp className="w-5 h-5" />
+            </div>
+            <h4 className="font-extrabold text-sm text-slate-800">
+              No Sensor Telemetry Logged Yet
+            </h4>
+            <p className="text-xs text-slate-500 max-w-md mx-auto mt-1">
+              Connect your ESP32 microcontroller via USB serial bridge or click the <strong>SIMULATE DATA</strong> button above to record telemetry iterations.
+            </p>
+          </div>
+        )}
+      </section>
+
+      {/* ======================================================== */}
+      {/* 5. FARM ZONES & CROPS (PRESERVED CORE FEATURE)           */}
+      {/* ======================================================== */}
+      <section className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-5 md:p-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 mb-4 border-b border-slate-100 gap-2">
+          <div>
+            <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
+              <Layers className="w-4 h-4 text-emerald-600" />
+              <span>Farm Zones & Crops (4 Quadrants)</span>
+            </h3>
+            <p className="text-xs text-slate-400">
+              Select any zone to view crop agronomy and open the 3D field digital twin
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={downloadAuditCSV}
+            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-all border border-slate-200 flex items-center gap-1.5 self-start sm:self-auto"
+            title="Export farm data to CSV"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Export CSV</span>
+          </button>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {zones.map((zone) => {
             const agro = zone.agronomy;
-            const stage = agro?.crop?.stagePercent || 50;
-            const etcObj = calculateCropETc(agro?.crop?.name || zone.cropType, stage, faoEt0);
-            const tempFormatted = formatTemp(zone.sensorData?.airTemperature);
-            const areaFormatted = formatArea(agro?.acreage || 0.25);
-            const isCritical = zone.analysis?.riskLevel === 'CRITICAL';
-            const isWarning = zone.analysis?.riskLevel === 'HIGH';
+            const isZoneLiveA = isLive && zone.zoneId === 'ZONE-A';
+            const isStandby = isLive && zone.zoneId !== 'ZONE-A';
 
-            const isZoneLiveUsb = isLiveMode && zone.zoneId === 'ZONE-A';
-            const isZoneAuxInUsb = isLiveMode && zone.zoneId !== 'ZONE-A';
+            let zMoist = 'N/A';
+            let zTemp = 'N/A';
 
-            const moistureDisplay = typeof zone.sensorData?.soilMoisture === 'number'
-              ? `${zone.sensorData.soilMoisture.toFixed(1)}%`
-              : (isZoneLiveUsb ? (usbStatus === 'waiting_data' ? 'Waiting...' : 'Unavailable') : 'Standby');
-
-            const tempDisplay = typeof zone.sensorData?.airTemperature === 'number'
-              ? `${tempFormatted.value}${tempFormatted.symbol}`
-              : (isZoneLiveUsb ? (usbStatus === 'waiting_data' ? 'Waiting...' : 'Unavailable') : 'Standby');
+            if (isLive) {
+              if (isZoneLiveA && hasHardware) {
+                zMoist = typeof hardwareData.soilMoisture === 'number' ? `${hardwareData.soilMoisture.toFixed(1)}%` : 'N/A';
+                zTemp = typeof hardwareData.temperature === 'number' ? `${hardwareData.temperature.toFixed(1)}°C` : 'N/A';
+              } else if (isStandby) {
+                zMoist = 'Standby';
+                zTemp = 'Standby';
+              }
+            } else if (isSimulated) {
+              zMoist = typeof zone.sensorData?.soilMoisture === 'number' ? `${zone.sensorData.soilMoisture.toFixed(1)}%` : 'N/A';
+              zTemp = typeof zone.sensorData?.airTemperature === 'number' ? `${zone.sensorData.airTemperature.toFixed(1)}°C` : 'N/A';
+            }
 
             return (
               <div 
                 key={zone.zoneId}
                 onClick={() => setSelectedZone(zone)}
-                className={`p-5 rounded-2xl border transition-all cursor-pointer relative overflow-hidden group ${
-                  isZoneAuxInUsb
-                    ? 'border-slate-200 bg-slate-50/40 hover:border-slate-300 hover:shadow-xs'
-                    : isCritical 
-                    ? 'border-rose-300 bg-rose-50/40 hover:border-rose-400 hover:shadow-md' 
-                    : isWarning 
-                    ? 'border-amber-300 bg-amber-50/40 hover:border-amber-400 hover:shadow-md' 
-                    : 'border-slate-200 bg-slate-50/60 hover:border-emerald-300 hover:bg-white hover:shadow-md'
-                }`}
+                className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 hover:bg-white hover:border-emerald-300 hover:shadow-xs transition-all cursor-pointer group flex flex-col justify-between"
               >
-                {/* Status Beacon */}
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-xl border flex items-center justify-center font-black text-sm shadow-2xs font-mono ${
-                      isZoneLiveUsb 
-                        ? 'bg-emerald-600 text-white border-emerald-500' 
-                        : (isZoneAuxInUsb ? 'bg-slate-200 text-slate-600 border-slate-300' : 'bg-white text-slate-800 border-slate-200')
-                    }`}>
-                      {zone.zoneId.replace('ZONE-', '')}
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2 flex-wrap">
+                <div>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center font-bold font-mono text-xs shadow-2xs">
+                        {zone.zoneId.replace('ZONE-', '')}
+                      </div>
+                      <div>
                         <h4 className="font-extrabold text-sm text-slate-900 group-hover:text-emerald-700 transition-colors">
                           {zone.name} — {agro?.crop?.name || zone.cropType}
                         </h4>
-                        {isZoneLiveUsb && (
-                          <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-ping" />
-                            ESP32 USB NODE
-                          </span>
-                        )}
-                        {isZoneAuxInUsb && (
-                          <span className="text-[10px] font-mono font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
-                            Auxiliary (1-ESP32 Setup)
-                          </span>
-                        )}
-                        {!isLiveMode && (
-                          <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 border border-purple-300">
-                            {sourceLabel}
-                          </span>
-                        )}
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                          zone.analysis?.plantStatus === 'Healthy' 
-                            ? 'bg-emerald-100 text-emerald-800' 
-                            : 'bg-rose-100 text-rose-800'
-                        }`}>
-                          {zone.analysis?.plantStatus || 'Normal'}
-                        </span>
+                        <p className="text-[11px] text-slate-500 font-medium">
+                          {agro?.crop?.variety || 'Hybrid'} • {agro?.acreage || 0.25} Acres
+                        </p>
                       </div>
-                      <p className="text-[11px] text-slate-500 font-medium">
-                        {agro?.crop?.variety || 'Arka Hybrid'} • {areaFormatted.value} {areaFormatted.symbol} ({areaFormatted.sub})
-                      </p>
+                    </div>
+
+                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-200 flex items-center gap-1 group-hover:bg-emerald-600 group-hover:text-white transition-all shrink-0">
+                      <span>3D Field View</span>
+                      <ArrowUpRight className="w-3 h-3" />
+                    </span>
+                  </div>
+
+                  {/* Telemetry Snapshot */}
+                  <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-slate-200/70 text-center">
+                    <div className="bg-white p-2 rounded-lg border border-slate-100">
+                      <span className="text-[9px] text-slate-400 font-bold uppercase block">Moisture</span>
+                      <strong className="text-xs font-black font-mono text-slate-800 block">
+                        {zMoist}
+                      </strong>
+                    </div>
+
+                    <div className="bg-white p-2 rounded-lg border border-slate-100">
+                      <span className="text-[9px] text-slate-400 font-bold uppercase block">Temp</span>
+                      <strong className="text-xs font-black font-mono text-slate-800 block">
+                        {zTemp}
+                      </strong>
+                    </div>
+
+                    <div className="bg-white p-2 rounded-lg border border-slate-100">
+                      <span className="text-[9px] text-slate-400 font-bold uppercase block">Health</span>
+                      <strong className="text-xs font-black font-mono text-emerald-600 block">
+                        {typeof zone.analysis?.overallHealthScore === 'number' && (hasHardware || isSimulated) 
+                          ? `${zone.analysis.overallHealthScore}%` 
+                          : 'N/A'}
+                      </strong>
                     </div>
                   </div>
-
-                  <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-200 flex items-center gap-1 group-hover:bg-emerald-600 group-hover:text-white transition-all shrink-0">
-                    <span>3D Field View</span>
-                    <ArrowUpRight className="w-3 h-3" />
-                  </span>
                 </div>
 
-                {/* Telemetry Metrics Grid */}
-                <div className="grid grid-cols-4 gap-2 mt-4 pt-3 border-t border-slate-200/70 text-center">
-                  <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-2xs">
-                    <span className="text-[10px] text-slate-400 font-bold block">MOISTURE</span>
-                    <strong className="text-xs font-black font-mono text-slate-900 block truncate">
-                      {moistureDisplay}
-                    </strong>
-                    {isZoneLiveUsb && zone.sensorData?.soilRaw !== undefined && zone.sensorData?.soilRaw !== null && (
-                      <span className="text-[9px] text-slate-400 font-mono block">Raw: {zone.sensorData.soilRaw}</span>
-                    )}
-                  </div>
-
-                  <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-2xs">
-                    <span className="text-[10px] text-slate-400 font-bold block">TEMPERATURE</span>
-                    <strong className="text-xs font-black font-mono text-slate-900 block truncate">
-                      {tempDisplay}
-                    </strong>
-                    {isZoneLiveUsb && zone.sensorData?.dhtOk === false && (
-                      <span className="text-[9px] text-rose-500 font-bold block">DHT11 Flag</span>
-                    )}
-                  </div>
-
-                  <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-2xs">
-                    <span className="text-[10px] text-slate-400 font-bold block">WATER NEED</span>
-                    <strong className="text-xs font-black font-mono text-blue-700 block truncate">
-                      {etcObj.etcMmDay} mm/d
-                    </strong>
-                  </div>
-
-                  <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-2xs">
-                    <span className="text-[10px] text-slate-400 font-bold block">HEALTH</span>
-                    <strong className="text-xs font-black font-mono text-emerald-600 block truncate">
-                      {zone.analysis?.overallHealthScore || 85}%
-                    </strong>
-                  </div>
-                </div>
-
-                {/* Agronomic Details */}
-                <div className="flex items-center justify-between mt-3 text-[11px] text-slate-500">
-                  <span className="truncate">
-                    Soil: <strong className="text-slate-700">{agro?.crop?.soilType?.split(' ')[0] || 'Sandy Loam'}</strong>
-                  </span>
-                  <span className="font-mono text-[10px] text-slate-400">
-                    {isZoneLiveUsb 
-                      ? `ESP32 USB (${usbPort || 'COM'})` 
-                      : (isZoneAuxInUsb ? 'Unmonitored' : (isSimulationMode ? 'Simulation Engine' : 'Manual Override'))}
-                  </span>
+                <div className="flex items-center justify-between mt-3 text-[10px] text-slate-400 font-mono">
+                  <span>Soil: {agro?.crop?.soilType || 'Sandy Loam'}</span>
+                  <span>{isZoneLiveA ? 'ESP32 Primary Node' : (isStandby ? 'Auxiliary Node' : 'Simulated')}</span>
                 </div>
               </div>
             );
           })}
         </div>
-      </div>
+      </section>
 
-      {/* Standards Audit & Forecasting Matrix */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
-        {/* Crop Safety & Quality Standards */}
-        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-6 flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
-                <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                <span>Crop Safety & Quality Standards</span>
-              </h3>
-              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                PASSED
-              </span>
-            </div>
-
-            <div className="mt-4 space-y-3 text-xs">
-              <div className="flex items-center justify-between">
-                <span className="text-slate-600">Pest & Safety Rating:</span>
-                <strong className="font-mono font-black text-emerald-600">{globalGap.ipmScore}% (Grade A)</strong>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-600">Harvest Safety Buffer:</span>
-                <strong className="font-mono text-slate-900">100% Safe</strong>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-600">Crop Health Rotation:</span>
-                <strong className="font-mono text-emerald-700">Optimal Rotation</strong>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-600">Irrigation Metering:</span>
-                <strong className="font-mono text-slate-900">Active & Monitored</strong>
-              </div>
-            </div>
-          </div>
-
-          <button
-            onClick={downloadAuditCSV}
-            className="w-full mt-5 py-2.5 px-4 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-2 active:scale-95"
-          >
-            <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
-            <span>Export Farm Data (CSV)</span>
-          </button>
-        </div>
-
-        {/* Local Weather Forecast */}
-        <div className="bg-gradient-to-br from-slate-900 to-slate-850 rounded-2xl border border-slate-800 shadow-md p-6 text-white flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <h3 className="font-extrabold text-sm text-white flex items-center gap-2">
-                <CloudRain className="w-4 h-4 text-cyan-400" />
-                <span>Local Weather Forecast</span>
-              </h3>
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-blue-500/20 text-cyan-400 border border-cyan-500/30">
-                Humidity: {avgHumidity}%
-              </span>
-            </div>
-
-            <div className="flex items-center justify-between my-5">
-              <div>
-                <div className="text-3xl font-black font-mono tracking-tight">
-                  {displayTempObj.value}{displayTempObj.symbol}
-                </div>
-                <div className="text-xs text-slate-400 mt-1 font-medium">Partly Sunny • Good Sunlight</div>
-              </div>
-              <Sun className="w-10 h-10 text-amber-400 animate-spin-slow" />
-            </div>
-
-            <div className="grid grid-cols-3 gap-2 text-center text-[11px] pt-3 border-t border-slate-800">
-              <div className="bg-slate-800/60 p-2 rounded-xl">
-                <div className="text-slate-400">Tomorrow</div>
-                <div className="font-mono font-bold text-white mt-0.5">26°C (68%)</div>
-              </div>
-              <div className="bg-slate-800/60 p-2 rounded-xl">
-                <div className="text-slate-400">Friday</div>
-                <div className="font-mono font-bold text-white mt-0.5">24°C (Rain)</div>
-              </div>
-              <div className="bg-slate-800/60 p-2 rounded-xl">
-                <div className="text-slate-400">Saturday</div>
-                <div className="font-mono font-bold text-white mt-0.5">27°C (Sun)</div>
-              </div>
-            </div>
-          </div>
-
-          <div className="text-[10px] text-slate-400 mt-4 flex items-center justify-between font-mono">
-            <span>Forecast: Local Agro Weather Station</span>
-            <span>Update: 10 min ago</span>
-          </div>
-        </div>
-
-        {/* Live Crop Market Prices */}
-        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-6 flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
-                <TrendingUp className="w-4 h-4 text-emerald-600" />
-                <span>Live Crop Market Prices</span>
-              </h3>
-              <span className="text-[10px] font-mono font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                LIVE SPOT
-              </span>
-            </div>
-
-            <div className="space-y-3 mt-4 text-xs">
-              {[
-                { crop: 'Tomato (Grade A)', price: '$1.48 / kg', trend: '+4.2%', up: true, zone: 'Zone A' },
-                { crop: 'Guntur Chili (Teja)', price: '$2.85 / kg', trend: '+1.8%', up: true, zone: 'Zone B' },
-                { crop: 'Basmati 1509 Paddy', price: '$0.52 / kg', trend: '-0.6%', up: false, zone: 'Zone C' },
-                { crop: 'Groundnut (K-6)', price: '$1.15 / kg', trend: '+2.9%', up: true, zone: 'Zone D' }
-              ].map((item, idx) => (
-                <div key={idx} className="flex items-center justify-between p-2 rounded-xl hover:bg-slate-50 transition-colors">
-                  <div>
-                    <span className="font-bold text-slate-800">{item.crop}</span>
-                    <span className="text-[10px] text-slate-400 block font-mono">{item.zone}</span>
-                  </div>
-                  <div className="text-right">
-                    <strong className="font-mono font-bold text-slate-900">{item.price}</strong>
-                    <span className={`text-[10px] font-mono font-bold block ${item.up ? 'text-emerald-600' : 'text-rose-600'}`}>
-                      {item.trend}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="pt-3 border-t border-slate-100 text-[10px] text-slate-400 flex justify-between font-mono">
-            <span>Market: Local Mandi / APMC</span>
-            <span>Updated Today</span>
-          </div>
-        </div>
-
-      </div>
-
-      {/* Interactive 3D Digital Twin & Agronomy Modal */}
+      {/* ======================================================== */}
+      {/* 6. MODAL: 3D DIGITAL TWIN & FIELD INSPECTOR              */}
+      {/* ======================================================== */}
       {selectedZone && (
         <ZoneDetailModal
           zone={selectedZone}

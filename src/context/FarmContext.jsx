@@ -111,7 +111,8 @@ export const FarmProvider = ({ children }) => {
     formatPressure,
     // Hybrid Mode Controls
     setOperatingMode: (mode) => apiService.setOperatingMode(mode),
-    startRealSimulation: () => apiService.startRealSimulation(),
+    triggerSimulateData: () => apiService.triggerSimulateData(),
+    startRealSimulation: () => apiService.triggerSimulateData(),
     captureSimulationBaseline: () => apiService.captureSimulationBaseline(),
     updateSimulationData: (updates) => apiService.updateSimulationData(updates),
     updateManualData: (updates) => apiService.updateManualData(updates),

@@ -205,14 +205,22 @@ export const analyzeFarmData = (data = {}) => {
 
 /**
  * Calculates aggregate farm health across all zones.
+ * Returns null when necessary sensor readings are unavailable.
  */
 export const generateFarmHealthScore = (zonesData = []) => {
-  if (!zonesData || zonesData.length === 0) return 0;
+  if (!zonesData || zonesData.length === 0) return null;
+  const zonesWithReadings = zonesData.filter(z => 
+    (typeof z.soilMoisture === 'number' && !isNaN(z.soilMoisture)) ||
+    (typeof z.airTemperature === 'number' && !isNaN(z.airTemperature))
+  );
+  if (zonesWithReadings.length === 0) {
+    return null;
+  }
   let totalScore = 0;
-  zonesData.forEach(zone => {
+  zonesWithReadings.forEach(zone => {
     totalScore += analyzeFarmData(zone).overallHealthScore;
   });
-  return Math.round(totalScore / zonesData.length);
+  return Math.round(totalScore / zonesWithReadings.length);
 };
 
 export const SIMULATION_PRESETS = {

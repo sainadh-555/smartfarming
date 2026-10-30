@@ -160,59 +160,113 @@ class SmartFarmApiService {
   // =============================================================
 
   /**
-   * Prominently called when user clicks "Simulate Data".
-   * Captures latest real ESP32 readings into separate simulationBaseline,
-   * clones them into simulationData, switches mode to 'simulation'.
+   * Prominently called when user clicks "SIMULATE DATA".
+   * Queries Python backend (/api/simulate) via local bridge or Render cloud,
+   * with fallback generating realistic values within exact agricultural bounds:
+   * - Temperature: 20 to 40 °C
+   * - Humidity: 30 to 90 %
+   * - Soil Moisture: 20 to 80 %
+   * - Relative Light Intensity: 10 to 100 %
    */
-  startRealSimulation() {
-    const hasReal = this.hardwareData.hasReadings && this.hardwareData.temperature !== null;
+  async triggerSimulateData() {
+    let simResult = null;
 
-    if (hasReal) {
-      this.simulationBaseline = {
-        capturedAt: new Date().toLocaleTimeString(),
-        capturedEpoch: Date.now(),
-        hasRealBaseline: true,
-        source: 'REAL_ESP32_HARDWARE',
-        temperature: Number(this.hardwareData.temperature.toFixed(1)),
-        humidity: Number(this.hardwareData.humidity.toFixed(1)),
-        soilMoisture: Number(this.hardwareData.soilMoisture.toFixed(1)),
-        lightIntensity: this.hardwareData.lightIntensity !== null ? Number(this.hardwareData.lightIntensity.toFixed(0)) : 65
-      };
-    } else {
-      // Clear informative fallback when no real readings have been captured yet
-      this.simulationBaseline = {
-        capturedAt: new Date().toLocaleTimeString(),
-        capturedEpoch: Date.now(),
-        hasRealBaseline: false,
-        source: 'MANUAL_DEFAULTS',
-        temperature: 28.0,
-        humidity: 60.0,
-        soilMoisture: 45.0,
-        lightIntensity: 65.0
+    // 1. Try local USB bridge /api/simulate first (Python random)
+    if (this.bridgeUrl) {
+      try {
+        const res = await fetch(`${this.bridgeUrl}/api/simulate`, {
+          method: 'POST',
+          headers: { 'Accept': 'application/json' },
+          signal: AbortSignal.timeout(2000)
+        });
+        if (res.ok) {
+          const json = await res.json();
+          if (typeof json.temperature === 'number') {
+            simResult = json;
+          }
+        }
+      } catch {
+        // Local bridge not reachable
+      }
+    }
+
+    // 2. Try Render Cloud Backend /api/simulate (Python random on Render)
+    if (!simResult && this.backendUrl) {
+      try {
+        const res = await fetch(`${this.backendUrl}/api/simulate`, {
+          method: 'POST',
+          headers: { 'Accept': 'application/json' },
+          signal: AbortSignal.timeout(3000)
+        });
+        if (res.ok) {
+          const json = await res.json();
+          if (typeof json.temperature === 'number') {
+            simResult = json;
+          }
+        }
+      } catch {
+        // Cloud backend not reachable
+      }
+    }
+
+    // 3. Fallback: Plausible random telemetry within exact Python specifications
+    if (!simResult) {
+      const rand = (min, max) => Number((Math.random() * (max - min) + min).toFixed(1));
+      const t = rand(20.0, 40.0);
+      const h = t > 33.0 ? rand(30.0, 65.0) : rand(45.0, 90.0);
+      const m = rand(20.0, 80.0);
+      const l = rand(10.0, 100.0);
+      simResult = {
+        status: 'success',
+        source: 'CLIENT_FALLBACK_SIMULATION',
+        temperature: t,
+        humidity: h,
+        soilMoisture: m,
+        lightIntensity: l,
+        timestamp: new Date().toISOString()
       };
     }
 
-    // Copy captured baseline into active simulation state
+    // Update simulation data state
     this.simulationData = {
-      temperature: this.simulationBaseline.temperature,
-      humidity: this.simulationBaseline.humidity,
-      soilMoisture: this.simulationBaseline.soilMoisture,
-      lightIntensity: this.simulationBaseline.lightIntensity
+      temperature: simResult.temperature,
+      humidity: simResult.humidity,
+      soilMoisture: simResult.soilMoisture,
+      lightIntensity: simResult.lightIntensity,
+      timestamp: simResult.timestamp,
+      lastSimulatedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
     };
 
+    // Append to historical telemetry time-series
+    this.history.push({
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      temperature: simResult.temperature,
+      humidity: simResult.humidity,
+      soilMoisture: simResult.soilMoisture,
+      lightIntensity: simResult.lightIntensity,
+      isSimulation: true
+    });
+    if (this.history.length > 50) this.history.shift();
+
+    // Switch operating mode to simulation
     this.operatingMode = 'simulation';
     localStorage.setItem('smartfarm_operating_mode', 'simulation');
+
     this.checkAlerts('ZONE-A');
     this.notify();
 
-    return {
-      hasRealBaseline: this.simulationBaseline.hasRealBaseline,
-      baseline: { ...this.simulationBaseline }
-    };
+    return simResult;
+  }
+
+  /**
+   * Backward compatibility alias for startRealSimulation.
+   */
+  startRealSimulation() {
+    return this.triggerSimulateData();
   }
 
   captureSimulationBaseline() {
-    return this.startRealSimulation();
+    return this.triggerSimulateData();
   }
 
   /**

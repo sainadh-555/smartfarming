@@ -8,15 +8,30 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, List, Any, Union
-from datetime import datetime
+from datetime import datetime, timezone
 import os
+import random
 import uvicorn
+
+try:
+    from database import (
+        init_db, SessionLocal, SensorReadingModel, SimulationRecordModel, WeatherRecordModel, FarmAlertModel
+    )
+    DB_AVAILABLE = True
+except Exception as e:
+    print(f"[DB] Database module not loaded: {e}")
+    DB_AVAILABLE = False
 
 app = FastAPI(
     title="SmartFarm AI™ IoT Telemetry Backend",
     description="Enterprise Precision Agriculture & ISOBUS Telemetry API for ESP32 and React Dashboard",
     version="2.0.0"
 )
+
+@app.on_event("startup")
+def startup_event():
+    if DB_AVAILABLE:
+        init_db()
 
 # Configure CORS to permit GitHub Pages, local dev, and mobile clients
 app.add_middleware(
@@ -204,12 +219,88 @@ def receive_sensor_data(payload: SensorPayload):
     print(f"[ESP32] Ingested telemetry from {payload.deviceId} for {zone_id}: "
           f"Moisture={payload.soilMoisture}%, Temp={payload.airTemperature}°C, Hum={payload.humidity}%")
 
+    # Persist physical sensor reading to database
+    if DB_AVAILABLE:
+        try:
+            db = SessionLocal()
+            record = SensorReadingModel(
+                device_id=payload.deviceId,
+                zone_id=zone_id,
+                temperature=payload.airTemperature,
+                humidity=payload.humidity,
+                soil_moisture=payload.soilMoisture,
+                light_intensity=float(payload.lightIntensity or 750),
+                soil_raw=None,
+                light_raw=None,
+                dht_ok=True,
+                is_simulation=False,
+                timestamp=datetime.utcnow()
+            )
+            db.add(record)
+            db.commit()
+            db.close()
+        except Exception as e:
+            print(f"[DB] Error writing sensor telemetry: {e}")
+
     # Respond to ESP32 with active actuator command
     return {
         "status": "success",
         "zoneId": zone_id,
         "pumpCommand": active_pump_command,
         "serverTime": iso_timestamp
+    }
+
+@app.get("/api/simulate")
+@app.post("/api/simulate")
+def simulate_sensor_data():
+    """
+    Generates realistic, internally consistent simulated telemetry
+    using Python's random module per agricultural specifications:
+    - Temperature: between 20.0 and 40.0 °C
+    - Humidity: between 30.0 and 90.0 %
+    - Soil Moisture: between 20.0 and 80.0 %
+    - Relative Light Intensity: between 10.0 and 100.0 %
+    Persists simulation record separately into PostgreSQL/SQLite database.
+    """
+    sim_temp = round(random.uniform(20.0, 40.0), 1)
+    
+    # Internal physical plausibility: higher temperature often correlates with slightly lower relative humidity
+    if sim_temp > 33.0:
+        sim_hum = round(random.uniform(30.0, 65.0), 1)
+    else:
+        sim_hum = round(random.uniform(45.0, 90.0), 1)
+        
+    sim_moist = round(random.uniform(20.0, 80.0), 1)
+    sim_light = round(random.uniform(10.0, 100.0), 1)
+    iso_timestamp = datetime.utcnow().isoformat() + "Z"
+
+    # Persist simulation record to database
+    if DB_AVAILABLE:
+        try:
+            db = SessionLocal()
+            sim_record = SimulationRecordModel(
+                temperature=sim_temp,
+                humidity=sim_hum,
+                soil_moisture=sim_moist,
+                light_intensity=sim_light,
+                source="PYTHON_RANDOM_GENERATOR",
+                notes="Generated via /api/simulate",
+                timestamp=datetime.utcnow()
+            )
+            db.add(sim_record)
+            db.commit()
+            db.close()
+        except Exception as e:
+            print(f"[DB] Error writing simulation record: {e}")
+
+    return {
+        "status": "success",
+        "source": "PYTHON_RANDOM_GENERATOR",
+        "temperature": sim_temp,
+        "humidity": sim_hum,
+        "soilMoisture": sim_moist,
+        "lightIntensity": sim_light,
+        "timestamp": iso_timestamp
     }
 
 @app.get("/api/sensor-data")
