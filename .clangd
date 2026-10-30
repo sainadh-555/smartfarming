@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=none
 # Clangd configuration for Arduino .ino files
 CompileFlags:
   Add:
