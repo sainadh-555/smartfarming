@@ -8,13 +8,21 @@
  */
 
 export const getAIConfig = () => {
+  const envGroqKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GROQ_API_KEY) || '';
+  const envGeminiKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GEMINI_API_KEY) || '';
+  const envOpenAIKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_OPENAI_API_KEY) || '';
+
+  const savedProvider = localStorage.getItem('smartfarm_ai_provider');
+  const storedGroq = localStorage.getItem('smartfarm_groq_key');
+  const groqKey = storedGroq !== null && storedGroq !== '' ? storedGroq : envGroqKey;
+
   return {
-    provider: localStorage.getItem('smartfarm_ai_provider') || 'builtin', // 'builtin' | 'groq' | 'gemini' | 'openai'
-    groqKey: localStorage.getItem('smartfarm_groq_key') || '',
+    provider: savedProvider || (groqKey ? 'groq' : 'builtin'), // 'builtin' | 'groq' | 'gemini' | 'openai'
+    groqKey: groqKey,
     groqModel: localStorage.getItem('smartfarm_groq_model') || 'llama-3.3-70b-versatile',
-    geminiKey: localStorage.getItem('smartfarm_gemini_key') || '',
+    geminiKey: localStorage.getItem('smartfarm_gemini_key') || envGeminiKey,
     geminiModel: localStorage.getItem('smartfarm_gemini_model') || 'gemini-1.5-flash',
-    openaiKey: localStorage.getItem('smartfarm_openai_key') || '',
+    openaiKey: localStorage.getItem('smartfarm_openai_key') || envOpenAIKey,
     model: localStorage.getItem('smartfarm_gemini_model') || 'gemini-1.5-flash'
   };
 };
