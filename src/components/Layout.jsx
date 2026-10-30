@@ -24,9 +24,11 @@ import { useFarmData } from '../context/FarmContext';
 
 export default function Layout() {
   const { 
-    isSimulationRunning, 
-    startSimulation, 
-    stopSimulation, 
+    operatingMode,
+    sourceLabel,
+    hardwareData,
+    startRealSimulation,
+    exitSimulation,
     alerts,
     unitSystem,
     toggleUnitSystem,
@@ -137,30 +139,32 @@ export default function Layout() {
 
           <div className="flex items-center gap-2 mb-2.5">
             <span className={`w-2 h-2 shrink-0 rounded-full ${
-              dataMode === 'usb_hardware'
-                ? (usbStatus === 'connected' ? 'bg-emerald-400 animate-ping' : (usbStatus === 'waiting_data' ? 'bg-amber-400 animate-pulse' : 'bg-rose-400'))
-                : (isSimulationRunning ? 'bg-blue-400 animate-ping' : 'bg-slate-500')
+              operatingMode === 'live_hardware'
+                ? (hardwareData?.connectionStatus === 'connected' && !hardwareData?.isStale ? 'bg-emerald-400 animate-ping' : (hardwareData?.isStale ? 'bg-orange-400' : 'bg-rose-400'))
+                : (operatingMode === 'simulation' ? 'bg-purple-400 animate-pulse' : 'bg-amber-400')
             }`}></span>
             <span className="text-xs font-medium text-slate-200 truncate">
-              {dataMode === 'usb_hardware'
-                ? (usbStatus === 'connected' ? `ESP32 USB (${usbPort || 'COM'})` : (usbStatus === 'waiting_data' ? 'Waiting ESP32...' : 'USB Bridge Offline'))
-                : (isSimulationRunning ? 'Live IoT Stream' : 'Standby Mode')}
+              {operatingMode === 'live_hardware'
+                ? (hardwareData?.connectionStatus === 'connected' && !hardwareData?.isStale 
+                    ? `ESP32 USB (${hardwareData?.port || 'LIVE'})` 
+                    : (hardwareData?.isStale ? `Stale: ${hardwareData?.lastUpdated}` : 'Hardware Offline'))
+                : (operatingMode === 'simulation' ? 'Simulation Engine' : 'Manual Override')}
             </span>
           </div>
 
-          {isSimulationRunning ? (
+          {operatingMode === 'simulation' || operatingMode === 'manual' ? (
             <button 
-              onClick={stopSimulation}
+              onClick={exitSimulation}
               className="w-full py-1.5 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-semibold transition-all active:scale-95"
             >
-              Pause Stream
+              Exit Simulation
             </button>
           ) : (
             <button 
-              onClick={startSimulation}
-              className="w-full py-1.5 px-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-lg text-xs font-bold transition-all shadow-xs active:scale-95 flex items-center justify-center gap-1.5"
+              onClick={startRealSimulation}
+              className="w-full py-1.5 px-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-lg text-xs font-bold transition-all shadow-xs active:scale-95 flex items-center justify-center gap-1.5"
             >
-              <Activity className="w-3.5 h-3.5" /> Start Live Stream
+              <Activity className="w-3.5 h-3.5" /> Simulate Data
             </button>
           )}
         </div>
@@ -207,20 +211,34 @@ export default function Layout() {
                 <span className="hidden xl:inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold border border-emerald-200">
                   <ShieldCheck className="w-3 h-3 text-emerald-600" /> Farm Certified
                 </span>
-                {dataMode === 'usb_hardware' && (
+                {operatingMode === 'live_hardware' && (
                   <span className={`hidden sm:inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-mono font-bold border ${
-                    usbStatus === 'connected' 
+                    hardwareData?.connectionStatus === 'connected' && !hardwareData?.isStale
                       ? 'bg-emerald-100 text-emerald-800 border-emerald-300' 
-                      : (usbStatus === 'waiting_data' ? 'bg-amber-100 text-amber-800 border-amber-300' : 'bg-rose-100 text-rose-800 border-rose-300')
+                      : (hardwareData?.isStale
+                          ? 'bg-orange-100 text-orange-800 border-orange-300'
+                          : (hardwareData?.connectionStatus === 'waiting_data' ? 'bg-amber-100 text-amber-800 border-amber-300' : 'bg-rose-100 text-rose-800 border-rose-300'))
                   }`}>
-                    <span className={`w-1.5 h-1.5 rounded-full ${usbStatus === 'connected' ? 'bg-emerald-600 animate-ping' : (usbStatus === 'waiting_data' ? 'bg-amber-600 animate-pulse' : 'bg-rose-600')}`} />
-                    {usbStatus === 'connected' ? `ESP32 USB (${usbPort || 'LIVE'})` : (usbStatus === 'waiting_data' ? 'USB WAITING' : 'USB OFFLINE')}
+                    <span className={`w-1.5 h-1.5 rounded-full ${
+                      hardwareData?.connectionStatus === 'connected' && !hardwareData?.isStale 
+                        ? 'bg-emerald-600 animate-ping' 
+                        : (hardwareData?.isStale ? 'bg-orange-500' : (hardwareData?.connectionStatus === 'waiting_data' ? 'bg-amber-600 animate-pulse' : 'bg-rose-600'))
+                    }`} />
+                    {hardwareData?.connectionStatus === 'connected' && !hardwareData?.isStale 
+                      ? `ESP32 USB (${hardwareData?.port || 'LIVE'})` 
+                      : (hardwareData?.isStale ? `STALE (${hardwareData?.lastUpdated})` : (hardwareData?.connectionStatus === 'waiting_data' ? 'USB WAITING' : 'USB OFFLINE'))}
                   </span>
                 )}
-                {dataMode === 'simulation' && (
-                  <span className="hidden sm:inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-800 font-mono font-bold border border-blue-200">
-                    <span className="w-1.5 h-1.5 rounded-full bg-blue-600" />
+                {operatingMode === 'simulation' && (
+                  <span className="hidden sm:inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 font-mono font-bold border border-purple-300">
+                    <span className="w-1.5 h-1.5 rounded-full bg-purple-600 animate-pulse" />
                     SIMULATION
+                  </span>
+                )}
+                {operatingMode === 'manual' && (
+                  <span className="hidden sm:inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 font-mono font-bold border border-amber-300">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-600" />
+                    MANUAL INPUT
                   </span>
                 )}
               </div>

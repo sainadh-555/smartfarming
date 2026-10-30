@@ -30,9 +30,8 @@ export const FarmProvider = ({ children }) => {
       setData({ ...newData });
     });
     
-    // Start with initial alert check
+    // Start initial check
     apiService.checkAlerts('ZONE-A');
-    apiService.checkAlerts('ZONE-B');
     apiService.notify();
 
     return () => unsubscribe();
@@ -41,8 +40,20 @@ export const FarmProvider = ({ children }) => {
   // Compute dynamic FAO-56 Reference Evapotranspiration
   const faoEt0 = useMemo(() => {
     if (!data.zones || data.zones.length === 0) return 4.5;
-    const avgTemp = data.zones.reduce((acc, z) => acc + (z.sensorData?.airTemperature || 28), 0) / data.zones.length;
-    const avgHumidity = data.zones.reduce((acc, z) => acc + (z.sensorData?.humidity || 65), 0) / data.zones.length;
+    const validTemps = data.zones
+      .map(z => z.sensorData?.airTemperature)
+      .filter(t => typeof t === 'number' && !isNaN(t));
+    const validHums = data.zones
+      .map(z => z.sensorData?.humidity)
+      .filter(h => typeof h === 'number' && !isNaN(h));
+
+    const avgTemp = validTemps.length > 0 
+      ? validTemps.reduce((acc, t) => acc + t, 0) / validTemps.length 
+      : 28.0;
+    const avgHumidity = validHums.length > 0 
+      ? validHums.reduce((acc, h) => acc + h, 0) / validHums.length 
+      : 60.0;
+
     return calculateFAO56_ET0(avgTemp, avgHumidity);
   }, [data.zones]);
 
@@ -82,26 +93,6 @@ export const FarmProvider = ({ children }) => {
     setUnitSystem(prev => (prev === 'metric' ? 'imperial' : 'metric'));
   };
 
-  const setDataMode = (mode) => {
-    apiService.setDataMode(mode);
-  };
-
-  const setBridgeUrl = (url) => {
-    apiService.setBridgeUrl(url);
-  };
-
-  const testBridgeConnection = async (candidateUrl) => {
-    return await apiService.testBridgeConnection(candidateUrl);
-  };
-
-  const setBackendUrl = (url) => {
-    apiService.setBackendUrl(url);
-  };
-
-  const testBackendConnection = async (candidateUrl) => {
-    return await apiService.testBackendConnection(candidateUrl);
-  };
-
   const value = {
     ...data,
     unitSystem,
@@ -118,13 +109,24 @@ export const FarmProvider = ({ children }) => {
     formatVolume,
     formatArea,
     formatPressure,
-    setDataMode,
-    setBridgeUrl,
-    testBridgeConnection,
-    setBackendUrl,
-    testBackendConnection,
-    startSimulation: () => apiService.startSimulation(),
-    stopSimulation: () => apiService.stopSimulation(),
+    // Hybrid Mode Controls
+    setOperatingMode: (mode) => apiService.setOperatingMode(mode),
+    startRealSimulation: () => apiService.startRealSimulation(),
+    captureSimulationBaseline: () => apiService.captureSimulationBaseline(),
+    updateSimulationData: (updates) => apiService.updateSimulationData(updates),
+    updateManualData: (updates) => apiService.updateManualData(updates),
+    resetSimulationToBaseline: () => apiService.resetSimulationToBaseline(),
+    resetSimulationToDefaults: () => apiService.resetSimulationToDefaults(),
+    applyScenarioPreset: (presetKey) => apiService.applyScenarioPreset(presetKey),
+    exitSimulation: () => apiService.exitSimulation(),
+    // Legacy compatibility methods
+    setDataMode: (mode) => apiService.setDataMode(mode),
+    setBridgeUrl: (url) => apiService.setBridgeUrl(url),
+    testBridgeConnection: (url) => apiService.testBridgeConnection(url),
+    setBackendUrl: (url) => apiService.setBackendUrl(url),
+    testBackendConnection: (url) => apiService.testBackendConnection(url),
+    startSimulation: () => apiService.startRealSimulation(),
+    stopSimulation: () => apiService.exitSimulation(),
     simulateAction: (action, zoneId) => apiService.simulateAction(action, zoneId),
     logPesticideSpray: (zoneId, entry) => apiService.logPesticideSpray(zoneId, entry),
     resolveAlert: (id) => apiService.resolveAlert(id)

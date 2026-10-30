@@ -23,9 +23,16 @@ import {
   Zap,
   Layers,
   FileSpreadsheet,
-  Globe
+  Globe,
+  Cable,
+  Sliders,
+  Sparkles,
+  RotateCcw,
+  X,
+  Radio
 } from 'lucide-react';
 import ZoneDetailModal from '../components/ZoneDetailModal';
+import SimulationControlPanel from '../components/SimulationControlPanel';
 
 const ExecutiveKPICard = ({ title, value, unit, statusText, statusColor, subtext, icon: Icon, badge, colorClass }) => (
   <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-xs hover:shadow-md transition-all flex flex-col justify-between group">
@@ -34,7 +41,7 @@ const ExecutiveKPICard = ({ title, value, unit, statusText, statusColor, subtext
         <Icon className="w-5 h-5" />
       </div>
       {badge && (
-        <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+        <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200 truncate max-w-[140px]">
           {badge}
         </span>
       )}
@@ -66,8 +73,21 @@ export default function Dashboard() {
     formatTemp, 
     formatArea,
     downloadAuditCSV,
-    dataMode,
-    setDataMode,
+    // Hybrid Operating Mode & Data Objects
+    operatingMode,
+    setOperatingMode,
+    sourceLabel,
+    hardwareData,
+    simulationBaseline,
+    simulationData,
+    manualData,
+    simulationDeltas,
+    startRealSimulation,
+    resetSimulationToBaseline,
+    resetSimulationToDefaults,
+    exitSimulation,
+    // Hardware Protocol State
+    hardwareSource,
     usbStatus,
     usbPort,
     usbLastSync,
@@ -83,8 +103,9 @@ export default function Dashboard() {
   
   if (!zones || zones.length === 0) return null;
 
-  const isUsbMode = dataMode === 'usb_hardware';
-  const isCloudMode = dataMode === 'cloud_backend';
+  const isLiveMode = operatingMode === 'live_hardware';
+  const isSimulationMode = operatingMode === 'simulation';
+  const isManualMode = operatingMode === 'manual';
   const liveZoneA = zones.find(z => z.zoneId === 'ZONE-A') || zones[0];
 
   // ----------------------------------------------------
@@ -102,17 +123,12 @@ export default function Dashboard() {
 
   let avgHumidity = 55;
 
-  if (isUsbMode) {
-    // In Live USB Mode, Zone A carries physical hardware data
-    const zoneAMoist = liveZoneA.sensorData?.soilMoisture;
-    const zoneATemp = liveZoneA.sensorData?.airTemperature;
-    const zoneAHum = liveZoneA.sensorData?.humidity;
-
-    if (zoneAMoist !== null && zoneAMoist !== undefined) {
-      displayMoisture = `${zoneAMoist.toFixed(1)}%`;
-      displayMoistureStatus = zoneAMoist < 30 ? 'Low Moisture' : zoneAMoist > 70 ? 'High Moisture' : 'Optimal Level';
-      displayMoistureColor = zoneAMoist < 30 ? 'text-rose-600' : 'text-emerald-600';
-      displayMoistureSub = `Raw ADC: ${liveZoneA.sensorData?.soilRaw !== null && liveZoneA.sensorData?.soilRaw !== undefined ? liveZoneA.sensorData.soilRaw : 'N/A'}`;
+  if (isLiveMode) {
+    if (hardwareData.hasReadings && hardwareData.soilMoisture !== null) {
+      displayMoisture = `${hardwareData.soilMoisture.toFixed(1)}%`;
+      displayMoistureStatus = hardwareData.soilMoisture < 30 ? 'Low Moisture' : hardwareData.soilMoisture > 75 ? 'High Moisture' : 'Optimal Level';
+      displayMoistureColor = hardwareData.soilMoisture < 30 ? 'text-rose-600' : 'text-emerald-600';
+      displayMoistureSub = hardwareData.isStale ? `[STALE] Synced ${hardwareData.lastUpdated}` : `Raw ADC: ${hardwareData.soilRaw ?? 'N/A'}`;
     } else if (usbStatus === 'waiting_data') {
       displayMoisture = 'Waiting...';
       displayMoistureStatus = 'Waiting for Sensor';
@@ -120,17 +136,17 @@ export default function Dashboard() {
       displayMoistureSub = 'Waiting for first packet';
     } else {
       displayMoisture = 'Unavailable';
-      displayMoistureStatus = 'Sensor Offline';
+      displayMoistureStatus = 'Hardware Disconnected';
       displayMoistureColor = 'text-slate-400';
-      displayMoistureSub = 'Check USB cable';
+      displayMoistureSub = 'Check USB cable / Bridge';
     }
 
-    if (zoneATemp !== null && zoneATemp !== undefined) {
-      displayTempObj = formatTemp(zoneATemp);
-      displayTempStatus = zoneATemp > 35 ? 'High Temperature' : 'Normal Temperature';
-      displayTempColor = zoneATemp > 35 ? 'text-amber-600' : 'text-emerald-600';
-      avgHumidity = zoneAHum !== null && zoneAHum !== undefined ? Math.round(zoneAHum) : 60;
-      displayTempSub = `Humidity: ${zoneAHum !== null && zoneAHum !== undefined ? zoneAHum.toFixed(1) + '%' : 'Unavailable'}`;
+    if (hardwareData.hasReadings && hardwareData.temperature !== null) {
+      displayTempObj = formatTemp(hardwareData.temperature);
+      displayTempStatus = hardwareData.temperature > 34 ? 'High Heat Stress' : 'Normal Temperature';
+      displayTempColor = hardwareData.temperature > 34 ? 'text-amber-600' : 'text-emerald-600';
+      avgHumidity = hardwareData.humidity !== null ? Math.round(hardwareData.humidity) : 60;
+      displayTempSub = hardwareData.isStale ? `[STALE] Synced ${hardwareData.lastUpdated}` : `Humidity: ${hardwareData.humidity?.toFixed(1)}%`;
     } else if (usbStatus === 'waiting_data') {
       displayTempObj = { value: 'Waiting...', symbol: '' };
       displayTempStatus = 'Waiting for Data';
@@ -138,191 +154,350 @@ export default function Dashboard() {
       displayTempSub = 'Sensor initializing';
     } else {
       displayTempObj = { value: 'Unavailable', symbol: '' };
-      displayTempStatus = liveZoneA.sensorData?.dhtOk === false ? 'Sensor Error' : 'Sensor Offline';
+      displayTempStatus = hardwareData.dhtOk === false ? 'DHT11 Check Wiring' : 'Sensor Offline';
       displayTempColor = 'text-rose-600';
-      displayTempSub = 'Check GPIO 4 wiring';
+      displayTempSub = 'Connect ESP32';
     }
   } else {
-    // In Cloud Backend or Simulation Mode: aggregate across zones
-    const avgM = Math.round(zones.reduce((acc, z) => acc + (z.sensorData?.soilMoisture || 0), 0) / zones.length);
-    displayMoisture = `${avgM}%`;
-    displayMoistureStatus = avgM < 30 ? 'Low Moisture' : avgM > 70 ? 'High Moisture' : 'Optimal Level';
-    displayMoistureColor = avgM < 30 ? 'text-rose-600' : 'text-emerald-600';
-    displayMoistureSub = isCloudMode ? 'Render Cloud Synced' : 'Target: 40% – 60%';
+    // In Simulation or Manual Mode: values come from the respective state
+    const currentVal = isSimulationMode ? simulationData : manualData;
+    const m = currentVal.soilMoisture ?? 45;
+    const t = currentVal.temperature ?? 28;
+    const h = currentVal.humidity ?? 60;
 
-    const validTemps = zones.filter(z => typeof z.sensorData?.airTemperature === 'number');
-    const avgT = validTemps.length ? validTemps.reduce((acc, z) => acc + z.sensorData.airTemperature, 0) / validTemps.length : 28;
-    displayTempObj = formatTemp(avgT);
-    displayTempStatus = avgT > 35 ? 'High Temperature' : 'Normal Temperature';
-    displayTempColor = avgT > 35 ? 'text-amber-600' : 'text-emerald-600';
-    avgHumidity = Math.round(zones.reduce((acc, z) => acc + (z.sensorData?.humidity || 55), 0) / zones.length);
-    displayTempSub = `Humidity: ${avgHumidity}%`;
+    displayMoisture = `${m.toFixed(1)}%`;
+    displayMoistureStatus = m < 30 ? 'Low Moisture' : m > 75 ? 'High Moisture' : 'Optimal Level';
+    displayMoistureColor = m < 30 ? 'text-rose-600' : 'text-emerald-600';
+    displayMoistureSub = isSimulationMode 
+      ? (simulationBaseline?.hasRealBaseline ? 'Simulated from ESP32' : 'Synthetic Baseline')
+      : 'Manual User Input';
+
+    displayTempObj = formatTemp(t);
+    displayTempStatus = t > 34 ? 'High Heat Stress' : 'Normal Temperature';
+    displayTempColor = t > 34 ? 'text-amber-600' : 'text-emerald-600';
+    avgHumidity = Math.round(h);
+    displayTempSub = `Simulated RH: ${h.toFixed(1)}%`;
   }
 
   const overallHealth = generateFarmHealthScore(zones.map(z => ({...z.sensorData, cropType: z.cropType})));
   const activeAlerts = alerts.filter(a => !a.resolved);
-  const needsIrrigation = zones.some(z => z.analysis.irrigationRecommendation);
-  const farmAreaFormatted = formatArea(1.0);
+  const needsIrrigation = zones.some(z => z.analysis?.irrigationRecommendation);
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       
-      {/* Top Banner: Farm Dashboard */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-gradient-to-r from-slate-900 via-slate-850 to-slate-900 p-6 rounded-2xl text-white shadow-lg border border-slate-800">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] font-mono uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold border border-emerald-500/30">
-              {isCloudMode ? 'Render Cloud Live' : (isUsbMode ? 'ESP32 Hardware Live' : 'Live Farm Telemetry')}
-            </span>
-            <span className="text-[10px] font-mono text-slate-400 hidden sm:inline">
-              {isCloudMode 
-                ? 'Render Cloud Service • Live Telemetry' 
-                : (isUsbMode ? `Connected on ${usbPort || 'USB'} • 115200 Baud` : 'Real-time Sensors • 4 Farm Zones')}
-            </span>
-          </div>
-          <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white flex items-center gap-2.5">
-            <span>Smart Farm Dashboard</span>
-            {isCloudMode && (
-              <span className="text-xs font-mono font-bold px-2.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/40 animate-pulse">
-                CLOUD LIVE
-              </span>
-            )}
-            {isUsbMode && (
-              <span className={`text-xs font-mono font-bold px-2.5 py-0.5 rounded-full border ${
-                usbStatus === 'connected' 
-                  ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30 animate-pulse' 
-                  : (usbStatus === 'waiting_data' ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' : 'bg-rose-500/20 text-rose-400 border-rose-500/30')
+      {/* 3-Mode Global Operating Switcher & Top Header */}
+      <div className="bg-gradient-to-r from-slate-900 via-slate-850 to-slate-900 p-6 rounded-2xl text-white shadow-lg border border-slate-800 space-y-4">
+        
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className={`text-[10px] font-mono uppercase tracking-widest px-2.5 py-0.5 rounded-full font-bold border ${
+                isLiveMode 
+                  ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' 
+                  : (isSimulationMode ? 'bg-purple-500/20 text-purple-300 border-purple-500/30' : 'bg-amber-500/20 text-amber-300 border-amber-500/30')
               }`}>
-                {usbStatus === 'connected' ? 'LIVE USB' : (usbStatus === 'waiting_data' ? 'WAITING DATA' : 'USB OFFLINE')}
+                {sourceLabel}
               </span>
+              <span className="text-[10px] font-mono text-slate-400 hidden sm:inline">
+                {isLiveMode 
+                  ? (hardwareData.hasReadings ? `ESP32 ${usbPort || 'USB'} • ${hardwareData.readingsCount} readings collected` : 'Awaiting physical hardware')
+                  : (isSimulationMode 
+                      ? (simulationBaseline?.hasRealBaseline ? `Baseline from ESP32 at ${simulationBaseline.capturedAt}` : 'Synthetic agro baseline')
+                      : 'Manual user overrides active')}
+              </span>
+            </div>
+
+            <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white flex items-center gap-2.5 flex-wrap">
+              <span>Smart Farm Dashboard</span>
+              {isSimulationMode && (
+                <span className="text-xs font-mono font-bold px-2.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/40 animate-pulse">
+                  SIMULATION ACTIVE
+                </span>
+              )}
+              {isManualMode && (
+                <span className="text-xs font-mono font-bold px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                  MANUAL MODE
+                </span>
+              )}
+              {isLiveMode && (
+                <span className={`text-xs font-mono font-bold px-2.5 py-0.5 rounded-full border ${
+                  hardwareData.connectionStatus === 'connected' && !hardwareData.isStale
+                    ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30 animate-pulse' 
+                    : (hardwareData.isStale 
+                        ? 'bg-orange-500/20 text-orange-300 border-orange-500/30' 
+                        : (hardwareData.connectionStatus === 'waiting_data' ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' : 'bg-rose-500/20 text-rose-400 border-rose-500/30'))
+                }`}>
+                  {hardwareData.connectionStatus === 'connected' && !hardwareData.isStale 
+                    ? 'LIVE ESP32' 
+                    : (hardwareData.isStale ? 'STALE TELEMETRY' : (hardwareData.connectionStatus === 'waiting_data' ? 'WAITING DATA' : 'HARDWARE OFFLINE'))}
+                </span>
+              )}
+            </h1>
+
+            <p className="text-xs sm:text-sm text-slate-300">
+              {isLiveMode 
+                ? 'Displaying immutable live physical measurements from ESP32 sensors. Original values are never faked.'
+                : isSimulationMode 
+                ? 'Adjust simulated conditions on top of captured hardware baseline. AI models and farm health recalculate in real-time.'
+                : 'Directly modify all agricultural parameters without physical sensors for stress testing and scenario analysis.'}
+            </p>
+          </div>
+
+          {/* Mode Selector Tabs + Simulate Data Action Button */}
+          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+            
+            {/* 3 Operating Mode Buttons */}
+            <div className="flex items-center p-1 bg-slate-950/80 rounded-xl border border-slate-700">
+              <button
+                type="button"
+                onClick={() => setOperatingMode('live_hardware')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  isLiveMode 
+                    ? 'bg-emerald-600 text-white shadow-xs' 
+                    : 'text-slate-400 hover:text-white'
+                }`}
+                title="Switch to actual ESP32 sensor telemetry"
+              >
+                <Cable className="w-3.5 h-3.5" />
+                <span>Live Hardware</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => startRealSimulation()}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  isSimulationMode 
+                    ? 'bg-purple-600 text-white shadow-xs' 
+                    : 'text-slate-400 hover:text-white'
+                }`}
+                title="Simulate based on captured hardware baseline"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Simulate Data</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setOperatingMode('manual')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  isManualMode 
+                    ? 'bg-amber-600 text-white shadow-xs' 
+                    : 'text-slate-400 hover:text-white'
+                }`}
+                title="Manually enter custom sensor readings"
+              >
+                <Sliders className="w-3.5 h-3.5" />
+                <span>Manual Mode</span>
+              </button>
+            </div>
+
+            {/* Quick Simulate Data Prominent Action Button (if currently in live mode) */}
+            {isLiveMode && (
+              <button 
+                type="button"
+                onClick={() => startRealSimulation()}
+                className="px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-purple-950/40 flex items-center gap-1.5 active:scale-95 animate-pulse"
+                title="Capture real ESP32 readings as baseline and enter simulation"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Simulate Data</span>
+              </button>
             )}
-          </h1>
-          <p className="text-xs sm:text-sm text-slate-300">
-            {isCloudMode 
-              ? `Live cloud sensor data streaming across all 4 crop zones.`
-              : isUsbMode 
-              ? `Direct sensor data from physical ESP32 in Zone A (Tomato). Aux zones in standby.`
-              : `Real-time soil moisture, temperature, and crop monitoring across 4 farm zones.`}
-          </p>
-        </div>
 
-        {/* Global Action Controls */}
-        <div className="flex flex-wrap items-center gap-2.5 shrink-0">
-          <button 
-            onClick={() => simulateAction('IRRIGATE')}
-            className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-emerald-950/40 flex items-center gap-1.5 active:scale-95"
-            title="Start irrigation for dry zones"
-          >
-            <Zap className="w-3.5 h-3.5" />
-            <span>Start Irrigation</span>
-          </button>
-
-          {!isUsbMode && (
             <button 
-              onClick={() => simulateAction('RAINFALL')}
-              className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95"
-              title="Simulate rain across all zones"
+              type="button"
+              onClick={() => simulateAction('IRRIGATE')}
+              className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-emerald-950/40 flex items-center gap-1.5 active:scale-95"
+              title="Start irrigation for dry zones"
             >
-              <CloudRain className="w-3.5 h-3.5 text-cyan-400" />
-              <span>Simulate Rain</span>
+              <Zap className="w-3.5 h-3.5" />
+              <span>Irrigate</span>
             </button>
-          )}
 
-          <button 
-            onClick={downloadAuditCSV}
-            className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95"
-            title="Download farm data report in CSV"
-          >
-            <Download className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Export CSV</span>
-          </button>
+            <button 
+              type="button"
+              onClick={downloadAuditCSV}
+              className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95"
+              title="Download farm data report in CSV"
+            >
+              <Download className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Export CSV</span>
+            </button>
+          </div>
+
         </div>
+
       </div>
 
-      {/* Cloud Mode Active Banner */}
-      {isCloudMode && (
-        <div className="p-4 rounded-xl border bg-purple-50/90 border-purple-200 text-purple-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-xs">
+      {/* STALE HARDWARE WARNING BANNER (When hardware is disconnected or stale) */}
+      {isLiveMode && hardwareData.isStale && (
+        <div className="p-4 rounded-xl border bg-orange-50 border-orange-200 text-orange-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-xs">
           <div className="flex items-center gap-2.5">
-            <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${cloudStatus === 'connected' ? 'bg-purple-600 animate-ping' : 'bg-amber-500 animate-pulse'}`} />
+            <AlertTriangle className="w-4 h-4 text-orange-600 shrink-0" />
             <div>
-              <strong>
-                {cloudStatus === 'connected' ? 'Render Production Backend Synced' : 'Connecting to Render Backend...'}
-              </strong>
+              <strong>STALE TELEMETRY DETECTED:</strong> ESP32 packets paused. Retaining last valid measurement from <strong>{hardwareData.lastUpdated}</strong>.
               <span className="block opacity-85 text-[11px] mt-0.5">
-                Target: {backendUrl} • Polling interval: 4 seconds. Multi-zone agro-climatic telemetry active.
+                These readings are marked stale and are never represented as live telemetry. Check USB cable and ensure <code>python bridge/serial_bridge.py</code> is running.
               </span>
             </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <span className="font-mono text-[11px] font-bold px-2.5 py-1 rounded-lg bg-white border border-purple-200 text-purple-900">
-              {cloudStatus === 'connected' ? `SYNC: ${lastCloudSync || 'Live'}` : 'CONNECTING...'}
-            </span>
+          <button
+            type="button"
+            onClick={() => startRealSimulation()}
+            className="px-3 py-1.5 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-lg shrink-0 flex items-center gap-1 text-[11px]"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Simulate from Last Reading</span>
+          </button>
+        </div>
+      )}
+
+      {/* SIMULATION DELTA COMPARISON CARD (When Simulation Mode is Active) */}
+      {isSimulationMode && (
+        <div className="bg-gradient-to-br from-purple-50 via-white to-indigo-50 rounded-2xl border-2 border-purple-300 p-5 shadow-md space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-purple-200 gap-2">
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-black uppercase tracking-wider text-purple-900 flex items-center gap-1.5">
+                  <Sparkles className="w-4 h-4 text-purple-600" />
+                  Simulation Telemetry & Baseline Comparison
+                </span>
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 border border-purple-300">
+                  {simulationBaseline?.hasRealBaseline ? 'CAPTURED FROM ESP32' : 'SYNTHETIC BASELINE'}
+                </span>
+              </div>
+              <p className="text-xs text-slate-600 mt-0.5">
+                Baseline captured at {simulationBaseline?.capturedAt || 'N/A'}. Adjust sliders below to observe AI recommendations and farm health reactions.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={resetSimulationToBaseline}
+                className="px-3 py-1.5 bg-white hover:bg-purple-100 text-purple-900 border border-purple-300 rounded-xl text-xs font-bold transition-all flex items-center gap-1 active:scale-95"
+                title="Reset simulation to captured baseline"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-purple-600" />
+                <span>Reset Simulation</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={exitSimulation}
+                className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1 active:scale-95"
+                title="Exit simulation and return to live hardware"
+              >
+                <X className="w-3.5 h-3.5" />
+                <span>Exit Simulation</span>
+              </button>
+            </div>
+          </div>
+
+          {/* 4-Metric Baseline vs Simulated vs Delta Comparison Grid */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            
+            {/* Temperature Delta */}
+            <div className="bg-white p-3 rounded-xl border border-purple-200 shadow-2xs">
+              <span className="text-[10px] font-bold text-slate-500 uppercase block">Air Temperature</span>
+              <div className="text-sm font-black font-mono text-slate-900 mt-1">
+                Simulated: <span className="text-purple-700">{simulationData.temperature}°C</span>
+              </div>
+              <div className="text-xs text-slate-500 font-mono mt-0.5">
+                Baseline: {simulationBaseline?.temperature !== null ? `${simulationBaseline.temperature}°C` : 'N/A'}
+              </div>
+              <div className="mt-1 pt-1 border-t border-slate-100 text-xs font-mono font-bold">
+                Difference:{' '}
+                <span className={simulationDeltas?.temperature?.diff > 0 ? 'text-rose-600' : (simulationDeltas?.temperature?.diff < 0 ? 'text-cyan-600' : 'text-slate-600')}>
+                  {simulationDeltas?.temperature?.formattedDiff || simulationDeltas?.temperature?.text || '0°C'}
+                </span>
+              </div>
+            </div>
+
+            {/* Soil Moisture Delta */}
+            <div className="bg-white p-3 rounded-xl border border-purple-200 shadow-2xs">
+              <span className="text-[10px] font-bold text-slate-500 uppercase block">Soil Moisture</span>
+              <div className="text-sm font-black font-mono text-slate-900 mt-1">
+                Simulated: <span className="text-blue-700">{simulationData.soilMoisture}%</span>
+              </div>
+              <div className="text-xs text-slate-500 font-mono mt-0.5">
+                Baseline: {simulationBaseline?.soilMoisture !== null ? `${simulationBaseline.soilMoisture}%` : 'N/A'}
+              </div>
+              <div className="mt-1 pt-1 border-t border-slate-100 text-xs font-mono font-bold">
+                Difference:{' '}
+                <span className={simulationDeltas?.soilMoisture?.diff > 0 ? 'text-blue-600' : (simulationDeltas?.soilMoisture?.diff < 0 ? 'text-amber-600' : 'text-slate-600')}>
+                  {simulationDeltas?.soilMoisture?.formattedDiff || simulationDeltas?.soilMoisture?.text || '0%'}
+                </span>
+              </div>
+            </div>
+
+            {/* Humidity Delta */}
+            <div className="bg-white p-3 rounded-xl border border-purple-200 shadow-2xs">
+              <span className="text-[10px] font-bold text-slate-500 uppercase block">Relative Humidity</span>
+              <div className="text-sm font-black font-mono text-slate-900 mt-1">
+                Simulated: <span className="text-teal-700">{simulationData.humidity}%</span>
+              </div>
+              <div className="text-xs text-slate-500 font-mono mt-0.5">
+                Baseline: {simulationBaseline?.humidity !== null ? `${simulationBaseline.humidity}%` : 'N/A'}
+              </div>
+              <div className="mt-1 pt-1 border-t border-slate-100 text-xs font-mono font-bold">
+                Difference:{' '}
+                <span className={simulationDeltas?.humidity?.diff > 0 ? 'text-teal-600' : (simulationDeltas?.humidity?.diff < 0 ? 'text-amber-600' : 'text-slate-600')}>
+                  {simulationDeltas?.humidity?.formattedDiff || simulationDeltas?.humidity?.text || '0%'}
+                </span>
+              </div>
+            </div>
+
+            {/* Light Intensity Delta */}
+            <div className="bg-white p-3 rounded-xl border border-purple-200 shadow-2xs">
+              <span className="text-[10px] font-bold text-slate-500 uppercase block">Light Intensity</span>
+              <div className="text-sm font-black font-mono text-slate-900 mt-1">
+                Simulated: <span className="text-amber-700">{simulationData.lightIntensity}%</span>
+              </div>
+              <div className="text-xs text-slate-500 font-mono mt-0.5">
+                Baseline: {simulationBaseline?.lightIntensity !== null ? `${simulationBaseline.lightIntensity}%` : 'N/A'}
+              </div>
+              <div className="mt-1 pt-1 border-t border-slate-100 text-xs font-mono font-bold">
+                Difference:{' '}
+                <span className={simulationDeltas?.lightIntensity?.diff > 0 ? 'text-amber-600' : (simulationDeltas?.lightIntensity?.diff < 0 ? 'text-slate-600' : 'text-slate-600')}>
+                  {simulationDeltas?.lightIntensity?.formattedDiff || simulationDeltas?.lightIntensity?.text || '0%'}
+                </span>
+              </div>
+            </div>
+
           </div>
         </div>
       )}
 
-      {/* USB Hardware Notification Banner (when in Live USB Mode) */}
-      {isUsbMode && (
-        <div className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-xs ${
-          usbStatus === 'connected'
-            ? 'bg-emerald-50/90 border-emerald-200 text-emerald-900'
-            : (usbStatus === 'waiting_data'
-                ? 'bg-amber-50/90 border-amber-200 text-amber-900'
-                : (usbStatus === 'stale'
-                    ? 'bg-orange-50/90 border-orange-200 text-orange-900'
-                    : 'bg-rose-50/90 border-rose-200 text-rose-900'))
-        }`}>
-          <div className="flex items-center gap-2.5">
-            <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${
-              usbStatus === 'connected' ? 'bg-emerald-500 animate-ping' : (usbStatus === 'waiting_data' ? 'bg-amber-500 animate-pulse' : 'bg-rose-500')
-            }`} />
-            <div>
-              <strong>
-                {usbStatus === 'connected' && `ESP32 USB Connected (${usbPort || 'COM'}) — Live Telemetry Active`}
-                {usbStatus === 'waiting_data' && `ESP32 Port Open (${usbPort || 'COM'}) — Waiting for first valid JSON reading...`}
-                {usbStatus === 'stale' && `ESP32 Telemetry Stale — No packets received for > 8 seconds.`}
-                {usbStatus === 'disconnected' && `ESP32 USB Bridge Offline — Cannot reach ${bridgeUrl}. Run python bridge/serial_bridge.py.`}
-              </strong>
-              <span className="block opacity-85 text-[11px] mt-0.5">
-                {usbStatus === 'connected' && `Last valid reading received at ${usbLastSync || 'recently'}. Only real sensor measurements are displayed.`}
-                {usbStatus === 'waiting_data' && `Verify Arduino Serial Monitor is closed so the Python bridge can own the COM port.`}
-                {usbStatus === 'stale' && `Verify USB cable connection and ensure board has adequate power.`}
-                {usbStatus === 'disconnected' && `Simulated data is paused in USB mode to guarantee strict telemetry integrity.`}
-              </span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 shrink-0">
-            <span className="font-mono text-[11px] font-bold px-2.5 py-1 rounded-lg bg-white/80 border border-slate-200">
-              {usbStatus === 'connected' ? `SYNC: ${usbLastSync}` : 'MODE: USB'}
-            </span>
-          </div>
-        </div>
+      {/* INTERACTIVE SIMULATION & MANUAL CONTROL PANEL */}
+      {(isSimulationMode || isManualMode) && (
+        <SimulationControlPanel />
       )}
 
-      {/* 6-Card KPI Matrix */}
+      {/* 6-Card Executive KPI Matrix */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
         <ExecutiveKPICard 
-          title={isUsbMode ? "Zone A Moisture" : "Soil Moisture"} 
+          title="Soil Moisture" 
           value={displayMoisture}
           unit=""
           statusText={displayMoistureStatus}
           statusColor={displayMoistureColor}
           subtext={displayMoistureSub}
           icon={Droplets}
-          badge={isUsbMode ? "Sensor Live" : "Moisture"}
+          badge={sourceLabel}
           colorClass="bg-blue-50 text-blue-600"
         />
 
         <ExecutiveKPICard 
-          title={isUsbMode ? "Zone A Temp" : "Air Temperature"} 
+          title="Air Temperature" 
           value={`${displayTempObj.value}`}
           unit={displayTempObj.symbol}
           statusText={displayTempStatus}
           statusColor={displayTempColor}
           subtext={displayTempSub}
           icon={Thermometer}
-          badge={isUsbMode ? "DHT11" : "Temperature"}
+          badge={sourceLabel}
           colorClass="bg-amber-50 text-amber-600"
         />
 
@@ -330,48 +505,52 @@ export default function Dashboard() {
           title="Water Loss (Evap)" 
           value={`${faoEt0}`}
           unit="mm/day"
-          statusText="Normal Rate"
+          statusText="FAO-56 Rate"
           statusColor="text-cyan-700"
           subtext="Daily water loss"
           icon={Gauge}
-          badge="Water Need"
+          badge="FAO-56 ET0"
           colorClass="bg-cyan-50 text-cyan-600"
         />
 
         <ExecutiveKPICard 
-          title="Crop Health" 
+          title="Crop Safety Score" 
           value={`${globalGap.ipmScore}%`}
           unit=""
           statusText="Grade A (Good)"
           statusColor="text-emerald-600"
-          subtext="Low pest risk"
+          subtext="GlobalG.A.P. IFA"
           icon={ShieldCheck}
-          badge="Healthy"
+          badge="Compliance"
           colorClass="bg-emerald-50 text-emerald-600"
         />
 
         <ExecutiveKPICard 
-          title="Overall Farm Health" 
+          title="Farm Health Score" 
           value={`${overallHealth} / 100`}
           unit=""
-          statusText={overallHealth > 80 ? 'Healthy Crops' : 'Needs Attention'}
-          statusColor={overallHealth > 80 ? 'text-emerald-600' : 'text-amber-600'}
-          subtext="Sensor-based score"
+          statusText={overallHealth > 80 ? 'Healthy Crops' : (overallHealth > 60 ? 'Needs Attention' : 'Critical Stress')}
+          statusColor={overallHealth > 80 ? 'text-emerald-600' : (overallHealth > 60 ? 'text-amber-600' : 'text-rose-600')}
+          subtext={isSimulationMode ? 'Simulated AI health' : 'Threshold-based score'}
           icon={Activity}
-          badge="Health"
+          badge={isSimulationMode ? 'Simulated' : 'Evaluated'}
           colorClass="bg-purple-50 text-purple-600"
         />
 
         <ExecutiveKPICard 
-          title={isCloudMode ? "Cloud Backend" : (isUsbMode ? "ESP32 Device" : "Connected Sensors")} 
-          value={isCloudMode ? (cloudStatus === 'connected' ? 'Online' : 'Connecting') : (isUsbMode ? (usbStatus === 'connected' ? 'Online' : (usbStatus === 'waiting_data' ? 'Waiting' : 'Offline')) : "4 Active")}
-          unit={isCloudMode ? "" : (isUsbMode ? (usbPort || '') : "Zones")}
-          statusText={isCloudMode ? (cloudStatus === 'connected' ? `Synced ${lastCloudSync || 'Live'}` : 'Connecting...') : (isUsbMode ? (usbStatus === 'connected' ? `Synced ${usbLastSync}` : (usbStatus === 'waiting_data' ? 'Waiting for data' : 'Offline')) : (needsIrrigation ? 'Irrigation Needed' : 'Valves Off'))}
-          statusColor={isCloudMode ? (cloudStatus === 'connected' ? 'text-purple-600' : 'text-amber-600') : (isUsbMode ? (usbStatus === 'connected' ? 'text-emerald-600' : 'text-rose-600') : (needsIrrigation ? 'text-blue-600' : 'text-slate-600'))}
-          subtext={isCloudMode ? "Render Cloud" : (isUsbMode ? "Direct USB Cable" : (activeAlerts.length > 0 ? `${activeAlerts.length} Alerts` : 'All normal'))}
-          icon={isCloudMode ? Globe : Cpu}
-          badge={isCloudMode ? "Cloud Live" : (isUsbMode ? "USB Live" : "Active")}
-          colorClass={isCloudMode ? "bg-purple-50 text-purple-700" : (isUsbMode && usbStatus === 'connected' ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-800")}
+          title="System Ingestion" 
+          value={isLiveMode ? (hardwareData.connectionStatus === 'connected' && !hardwareData.isStale ? 'Live ESP32' : (hardwareData.isStale ? 'Stale' : 'Offline')) : (isSimulationMode ? 'Simulation' : 'Manual')}
+          unit=""
+          statusText={isLiveMode 
+            ? (hardwareData.connectionStatus === 'connected' && !hardwareData.isStale ? `Synced ${hardwareData.lastUpdated}` : (hardwareData.isStale ? 'Packets paused' : 'Check cable')) 
+            : (isSimulationMode ? 'Real baseline synced' : 'User input active')}
+          statusColor={isLiveMode 
+            ? (hardwareData.connectionStatus === 'connected' && !hardwareData.isStale ? 'text-emerald-600' : 'text-rose-600') 
+            : (isSimulationMode ? 'text-purple-600' : 'text-amber-600')}
+          subtext={isLiveMode ? (hardwareData.port || 'USB Serial') : sourceLabel}
+          icon={isLiveMode ? Cable : Sliders}
+          badge={sourceLabel}
+          colorClass={isLiveMode ? 'bg-emerald-50 text-emerald-700' : (isSimulationMode ? 'bg-purple-50 text-purple-700' : 'bg-amber-50 text-amber-700')}
         />
       </div>
 
@@ -381,7 +560,10 @@ export default function Dashboard() {
           <div>
             <h2 className="text-base sm:text-lg font-black text-slate-900 tracking-tight flex items-center gap-2">
               <Layers className="w-5 h-5 text-emerald-600" />
-              Farm Zones & Crops (4 Zones)
+              <span>Farm Zones & Crops (4 Zones)</span>
+              <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+                {sourceLabel}
+              </span>
             </h2>
             <p className="text-xs text-slate-500">
               Click any zone to inspect live readings, watering status, crop guidelines, or open the 3D field view.
@@ -389,7 +571,7 @@ export default function Dashboard() {
           </div>
 
           <span className="text-xs font-mono font-bold text-slate-500 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
-            4 Active Zones
+            4 Active Quadrants
           </span>
         </div>
 
@@ -403,8 +585,8 @@ export default function Dashboard() {
             const isCritical = zone.analysis?.riskLevel === 'CRITICAL';
             const isWarning = zone.analysis?.riskLevel === 'HIGH';
 
-            const isZoneLiveUsb = isUsbMode && zone.zoneId === 'ZONE-A';
-            const isZoneAuxInUsb = isUsbMode && zone.zoneId !== 'ZONE-A';
+            const isZoneLiveUsb = isLiveMode && zone.zoneId === 'ZONE-A';
+            const isZoneAuxInUsb = isLiveMode && zone.zoneId !== 'ZONE-A';
 
             const moistureDisplay = typeof zone.sensorData?.soilMoisture === 'number'
               ? `${zone.sensorData.soilMoisture.toFixed(1)}%`
@@ -452,6 +634,11 @@ export default function Dashboard() {
                         {isZoneAuxInUsb && (
                           <span className="text-[10px] font-mono font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
                             Auxiliary (1-ESP32 Setup)
+                          </span>
+                        )}
+                        {!isLiveMode && (
+                          <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 border border-purple-300">
+                            {sourceLabel}
                           </span>
                         )}
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
@@ -519,7 +706,7 @@ export default function Dashboard() {
                   <span className="font-mono text-[10px] text-slate-400">
                     {isZoneLiveUsb 
                       ? `ESP32 USB (${usbPort || 'COM'})` 
-                      : (isZoneAuxInUsb ? 'Unmonitored' : zone.sensorData?.deviceId || 'ESP32-NODE')}
+                      : (isZoneAuxInUsb ? 'Unmonitored' : (isSimulationMode ? 'Simulation Engine' : 'Manual Override'))}
                   </span>
                 </div>
               </div>
@@ -537,7 +724,7 @@ export default function Dashboard() {
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
                 <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                Crop Safety & Quality Standards
+                <span>Crop Safety & Quality Standards</span>
               </h3>
               <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
                 PASSED
@@ -579,10 +766,10 @@ export default function Dashboard() {
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <h3 className="font-extrabold text-sm text-white flex items-center gap-2">
                 <CloudRain className="w-4 h-4 text-cyan-400" />
-                Local Weather Forecast
+                <span>Local Weather Forecast</span>
               </h3>
               <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-blue-500/20 text-cyan-400 border border-cyan-500/30">
-                Humidity: Normal
+                Humidity: {avgHumidity}%
               </span>
             </div>
 
@@ -613,7 +800,7 @@ export default function Dashboard() {
           </div>
 
           <div className="text-[10px] text-slate-400 mt-4 flex items-center justify-between font-mono">
-            <span>Forecast: Local Weather Station</span>
+            <span>Forecast: Local Agro Weather Station</span>
             <span>Update: 10 min ago</span>
           </div>
         </div>
@@ -624,7 +811,7 @@ export default function Dashboard() {
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
                 <TrendingUp className="w-4 h-4 text-emerald-600" />
-                Live Crop Market Prices
+                <span>Live Crop Market Prices</span>
               </h3>
               <span className="text-[10px] font-mono font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
                 LIVE SPOT

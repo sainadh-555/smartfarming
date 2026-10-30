@@ -1,25 +1,88 @@
 import initialSensorReadings from '../data/sensor_readings.json';
 import initialZones from '../data/farm_zones.json';
 import initialAgronomy from '../data/zone_agronomy.json';
-import { analyzeFarmData } from '../ai/farmDecisionEngine';
+import { analyzeFarmData, SIMULATION_PRESETS } from '../ai/farmDecisionEngine';
 
-class MockApiService {
+/**
+ * SmartFarm API Service — Hybrid Architecture
+ * Supports:
+ * 1. LIVE HARDWARE MODE (Actual ESP32 via USB bridge or Render Cloud)
+ * 2. REAL-DATA-BASED SIMULATION MODE (Captures real readings as baseline, modifies separate simulation state)
+ * 3. MANUAL MODE (User-entered values with sliders/inputs)
+ * 
+ * Guarantees complete separation of:
+ * - hardwareData (immutable actual readings)
+ * - simulationBaseline (captured real baseline)
+ * - simulationData (adjustable simulated values)
+ * - manualData (user-entered manual values)
+ */
+class SmartFarmApiService {
   constructor() {
-    this.sensorData = { ...initialSensorReadings };
     this.zones = [...initialZones];
     this.agronomyData = JSON.parse(JSON.stringify(initialAgronomy));
     this.alerts = [];
     this.history = [];
-    this.isSimulationRunning = false;
-    this.simulationInterval = null;
     this.subscribers = new Set();
-    
-    // Selectable Data Mode: 'simulation' | 'usb_hardware' | 'cloud_backend'
-    this.dataMode = localStorage.getItem('smartfarm_data_mode') || 'simulation';
 
-    // Local USB Serial Bridge Integration (http://127.0.0.1:5000)
+    // -------------------------------------------------------------
+    // THREE SEPARATE DATA OBJECTS (Strict Data Integrity)
+    // -------------------------------------------------------------
+
+    // 1. HARDWARE DATA: Immutable actual ESP32 readings
+    this.hardwareData = {
+      hasReadings: false,
+      readingsCount: 0,
+      lastUpdated: null,
+      lastUpdatedEpoch: 0,
+      isStale: false,
+      connectionStatus: 'disconnected', // 'connected' | 'waiting_data' | 'stale' | 'disconnected'
+      port: null,
+      temperature: null,
+      humidity: null,
+      soilMoisture: null,
+      lightIntensity: null,
+      soilRaw: null,
+      lightRaw: null,
+      dhtOk: null
+    };
+
+    // 2. SIMULATION BASELINE & SIMULATION DATA:
+    this.simulationBaseline = {
+      capturedAt: null,
+      capturedEpoch: 0,
+      hasRealBaseline: false,
+      source: 'NONE', // 'REAL_ESP32_HARDWARE' | 'MANUAL_DEFAULTS'
+      temperature: 28.0,
+      humidity: 60.0,
+      soilMoisture: 45.0,
+      lightIntensity: 65.0
+    };
+
+    this.simulationData = {
+      temperature: 28.0,
+      humidity: 60.0,
+      soilMoisture: 45.0,
+      lightIntensity: 65.0
+    };
+
+    // 3. MANUAL DATA: User-controlled custom values
+    this.manualData = {
+      temperature: 28.0,
+      humidity: 60.0,
+      soilMoisture: 50.0,
+      lightIntensity: 70.0
+    };
+
+    // Active Operating Mode: 'live_hardware' | 'simulation' | 'manual'
+    const savedMode = localStorage.getItem('smartfarm_operating_mode');
+    this.operatingMode = (savedMode === 'simulation' || savedMode === 'manual') ? savedMode : 'live_hardware';
+
+    // Hardware Ingestion Protocol: 'usb_hardware' | 'cloud_backend'
+    this.hardwareSource = localStorage.getItem('smartfarm_hardware_source') || 'usb_hardware';
+
+    // Local USB Serial Bridge (http://127.0.0.1:5000)
     this.bridgeUrl = localStorage.getItem('smartfarm_bridge_url') || 'http://127.0.0.1:5000';
-    this.usbStatus = 'disconnected'; // 'waiting_data' | 'connected' | 'stale' | 'disconnected'
+    this.usbStatus = 'disconnected';
     this.usbPort = null;
     this.usbLastSync = null;
     this.usbLastSyncEpoch = 0;
@@ -27,16 +90,16 @@ class MockApiService {
     this.usbError = null;
     this.usbPollingInterval = null;
 
-    // Production Render Cloud Backend Integration
+    // Render Cloud Backend (https://smartfarming-e3b2.onrender.com)
     this.backendUrl = localStorage.getItem('smartfarm_backend_url') || 'https://smartfarming-e3b2.onrender.com';
-    this.cloudStatus = 'disconnected'; // 'connected' | 'disconnected'
+    this.cloudStatus = 'disconnected';
     this.lastCloudSync = null;
     this.cloudPollingInterval = null;
 
-    // Initialize based on saved mode
-    if (this.dataMode === 'usb_hardware') {
+    // Initialize polling
+    if (this.hardwareSource === 'usb_hardware') {
       this.startUsbPolling();
-    } else if (this.dataMode === 'cloud_backend') {
+    } else {
       this.startCloudPolling();
     }
   }
@@ -51,205 +114,443 @@ class MockApiService {
     this.subscribers.forEach(cb => cb(data));
   }
 
-  getAllData() {
-    const enrichedZones = this.zones.map(zone => {
-      const sensorReading = this.sensorData[zone.zoneId];
-      const analysis = analyzeFarmData({ ...sensorReading, cropType: zone.cropType });
-      const agronomy = this.agronomyData[zone.zoneId] || null;
+  // =============================================================
+  // OPERATING MODE MANAGEMENT (3 MODES)
+  // =============================================================
 
-      // In Live USB Hardware mode: Zone A is the primary hardware node connected to the ESP32.
-      // Other zones are clearly identified as unmonitored to avoid claiming independent readings from 1 ESP32.
-      const isZoneAMonitoredUsb = zone.zoneId === 'ZONE-A' && this.dataMode === 'usb_hardware';
-      const isAuxiliaryInUsbMode = zone.zoneId !== 'ZONE-A' && this.dataMode === 'usb_hardware';
-      const isCloudMode = this.dataMode === 'cloud_backend';
+  setOperatingMode(mode) {
+    if (mode !== 'live_hardware' && mode !== 'simulation' && mode !== 'manual') return;
+    this.operatingMode = mode;
+    localStorage.setItem('smartfarm_operating_mode', mode);
+
+    if (mode === 'simulation') {
+      // Auto-capture baseline if real hardware readings exist and no baseline was captured yet
+      if (this.hardwareData.hasReadings && !this.simulationBaseline.hasRealBaseline) {
+        this.captureSimulationBaseline();
+      }
+    }
+
+    this.checkAlerts('ZONE-A');
+    this.notify();
+  }
+
+  // Backward compatibility alias for legacy UI calls
+  setDataMode(legacyMode) {
+    if (legacyMode === 'simulation') {
+      this.setOperatingMode('simulation');
+    } else if (legacyMode === 'manual') {
+      this.setOperatingMode('manual');
+    } else if (legacyMode === 'usb_hardware' || legacyMode === 'cloud_backend') {
+      this.hardwareSource = legacyMode;
+      localStorage.setItem('smartfarm_hardware_source', legacyMode);
+      this.setOperatingMode('live_hardware');
+      if (legacyMode === 'usb_hardware') {
+        this.stopCloudPolling();
+        this.startUsbPolling();
+      } else {
+        this.stopUsbPolling();
+        this.startCloudPolling();
+      }
+    }
+    this.notify();
+  }
+
+  // =============================================================
+  // SIMULATION CONTROLS & BASELINE CAPTURE
+  // =============================================================
+
+  /**
+   * Prominently called when user clicks "Simulate Data".
+   * Captures latest real ESP32 readings into separate simulationBaseline,
+   * clones them into simulationData, switches mode to 'simulation'.
+   */
+  startRealSimulation() {
+    const hasReal = this.hardwareData.hasReadings && this.hardwareData.temperature !== null;
+
+    if (hasReal) {
+      this.simulationBaseline = {
+        capturedAt: new Date().toLocaleTimeString(),
+        capturedEpoch: Date.now(),
+        hasRealBaseline: true,
+        source: 'REAL_ESP32_HARDWARE',
+        temperature: Number(this.hardwareData.temperature.toFixed(1)),
+        humidity: Number(this.hardwareData.humidity.toFixed(1)),
+        soilMoisture: Number(this.hardwareData.soilMoisture.toFixed(1)),
+        lightIntensity: this.hardwareData.lightIntensity !== null ? Number(this.hardwareData.lightIntensity.toFixed(0)) : 65
+      };
+    } else {
+      // Clear informative fallback when no real readings have been captured yet
+      this.simulationBaseline = {
+        capturedAt: new Date().toLocaleTimeString(),
+        capturedEpoch: Date.now(),
+        hasRealBaseline: false,
+        source: 'MANUAL_DEFAULTS',
+        temperature: 28.0,
+        humidity: 60.0,
+        soilMoisture: 45.0,
+        lightIntensity: 65.0
+      };
+    }
+
+    // Copy captured baseline into active simulation state
+    this.simulationData = {
+      temperature: this.simulationBaseline.temperature,
+      humidity: this.simulationBaseline.humidity,
+      soilMoisture: this.simulationBaseline.soilMoisture,
+      lightIntensity: this.simulationBaseline.lightIntensity
+    };
+
+    this.operatingMode = 'simulation';
+    localStorage.setItem('smartfarm_operating_mode', 'simulation');
+    this.checkAlerts('ZONE-A');
+    this.notify();
+
+    return {
+      hasRealBaseline: this.simulationBaseline.hasRealBaseline,
+      baseline: { ...this.simulationBaseline }
+    };
+  }
+
+  captureSimulationBaseline() {
+    return this.startRealSimulation();
+  }
+
+  /**
+   * Updates an individual or multiple simulation fields.
+   * Never modifies hardwareData.
+   */
+  updateSimulationData(updates = {}) {
+    const clamp = (val, min, max, fallback) => {
+      const num = Number(val);
+      if (isNaN(num)) return fallback;
+      return Math.max(min, Math.min(max, num));
+    };
+
+    if (updates.temperature !== undefined) {
+      this.simulationData.temperature = clamp(updates.temperature, 20.0, 45.0, this.simulationData.temperature);
+    }
+    if (updates.humidity !== undefined) {
+      this.simulationData.humidity = clamp(updates.humidity, 20.0, 100.0, this.simulationData.humidity);
+    }
+    if (updates.soilMoisture !== undefined) {
+      this.simulationData.soilMoisture = clamp(updates.soilMoisture, 0.0, 100.0, this.simulationData.soilMoisture);
+    }
+    if (updates.lightIntensity !== undefined) {
+      this.simulationData.lightIntensity = clamp(updates.lightIntensity, 0.0, 100.0, this.simulationData.lightIntensity);
+    }
+
+    if (this.operatingMode !== 'simulation') {
+      this.operatingMode = 'simulation';
+      localStorage.setItem('smartfarm_operating_mode', 'simulation');
+    }
+
+    this.checkAlerts('ZONE-A');
+    this.notify();
+  }
+
+  /**
+   * Updates manual mode data.
+   */
+  updateManualData(updates = {}) {
+    const clamp = (val, min, max, fallback) => {
+      const num = Number(val);
+      if (isNaN(num)) return fallback;
+      return Math.max(min, Math.min(max, num));
+    };
+
+    if (updates.temperature !== undefined) {
+      this.manualData.temperature = clamp(updates.temperature, 20.0, 45.0, this.manualData.temperature);
+    }
+    if (updates.humidity !== undefined) {
+      this.manualData.humidity = clamp(updates.humidity, 20.0, 100.0, this.manualData.humidity);
+    }
+    if (updates.soilMoisture !== undefined) {
+      this.manualData.soilMoisture = clamp(updates.soilMoisture, 0.0, 100.0, this.manualData.soilMoisture);
+    }
+    if (updates.lightIntensity !== undefined) {
+      this.manualData.lightIntensity = clamp(updates.lightIntensity, 0.0, 100.0, this.manualData.lightIntensity);
+    }
+
+    if (this.operatingMode !== 'manual') {
+      this.operatingMode = 'manual';
+      localStorage.setItem('smartfarm_operating_mode', 'manual');
+    }
+
+    this.checkAlerts('ZONE-A');
+    this.notify();
+  }
+
+  /**
+   * Resets simulation data back to the captured baseline.
+   */
+  resetSimulationToBaseline() {
+    this.simulationData = {
+      temperature: this.simulationBaseline.temperature,
+      humidity: this.simulationBaseline.humidity,
+      soilMoisture: this.simulationBaseline.soilMoisture,
+      lightIntensity: this.simulationBaseline.lightIntensity
+    };
+    this.checkAlerts('ZONE-A');
+    this.notify();
+  }
+
+  /**
+   * Resets simulation data back to default optimal values.
+   */
+  resetSimulationToDefaults() {
+    this.simulationData = {
+      temperature: 26.0,
+      humidity: 60.0,
+      soilMoisture: 50.0,
+      lightIntensity: 65.0
+    };
+    this.checkAlerts('ZONE-A');
+    this.notify();
+  }
+
+  /**
+   * Applies one of the 6 scenario presets.
+   */
+  applyScenarioPreset(presetKey) {
+    const preset = SIMULATION_PRESETS[presetKey];
+    if (!preset) return;
+
+    if (this.operatingMode === 'manual') {
+      this.updateManualData({
+        temperature: preset.temperature,
+        humidity: preset.humidity,
+        soilMoisture: preset.soilMoisture,
+        lightIntensity: preset.lightIntensity
+      });
+    } else {
+      this.updateSimulationData({
+        temperature: preset.temperature,
+        humidity: preset.humidity,
+        soilMoisture: preset.soilMoisture,
+        lightIntensity: preset.lightIntensity
+      });
+    }
+  }
+
+  /**
+   * Exits simulation and returns cleanly to live hardware mode.
+   */
+  exitSimulation() {
+    this.setOperatingMode('live_hardware');
+  }
+
+  // =============================================================
+  // DATA INTEGRITY & SOURCE LABELS
+  // =============================================================
+
+  getSourceLabel() {
+    switch (this.operatingMode) {
+      case 'live_hardware':
+        if (this.hardwareData.isStale) {
+          return 'LIVE HARDWARE (STALE)';
+        }
+        return 'LIVE HARDWARE';
+      case 'simulation':
+        return this.simulationBaseline.hasRealBaseline 
+          ? 'SIMULATED FROM REAL BASELINE' 
+          : 'MANUAL SIMULATION (SYNTHETIC BASELINE)';
+      case 'manual':
+        return 'MANUAL INPUT';
+      default:
+        return 'UNKNOWN';
+    }
+  }
+
+  getSimulationDeltas() {
+    const b = this.simulationBaseline;
+    const s = this.simulationData;
+
+    const calcDelta = (simVal, baseVal, unit) => {
+      if (baseVal === null || baseVal === undefined || simVal === null || simVal === undefined) {
+        return { diff: null, text: 'N/A' };
+      }
+      const diff = Number((simVal - baseVal).toFixed(1));
+      const prefix = diff > 0 ? '+' : '';
+      return {
+        diff,
+        text: `${prefix}${diff}${unit}`
+      };
+    };
+
+    return {
+      temperature: {
+        baseline: b.temperature,
+        simulated: s.temperature,
+        ...calcDelta(s.temperature, b.temperature, '°C')
+      },
+      soilMoisture: {
+        baseline: b.soilMoisture,
+        simulated: s.soilMoisture,
+        ...calcDelta(s.soilMoisture, b.soilMoisture, '%')
+      },
+      humidity: {
+        baseline: b.humidity,
+        simulated: s.humidity,
+        ...calcDelta(s.humidity, b.humidity, '%')
+      },
+      lightIntensity: {
+        baseline: b.lightIntensity,
+        simulated: s.lightIntensity,
+        ...calcDelta(s.lightIntensity, b.lightIntensity, '%')
+      }
+    };
+  }
+
+  // =============================================================
+  // GET ALL DATA (ENRICHED ACROSS 4 ZONES)
+  // =============================================================
+
+  getAllData() {
+    const activeLabel = this.getSourceLabel();
+    const deltas = this.getSimulationDeltas();
+
+    // Determine current effective reading based on active mode
+    let effectiveReading = {
+      airTemperature: null,
+      humidity: null,
+      soilMoisture: null,
+      lightIntensity: null
+    };
+
+    if (this.operatingMode === 'live_hardware') {
+      effectiveReading = {
+        airTemperature: this.hardwareData.temperature,
+        humidity: this.hardwareData.humidity,
+        soilMoisture: this.hardwareData.soilMoisture,
+        lightIntensity: this.hardwareData.lightIntensity,
+        soilRaw: this.hardwareData.soilRaw,
+        lightRaw: this.hardwareData.lightRaw,
+        dhtOk: this.hardwareData.dhtOk
+      };
+    } else if (this.operatingMode === 'simulation') {
+      effectiveReading = {
+        airTemperature: this.simulationData.temperature,
+        humidity: this.simulationData.humidity,
+        soilMoisture: this.simulationData.soilMoisture,
+        lightIntensity: this.simulationData.lightIntensity
+      };
+    } else if (this.operatingMode === 'manual') {
+      effectiveReading = {
+        airTemperature: this.manualData.temperature,
+        humidity: this.manualData.humidity,
+        soilMoisture: this.manualData.soilMoisture,
+        lightIntensity: this.manualData.lightIntensity
+      };
+    }
+
+    const enrichedZones = this.zones.map(zone => {
+      let zoneSensor = null;
+
+      if (this.operatingMode === 'live_hardware') {
+        if (zone.zoneId === 'ZONE-A') {
+          zoneSensor = {
+            ...effectiveReading,
+            zoneId: 'ZONE-A',
+            cropType: zone.cropType,
+            timestamp: this.hardwareData.lastUpdated || new Date().toISOString()
+          };
+        } else {
+          // Auxiliary zones are unmonitored / standby in single ESP32 USB mode
+          zoneSensor = {
+            airTemperature: null,
+            humidity: null,
+            soilMoisture: null,
+            lightIntensity: null,
+            zoneId: zone.zoneId,
+            cropType: zone.cropType,
+            timestamp: null,
+            isStandby: true
+          };
+        }
+      } else {
+        // In Simulation or Manual mode: all zones evaluate with consistent simulation telemetry
+        // with small agro-climatic offsets to reflect real soil texture variations
+        const moistureOffset = zone.zoneId === 'ZONE-B' ? -4 : (zone.zoneId === 'ZONE-C' ? 6 : (zone.zoneId === 'ZONE-D' ? -8 : 0));
+        const tempOffset = zone.zoneId === 'ZONE-C' ? -0.8 : (zone.zoneId === 'ZONE-D' ? 0.6 : 0);
+
+        zoneSensor = {
+          airTemperature: effectiveReading.airTemperature !== null ? Number((effectiveReading.airTemperature + tempOffset).toFixed(1)) : 28.0,
+          humidity: effectiveReading.humidity !== null ? effectiveReading.humidity : 60.0,
+          soilMoisture: effectiveReading.soilMoisture !== null ? Math.max(0, Math.min(100, effectiveReading.soilMoisture + moistureOffset)) : 45.0,
+          lightIntensity: effectiveReading.lightIntensity !== null ? effectiveReading.lightIntensity : 65.0,
+          zoneId: zone.zoneId,
+          cropType: zone.cropType,
+          timestamp: new Date().toISOString()
+        };
+      }
+
+      const analysis = analyzeFarmData(zoneSensor);
+      const agronomy = this.agronomyData[zone.zoneId] || null;
 
       return {
         ...zone,
-        sensorData: sensorReading,
+        sensorData: zoneSensor,
         analysis,
         agronomy,
-        isLiveHardware: isCloudMode 
-          ? (this.cloudStatus === 'connected')
-          : (isZoneAMonitoredUsb && this.usbStatus === 'connected'),
-        hardwareStatus: isCloudMode
-          ? this.cloudStatus
-          : (isZoneAMonitoredUsb ? this.usbStatus : (isAuxiliaryInUsbMode ? 'unmonitored' : 'simulated')),
-        hardwareNodeId: isZoneAMonitoredUsb ? 'ESP32-DEV-USB' : (isCloudMode ? `ESP32-CLOUD-${zone.zoneId}` : null),
-        hardwarePort: isZoneAMonitoredUsb ? this.usbPort : null
+        sourceLabel: activeLabel,
+        isLiveHardware: this.operatingMode === 'live_hardware' && this.hardwareData.connectionStatus === 'connected' && !this.hardwareData.isStale && zone.zoneId === 'ZONE-A',
+        isStale: this.operatingMode === 'live_hardware' && this.hardwareData.isStale,
+        hardwareStatus: this.operatingMode === 'live_hardware' 
+          ? (zone.zoneId === 'ZONE-A' ? this.hardwareData.connectionStatus : 'unmonitored')
+          : (this.operatingMode === 'simulation' ? 'simulated' : 'manual'),
+        hardwareNodeId: zone.zoneId === 'ZONE-A' ? 'ESP32-DEV-USB' : null
       };
     });
-
-    const isConnected = this.dataMode === 'cloud_backend' 
-      ? (this.cloudStatus === 'connected')
-      : (this.dataMode === 'usb_hardware' && this.usbStatus === 'connected');
-
-    const lastSyncTime = this.dataMode === 'cloud_backend' ? this.lastCloudSync : this.usbLastSync;
 
     return {
       zones: enrichedZones,
       alerts: this.alerts,
       history: this.history,
-      isSimulationRunning: this.isSimulationRunning,
-      // Telemetry Data Mode
-      dataMode: this.dataMode,
-      // USB Hardware State
+      // Core Mode Architecture
+      operatingMode: this.operatingMode,
+      sourceLabel: activeLabel,
+      hardwareSource: this.hardwareSource,
+      // The 3 Separate Data Objects
+      hardwareData: { ...this.hardwareData },
+      simulationBaseline: { ...this.simulationBaseline },
+      simulationData: { ...this.simulationData },
+      manualData: { ...this.manualData },
+      simulationDeltas: deltas,
+      // Legacy compatibility keys
+      dataMode: this.operatingMode === 'simulation' ? 'simulation' : (this.operatingMode === 'manual' ? 'manual' : this.hardwareSource),
+      isSimulationRunning: this.operatingMode === 'simulation',
+      isLiveHardware: this.operatingMode === 'live_hardware' && this.hardwareData.connectionStatus === 'connected' && !this.hardwareData.isStale,
+      lastHardwareSync: this.hardwareData.lastUpdated,
+      // USB Bridge State
       bridgeUrl: this.bridgeUrl,
-      usbStatus: this.usbStatus,
-      usbPort: this.usbPort,
-      usbLastSync: this.usbLastSync,
-      usbLastSyncEpoch: this.usbLastSyncEpoch,
-      usbRawReadings: this.usbRawReadings,
+      usbStatus: this.hardwareData.connectionStatus,
+      usbPort: this.hardwareData.port,
+      usbLastSync: this.hardwareData.lastUpdated,
+      usbLastSyncEpoch: this.hardwareData.lastUpdatedEpoch,
+      usbRawReadings: this.hardwareData.soilRaw !== null ? {
+        temperature: this.hardwareData.temperature,
+        humidity: this.hardwareData.humidity,
+        soil_moisture: this.hardwareData.soilMoisture,
+        soil_raw: this.hardwareData.soilRaw,
+        light_raw: this.hardwareData.lightRaw,
+        dht_ok: this.hardwareData.dhtOk
+      } : null,
       usbError: this.usbError,
       // Cloud Backend State
       backendUrl: this.backendUrl,
       cloudStatus: this.cloudStatus,
-      lastCloudSync: this.lastCloudSync,
-      // General Hardware sync aliases
-      isLiveHardware: isConnected,
-      lastHardwareSync: lastSyncTime
+      lastCloudSync: this.lastCloudSync
     };
   }
 
-  // ==========================================
-  // DATA MODE MANAGEMENT
-  // ==========================================
-
-  setDataMode(mode) {
-    if (mode !== 'simulation' && mode !== 'usb_hardware' && mode !== 'cloud_backend') return;
-    this.dataMode = mode;
-    localStorage.setItem('smartfarm_data_mode', mode);
-
-    // Stop all active pollers / simulation
-    this.stopSimulation();
-    this.stopUsbPolling();
-    this.stopCloudPolling();
-
-    if (mode === 'usb_hardware') {
-      this.startUsbPolling();
-    } else if (mode === 'cloud_backend') {
-      this.startCloudPolling();
-    } else if (mode === 'simulation') {
-      this.usbStatus = 'disconnected';
-      this.cloudStatus = 'disconnected';
-    }
-
-    this.notify();
-  }
-
-  // ==========================================
-  // RENDER CLOUD BACKEND POLLING (every 4s)
-  // ==========================================
-
-  setBackendUrl(url) {
-    this.backendUrl = url ? url.trim().replace(/\/+$/, '') : 'https://smartfarming-e3b2.onrender.com';
-    localStorage.setItem('smartfarm_backend_url', this.backendUrl);
-    if (this.dataMode === 'cloud_backend') {
-      this.startCloudPolling();
-    }
-    this.notify();
-  }
-
-  async testBackendConnection(candidateUrl) {
-    const target = candidateUrl ? candidateUrl.trim().replace(/\/+$/, '') : this.backendUrl;
-    if (!target) return { success: false, error: 'No backend URL provided' };
-
-    try {
-      const response = await fetch(`${target}/api/health`, {
-        method: 'GET',
-        headers: { 'Accept': 'application/json' },
-        signal: AbortSignal.timeout(6000)
-      });
-
-      if (!response.ok) {
-        return { success: false, error: `HTTP ${response.status}: ${response.statusText}` };
-      }
-
-      const data = await response.json();
-      return { success: true, data };
-    } catch (err) {
-      return { 
-        success: false, 
-        error: err.name === 'TimeoutError'
-          ? 'Connection timed out (Render free tier may be waking up, wait 30s)'
-          : (err.message || 'Connection failed')
-      };
-    }
-  }
-
-  startCloudPolling() {
-    this.stopCloudPolling();
-    this.fetchLiveCloudData();
-    this.cloudPollingInterval = setInterval(() => {
-      this.fetchLiveCloudData();
-    }, 4000);
-  }
-
-  stopCloudPolling() {
-    if (this.cloudPollingInterval) {
-      clearInterval(this.cloudPollingInterval);
-      this.cloudPollingInterval = null;
-    }
-  }
-
-  async fetchLiveCloudData() {
-    if (this.dataMode !== 'cloud_backend' || !this.backendUrl) return;
-
-    try {
-      const response = await fetch(`${this.backendUrl}/api/sensor-data`, {
-        method: 'GET',
-        headers: { 'Accept': 'application/json' },
-        signal: AbortSignal.timeout(5000)
-      });
-
-      if (!response.ok) {
-        this.cloudStatus = 'disconnected';
-        this.notify();
-        return;
-      }
-
-      const data = await response.json();
-      if (data && data.zones) {
-        let updated = false;
-
-        Object.keys(data.zones).forEach(zoneId => {
-          const liveZone = data.zones[zoneId];
-          if (this.sensorData[zoneId] && liveZone) {
-            this.sensorData[zoneId] = {
-              ...this.sensorData[zoneId],
-              soilMoisture: liveZone.soilMoisture !== undefined ? liveZone.soilMoisture : this.sensorData[zoneId].soilMoisture,
-              soilTemperature: liveZone.soilTemperature || this.sensorData[zoneId].soilTemperature,
-              airTemperature: liveZone.airTemperature !== undefined ? liveZone.airTemperature : this.sensorData[zoneId].airTemperature,
-              humidity: liveZone.humidity !== undefined ? liveZone.humidity : this.sensorData[zoneId].humidity,
-              lightIntensity: liveZone.lightIntensity || this.sensorData[zoneId].lightIntensity,
-              soilPH: liveZone.soilPH || this.sensorData[zoneId].soilPH,
-              rainfall: liveZone.rainfall || 0,
-              timestamp: liveZone.lastUpdated || new Date().toISOString()
-            };
-            updated = true;
-          }
-        });
-
-        if (updated) {
-          this.cloudStatus = 'connected';
-          this.lastCloudSync = new Date().toLocaleTimeString();
-          this.checkAlerts('ZONE-A');
-          this.notify();
-        }
-      }
-    } catch {
-      this.cloudStatus = 'disconnected';
-      this.notify();
-    }
-  }
-
-  // ==========================================
+  // =============================================================
   // USB SERIAL BRIDGE POLLING (every 3s)
-  // ==========================================
+  // =============================================================
 
   setBridgeUrl(url) {
     this.bridgeUrl = url ? url.trim().replace(/\/+$/, '') : 'http://127.0.0.1:5000';
     localStorage.setItem('smartfarm_bridge_url', this.bridgeUrl);
-    if (this.dataMode === 'usb_hardware') {
+    if (this.hardwareSource === 'usb_hardware') {
       this.startUsbPolling();
     }
     this.notify();
@@ -298,7 +599,7 @@ class MockApiService {
   }
 
   async fetchLiveUsbData() {
-    if (this.dataMode !== 'usb_hardware') return;
+    if (this.hardwareSource !== 'usb_hardware') return;
 
     try {
       const response = await fetch(`${this.bridgeUrl}/api/readings`, {
@@ -308,66 +609,180 @@ class MockApiService {
       });
 
       if (!response.ok) {
-        this.usbStatus = 'disconnected';
-        this.usbError = `Bridge returned HTTP ${response.status}`;
-        this.notify();
+        this.markHardwareStale(`Bridge returned HTTP ${response.status}`);
         return;
       }
 
       const payload = await response.json();
+      const r = payload.readings;
 
-      this.usbPort = payload.port || this.usbPort;
-      this.usbStatus = payload.status || 'disconnected';
-      this.usbError = payload.last_error || null;
+      if (r && payload.status === 'connected') {
+        const temp = typeof r.temperature === 'number' ? r.temperature : null;
+        const hum = typeof r.humidity === 'number' ? r.humidity : null;
+        const moist = typeof r.soil_moisture === 'number' ? r.soil_moisture : null;
+        const light = typeof r.light_lux === 'number' ? Math.min(100, Math.round((r.light_lux / 1000) * 100)) : 65;
 
-      if (payload.readings) {
-        const r = payload.readings;
-        this.usbRawReadings = r;
-        this.usbLastSync = payload.last_updated 
+        // IMMUTABLE UPDATE TO HARDWARE DATA
+        this.hardwareData.hasReadings = true;
+        this.hardwareData.readingsCount += 1;
+        this.hardwareData.lastUpdated = payload.last_updated 
           ? new Date(payload.last_updated).toLocaleTimeString() 
           : new Date().toLocaleTimeString();
-        this.usbLastSyncEpoch = Date.now();
+        this.hardwareData.lastUpdatedEpoch = Date.now();
+        this.hardwareData.isStale = false;
+        this.hardwareData.connectionStatus = 'connected';
+        this.hardwareData.port = payload.port || this.hardwareData.port;
+        this.hardwareData.temperature = temp;
+        this.hardwareData.humidity = hum;
+        this.hardwareData.soilMoisture = moist;
+        this.hardwareData.lightIntensity = light;
+        this.hardwareData.soilRaw = r.soil_raw;
+        this.hardwareData.lightRaw = r.light_raw;
+        this.hardwareData.dhtOk = r.dht_ok;
 
-        // Update Zone A with real hardware telemetry
-        this.sensorData['ZONE-A'] = {
-          ...this.sensorData['ZONE-A'],
-          deviceId: 'ESP32-DEV-USB',
-          zoneId: 'ZONE-A',
-          timestamp: payload.last_updated || new Date().toISOString(),
-          soilMoisture: r.soil_moisture,
-          airTemperature: r.temperature,
-          humidity: r.humidity,
-          soilTemperature: r.temperature !== null ? Math.round((r.temperature - 1.5) * 10) / 10 : null,
-          lightIntensity: r.light_lux !== null ? r.light_lux : 650,
-          soilRaw: r.soil_raw,
-          lightRaw: r.light_raw,
-          dhtOk: r.dht_ok
-        };
+        this.usbPort = payload.port || this.usbPort;
+        this.usbStatus = 'connected';
+        this.usbError = null;
 
-        this.checkAlerts('ZONE-A');
+        if (this.operatingMode === 'live_hardware') {
+          this.checkAlerts('ZONE-A');
+        }
       } else if (payload.status === 'waiting_data') {
+        this.hardwareData.connectionStatus = 'waiting_data';
         this.usbStatus = 'waiting_data';
-        this.usbRawReadings = null;
+      } else if (payload.status === 'stale') {
+        this.markHardwareStale('Telemetry packet interval exceeded');
+      } else {
+        this.markHardwareStale('No active packets');
       }
 
       this.notify();
     } catch {
-      this.usbStatus = 'disconnected';
-      this.usbError = 'Bridge offline at ' + this.bridgeUrl + ' (Verify python script is running)';
-      this.notify();
+      this.markHardwareStale('Bridge connection lost');
     }
   }
 
-  // ==========================================
-  // CLUSTER ALERTS & SIMULATION CONTROLS
-  // ==========================================
+  markHardwareStale(reason = '') {
+    if (this.hardwareData.hasReadings) {
+      this.hardwareData.isStale = true;
+      this.hardwareData.connectionStatus = 'stale';
+    } else {
+      this.hardwareData.connectionStatus = 'disconnected';
+    }
+    this.usbStatus = this.hardwareData.connectionStatus;
+    this.usbError = reason;
+    this.notify();
+  }
+
+  // =============================================================
+  // RENDER CLOUD BACKEND POLLING (every 4s)
+  // =============================================================
+
+  setBackendUrl(url) {
+    this.backendUrl = url ? url.trim().replace(/\/+$/, '') : 'https://smartfarming-e3b2.onrender.com';
+    localStorage.setItem('smartfarm_backend_url', this.backendUrl);
+    if (this.hardwareSource === 'cloud_backend') {
+      this.startCloudPolling();
+    }
+    this.notify();
+  }
+
+  async testBackendConnection(candidateUrl) {
+    const target = candidateUrl ? candidateUrl.trim().replace(/\/+$/, '') : this.backendUrl;
+    if (!target) return { success: false, error: 'No backend URL provided' };
+
+    try {
+      const response = await fetch(`${target}/api/health`, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(6000)
+      });
+
+      if (!response.ok) {
+        return { success: false, error: `HTTP ${response.status}: ${response.statusText}` };
+      }
+
+      const data = await response.json();
+      return { success: true, data };
+    } catch (err) {
+      return { 
+        success: false, 
+        error: err.name === 'TimeoutError'
+          ? 'Connection timed out (Render free tier may be waking up, wait 30s)'
+          : (err.message || 'Connection failed')
+      };
+    }
+  }
+
+  startCloudPolling() {
+    this.stopCloudPolling();
+    this.fetchLiveCloudData();
+    this.cloudPollingInterval = setInterval(() => {
+      this.fetchLiveCloudData();
+    }, 4000);
+  }
+
+  stopCloudPolling() {
+    if (this.cloudPollingInterval) {
+      clearInterval(this.cloudPollingInterval);
+      this.cloudPollingInterval = null;
+    }
+  }
+
+  async fetchLiveCloudData() {
+    if (this.hardwareSource !== 'cloud_backend' || !this.backendUrl) return;
+
+    try {
+      const response = await fetch(`${this.backendUrl}/api/sensor-data`, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(5000)
+      });
+
+      if (!response.ok) {
+        this.cloudStatus = 'disconnected';
+        this.markHardwareStale(`Cloud HTTP ${response.status}`);
+        return;
+      }
+
+      const data = await response.json();
+      if (data && data.zones && data.zones['ZONE-A']) {
+        const live = data.zones['ZONE-A'];
+        this.hardwareData.hasReadings = true;
+        this.hardwareData.readingsCount += 1;
+        this.hardwareData.lastUpdated = live.lastUpdated ? new Date(live.lastUpdated).toLocaleTimeString() : new Date().toLocaleTimeString();
+        this.hardwareData.lastUpdatedEpoch = Date.now();
+        this.hardwareData.isStale = false;
+        this.hardwareData.connectionStatus = 'connected';
+        this.hardwareData.temperature = live.airTemperature;
+        this.hardwareData.humidity = live.humidity;
+        this.hardwareData.soilMoisture = live.soilMoisture;
+        this.hardwareData.lightIntensity = live.lightIntensity;
+
+        this.cloudStatus = 'connected';
+        this.lastCloudSync = this.hardwareData.lastUpdated;
+
+        if (this.operatingMode === 'live_hardware') {
+          this.checkAlerts('ZONE-A');
+        }
+        this.notify();
+      }
+    } catch {
+      this.cloudStatus = 'disconnected';
+      this.markHardwareStale('Cloud offline');
+    }
+  }
+
+  // =============================================================
+  // ALERTS & OPERATIONAL ACTIONS
+  // =============================================================
 
   checkAlerts(zoneId) {
-    const reading = this.sensorData[zoneId];
-    const zone = this.zones.find(z => z.zoneId === zoneId);
-    if (!zone || !reading) return;
-    const analysis = analyzeFarmData({ ...reading, cropType: zone.cropType });
-    
+    const enriched = this.getAllData().zones;
+    const zone = enriched.find(z => z.zoneId === zoneId);
+    if (!zone || !zone.analysis) return;
+    const analysis = zone.analysis;
+
     if (analysis.riskLevel === 'HIGH' || analysis.riskLevel === 'CRITICAL') {
       const existingAlert = this.alerts.find(a => a.zoneId === zoneId && !a.resolved && a.type === analysis.riskLevel);
       if (!existingAlert) {
@@ -393,87 +808,51 @@ class MockApiService {
     }
   }
 
-  startSimulation() {
-    if (this.isSimulationRunning) return;
-    this.isSimulationRunning = true;
-    
-    this.simulationInterval = setInterval(() => {
-      Object.keys(this.sensorData).forEach(zoneId => {
-        if (zoneId === 'ZONE-A' && this.dataMode === 'usb_hardware') return;
-        if (this.dataMode === 'cloud_backend') return;
-
-        const data = this.sensorData[zoneId];
-        const moistureChange = (Math.random() * 1.0) - 0.6;
-        const tempChange = (Math.random() * 0.4) - 0.15;
-        
-        data.soilMoisture = Math.max(0, Math.min(100, (data.soilMoisture || 30) + moistureChange));
-        data.airTemperature = Math.max(10, Math.min(50, (data.airTemperature || 28) + tempChange));
-        data.humidity = Math.max(0, Math.min(100, (data.humidity || 55) + ((Math.random() * 2) - 1)));
-        data.timestamp = new Date().toISOString();
-        this.checkAlerts(zoneId);
-      });
-      this.notify();
-    }, 5000);
-    this.notify();
-  }
-
-  stopSimulation() {
-    this.isSimulationRunning = false;
-    if (this.simulationInterval) {
-      clearInterval(this.simulationInterval);
-      this.simulationInterval = null;
-    }
-    this.notify();
-  }
-
-  async simulateAction(action, zoneId = 'ZONE-A') {
-    const data = this.sensorData[zoneId];
-    if (!data) return;
-
+  simulateAction(action, zoneId = 'ZONE-A') {
     if (action === 'IRRIGATE') {
-      data.soilMoisture = Math.min(100, (data.soilMoisture || 20) + 40);
-      data.soilTemperature = Math.max(15, (data.soilTemperature || 25) - 2);
-      data.plantHealthScore = Math.min(100, (data.plantHealthScore || 70) + 5);
-      
+      if (this.operatingMode === 'simulation') {
+        this.updateSimulationData({
+          soilMoisture: Math.min(100, (this.simulationData.soilMoisture || 20) + 35)
+        });
+      } else if (this.operatingMode === 'manual') {
+        this.updateManualData({
+          soilMoisture: Math.min(100, (this.manualData.soilMoisture || 20) + 35)
+        });
+      }
       this.alerts.unshift({
         id: Date.now().toString(),
         zoneId,
         zoneName: this.zones.find(z => z.zoneId === zoneId)?.name || zoneId,
         timestamp: new Date().toISOString(),
         severity: 'Information',
-        message: `Irrigation applied to ${zoneId}. Soil moisture increased.`,
+        message: `Irrigation valve command dispatched to ${zoneId}.`,
         resolved: false
       });
-
-      // Forward to Render backend if in cloud mode
-      if (this.dataMode === 'cloud_backend' && this.backendUrl) {
-        try {
-          fetch(`${this.backendUrl}/api/irrigate`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ zoneId, action: 'IRRIGATE' })
-          }).catch(() => {});
-        } catch {}
-      }
     } else if (action === 'RAINFALL') {
-      Object.keys(this.sensorData).forEach(zid => {
-        if (zid === 'ZONE-A' && this.dataMode === 'usb_hardware') return;
-        this.sensorData[zid].rainfall = (this.sensorData[zid].rainfall || 0) + 15;
-        this.sensorData[zid].soilMoisture = Math.min(100, (this.sensorData[zid].soilMoisture || 30) + 30);
-        this.sensorData[zid].humidity = Math.min(100, (this.sensorData[zid].humidity || 50) + 15);
-        this.sensorData[zid].airTemperature = Math.max(15, (this.sensorData[zid].airTemperature || 28) - 3);
-      });
+      if (this.operatingMode === 'simulation') {
+        this.updateSimulationData({
+          soilMoisture: Math.min(100, (this.simulationData.soilMoisture || 35) + 30),
+          humidity: Math.min(100, (this.simulationData.humidity || 50) + 20),
+          temperature: Math.max(15, (this.simulationData.temperature || 28) - 3)
+        });
+      } else if (this.operatingMode === 'manual') {
+        this.updateManualData({
+          soilMoisture: Math.min(100, (this.manualData.soilMoisture || 35) + 30),
+          humidity: Math.min(100, (this.manualData.humidity || 50) + 20),
+          temperature: Math.max(15, (this.manualData.temperature || 28) - 3)
+        });
+      }
       this.alerts.unshift({
         id: Date.now().toString(),
         zoneId: 'ALL',
         zoneName: 'Farm-wide',
         timestamp: new Date().toISOString(),
         severity: 'Information',
-        message: `Rainfall detected. Sensor parameters updated.`,
+        message: `Rainfall scenario applied to field telemetry.`,
         resolved: false
       });
     }
-    
+
     this.checkAlerts(zoneId);
     this.notify();
   }
@@ -515,4 +894,4 @@ class MockApiService {
   }
 }
 
-export const apiService = new MockApiService();
+export const apiService = new SmartFarmApiService();
