@@ -40,8 +40,10 @@ export default function AIAgronomistChat() {
   const [aiConfig, setAiConfig] = useState(getAIConfig());
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
   const [tempProvider, setTempProvider] = useState(aiConfig.provider);
-  const [tempGeminiKey, setTempGeminiKey] = useState(aiConfig.geminiKey);
-  const [tempOpenAIKey, setTempOpenAIKey] = useState(aiConfig.openaiKey);
+  const [tempGroqKey, setTempGroqKey] = useState(aiConfig.groqKey || '');
+  const [tempGroqModel, setTempGroqModel] = useState(aiConfig.groqModel || 'llama-3.3-70b-versatile');
+  const [tempGeminiKey, setTempGeminiKey] = useState(aiConfig.geminiKey || '');
+  const [tempOpenAIKey, setTempOpenAIKey] = useState(aiConfig.openaiKey || '');
   const [tempModel, setTempModel] = useState(aiConfig.model || 'gemini-1.5-flash');
   const [showKey, setShowKey] = useState(false);
   const [testStatus, setTestStatus] = useState(null);
@@ -152,39 +154,44 @@ export default function AIAgronomistChat() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isTyping]);
 
-  // Handle User Message Submission
+  // Handle User Input Submission
   const handleSendMessage = async (textToSend = null) => {
-    const text = textToSend || inputValue;
-    if (!text.trim()) return;
+    const query = (textToSend || inputValue).trim();
+    if (!query) return;
 
     const userMessage = {
-      id: `usr-${Date.now()}`,
+      id: `msg-${Date.now()}`,
       sender: 'user',
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      text: text.trim()
+      text: query
     };
 
     setMessages(prev => [...prev, userMessage]);
-    setInputValue('');
+    if (!textToSend) setInputValue('');
     setIsTyping(true);
 
     try {
-      const aiReply = await executeAIChatQuery(text, zones, alerts, simulateAction);
-      const aiMessage = {
-        id: `ai-${Date.now()}`,
+      const aiResponse = await executeAIChatQuery(query, zones, alerts, simulateAction);
+
+      const botMessage = {
+        id: `msg-${Date.now() + 1}`,
         sender: 'ai',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        text: aiReply.text,
-        actions: aiReply.actions,
-        suggestions: aiReply.suggestions,
-        source: aiReply.source,
-        warning: aiReply.warning
+        text: aiResponse.text,
+        actions: aiResponse.actions || [],
+        suggestions: aiResponse.suggestions || [
+          'Give me a farm-wide summary',
+          'Check pesticide schedule',
+          'Turn on irrigation for Zone D'
+        ],
+        source: aiResponse.source,
+        warning: aiResponse.warning
       };
 
-      setMessages(prev => [...prev, aiMessage]);
+      setMessages(prev => [...prev, botMessage]);
     } catch (err) {
       const fallbackMessage = {
-        id: `ai-${Date.now()}`,
+        id: `msg-${Date.now() + 1}`,
         sender: 'ai',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         text: `🌾 **AI Copilot Response:** Unable to connect to cloud model (${err.message}). Using local agronomist rules.\n\nAll 4 zones are monitored and valves remain operational.`,
@@ -221,8 +228,18 @@ export default function AIAgronomistChat() {
   const handleTestKey = async () => {
     setTestingKey(true);
     setTestStatus(null);
-    const key = tempProvider === 'gemini' ? tempGeminiKey : tempOpenAIKey;
-    const res = await testAIConnection(tempProvider, key, tempModel);
+    let key = '';
+    let model = '';
+    if (tempProvider === 'groq') {
+      key = tempGroqKey;
+      model = tempGroqModel;
+    } else if (tempProvider === 'gemini') {
+      key = tempGeminiKey;
+      model = tempModel;
+    } else if (tempProvider === 'openai') {
+      key = tempOpenAIKey;
+    }
+    const res = await testAIConnection(tempProvider, key, model);
     setTestStatus(res);
     setTestingKey(false);
   };
@@ -231,7 +248,10 @@ export default function AIAgronomistChat() {
   const handleSaveConfig = () => {
     const newConfig = {
       provider: tempProvider,
+      groqKey: tempGroqKey,
+      groqModel: tempGroqModel,
       geminiKey: tempGeminiKey,
+      geminiModel: tempModel,
       openaiKey: tempOpenAIKey,
       model: tempModel
     };
@@ -262,7 +282,12 @@ export default function AIAgronomistChat() {
               <h3 className="font-black text-sm tracking-tight">SmartFarm AI Agronomist Copilot</h3>
               
               {/* Dynamic Engine Badge */}
-              {aiConfig.provider === 'gemini' && aiConfig.geminiKey ? (
+              {aiConfig.provider === 'groq' && aiConfig.groqKey ? (
+                <span className="text-[10px] bg-amber-500/30 text-amber-200 border border-amber-400/30 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
+                  <Zap className="w-3 h-3 text-amber-300" />
+                  <span>Groq Llama 3.3 Live</span>
+                </span>
+              ) : aiConfig.provider === 'gemini' && aiConfig.geminiKey ? (
                 <span className="text-[10px] bg-blue-500/30 text-blue-200 border border-blue-400/30 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
                   <span>Google Gemini Live</span>
                 </span>
@@ -288,8 +313,10 @@ export default function AIAgronomistChat() {
           <button
             onClick={() => {
               setTempProvider(aiConfig.provider);
-              setTempGeminiKey(aiConfig.geminiKey);
-              setTempOpenAIKey(aiConfig.openaiKey);
+              setTempGroqKey(aiConfig.groqKey || '');
+              setTempGroqModel(aiConfig.groqModel || 'llama-3.3-70b-versatile');
+              setTempGeminiKey(aiConfig.geminiKey || '');
+              setTempOpenAIKey(aiConfig.openaiKey || '');
               setTempModel(aiConfig.model || 'gemini-1.5-flash');
               setTestStatus(null);
               setIsConfigModalOpen(true);
@@ -392,6 +419,7 @@ export default function AIAgronomistChat() {
                   {/* Timestamp & Source badge */}
                   <div className={`text-[10px] mt-2 flex items-center justify-between ${isAI ? 'text-slate-400' : 'text-emerald-200'}`}>
                     <span>
+                      {isAI && msg.source === 'groq' && '⚡ Powered by Groq (Llama 3.3)'}
                       {isAI && msg.source === 'gemini' && '⚡ Powered by Gemini'}
                       {isAI && msg.source === 'openai' && '⚡ Powered by OpenAI'}
                       {isAI && msg.source === 'builtin' && '🌱 Built-in Farm AI'}
@@ -482,13 +510,13 @@ export default function AIAgronomistChat() {
         </form>
 
         <div className="flex justify-between items-center mt-2 text-[10px] text-slate-400 font-medium px-1">
-          <span>Zero API key required for built-in AI • Natural conversations enabled</span>
+          <span>Zero API key required for built-in AI • Groq, Gemini & OpenAI supported</span>
           <button 
             type="button" 
             onClick={() => setIsConfigModalOpen(true)}
             className="text-purple-600 hover:text-purple-800 font-semibold underline flex items-center gap-1"
           >
-            <span>Optional API Key Settings</span>
+            <span>AI Settings / API Keys</span>
           </button>
         </div>
       </div>
@@ -496,7 +524,7 @@ export default function AIAgronomistChat() {
       {/* AI Engine & API Key Configuration Modal */}
       {isConfigModalOpen && (
         <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full p-6 space-y-5 animate-scaleUp">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full p-6 space-y-4 animate-scaleUp max-h-[90vh] overflow-y-auto">
             
             {/* Modal Header */}
             <div className="flex items-start justify-between pb-3 border-b border-slate-100">
@@ -519,7 +547,7 @@ export default function AIAgronomistChat() {
             </div>
 
             {/* Provider Options */}
-            <div className="space-y-3">
+            <div className="space-y-2.5">
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
                 Select AI Engine
               </label>
@@ -527,7 +555,7 @@ export default function AIAgronomistChat() {
               {/* 1. Built-in Farm AI */}
               <div
                 onClick={() => setTempProvider('builtin')}
-                className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all flex items-start justify-between gap-3 ${
+                className={`p-3 rounded-xl border-2 cursor-pointer transition-all flex items-start justify-between gap-3 ${
                   tempProvider === 'builtin'
                     ? 'border-purple-600 bg-purple-50/50 shadow-xs'
                     : 'border-slate-200 hover:border-slate-300'
@@ -551,10 +579,40 @@ export default function AIAgronomistChat() {
                 </div>
               </div>
 
-              {/* 2. Google Gemini */}
+              {/* 2. Groq Cloud */}
+              <div
+                onClick={() => setTempProvider('groq')}
+                className={`p-3 rounded-xl border-2 cursor-pointer transition-all flex items-start justify-between gap-3 ${
+                  tempProvider === 'groq'
+                    ? 'border-amber-500 bg-amber-50/50 shadow-xs'
+                    : 'border-slate-200 hover:border-slate-300'
+                }`}
+              >
+                <div className="flex items-start gap-2.5">
+                  <div className="mt-0.5 w-4 h-4 rounded-full border-2 border-amber-600 flex items-center justify-center">
+                    {tempProvider === 'groq' && <span className="w-2 h-2 rounded-full bg-amber-600" />}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-xs text-slate-900 flex items-center gap-1">
+                        <Zap className="w-3.5 h-3.5 text-amber-600" />
+                        Groq Cloud (Llama 3.3 70B)
+                      </span>
+                      <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-1.5 py-0.2 rounded">
+                        Ultra-Fast • Free API Key
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+                      Up to 500 tokens/sec with Meta Llama 3.3 70B or Llama 3.1 8B. Blazing fast precision agronomy.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* 3. Google Gemini */}
               <div
                 onClick={() => setTempProvider('gemini')}
-                className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all flex items-start justify-between gap-3 ${
+                className={`p-3 rounded-xl border-2 cursor-pointer transition-all flex items-start justify-between gap-3 ${
                   tempProvider === 'gemini'
                     ? 'border-blue-600 bg-blue-50/50 shadow-xs'
                     : 'border-slate-200 hover:border-slate-300'
@@ -578,10 +636,10 @@ export default function AIAgronomistChat() {
                 </div>
               </div>
 
-              {/* 3. OpenAI */}
+              {/* 4. OpenAI */}
               <div
                 onClick={() => setTempProvider('openai')}
-                className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all flex items-start justify-between gap-3 ${
+                className={`p-3 rounded-xl border-2 cursor-pointer transition-all flex items-start justify-between gap-3 ${
                   tempProvider === 'openai'
                     ? 'border-emerald-600 bg-emerald-50/50 shadow-xs'
                     : 'border-slate-200 hover:border-slate-300'
@@ -600,6 +658,56 @@ export default function AIAgronomistChat() {
                 </div>
               </div>
             </div>
+
+            {/* Conditional Key Input for Groq */}
+            {tempProvider === 'groq' && (
+              <div className="space-y-3 p-3.5 bg-amber-50/70 border border-amber-200 rounded-xl">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-amber-900">
+                    Groq Cloud API Key
+                  </label>
+                  <a
+                    href="https://console.groq.com/keys"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[11px] text-amber-700 hover:underline flex items-center gap-1 font-semibold"
+                  >
+                    <span>Get Free Groq Key</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+
+                <div className="relative">
+                  <input
+                    type={showKey ? 'text' : 'password'}
+                    value={tempGroqKey}
+                    onChange={(e) => setTempGroqKey(e.target.value)}
+                    placeholder="gsk_..."
+                    className="w-full pl-3 pr-10 py-2 bg-white border border-amber-300 rounded-lg text-xs font-mono focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowKey(!showKey)}
+                    className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600"
+                  >
+                    {showKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between text-[11px] text-slate-500">
+                  <span>Model: <strong>{tempGroqModel}</strong></span>
+                  <select
+                    value={tempGroqModel}
+                    onChange={(e) => setTempGroqModel(e.target.value)}
+                    className="bg-white border border-slate-300 rounded px-2 py-0.5 text-xs font-medium"
+                  >
+                    <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile (Best & Recommended)</option>
+                    <option value="llama-3.1-8b-instant">llama-3.1-8b-instant (Fastest)</option>
+                    <option value="mixtral-8x7b-32768">mixtral-8x7b-32768</option>
+                  </select>
+                </div>
+              </div>
+            )}
 
             {/* Conditional Key Input for Gemini */}
             {tempProvider === 'gemini' && (
@@ -715,7 +823,7 @@ export default function AIAgronomistChat() {
                 <button
                   type="button"
                   onClick={handleTestKey}
-                  disabled={testingKey || (tempProvider === 'gemini' && !tempGeminiKey) || (tempProvider === 'openai' && !tempOpenAIKey)}
+                  disabled={testingKey || (tempProvider === 'groq' && !tempGroqKey) || (tempProvider === 'gemini' && !tempGeminiKey) || (tempProvider === 'openai' && !tempOpenAIKey)}
                   className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-700 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
                 >
                   {testingKey ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5 text-amber-600" />}

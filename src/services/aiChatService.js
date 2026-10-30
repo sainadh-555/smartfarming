@@ -2,14 +2,18 @@
  * SmartFarm AI™ — Hybrid AI Chat Service
  * Supports:
  * 1. Built-in Smart Agronomist (100% Free, Zero Setup, Offline, Dynamic Farm Rules)
- * 2. Google Gemini API (Free API Key from Google AI Studio: gemini-1.5-flash / gemini-2.0-flash)
- * 3. OpenAI API (GPT-4o / GPT-4o-mini / GPT-3.5)
+ * 2. Groq Cloud API (Free API Key from console.groq.com: Llama 3.3 70B, Llama 3.1 8B, Mixtral)
+ * 3. Google Gemini API (Free API Key from Google AI Studio: gemini-1.5-flash / gemini-2.0-flash)
+ * 4. OpenAI API (GPT-4o / GPT-4o-mini / GPT-3.5)
  */
 
 export const getAIConfig = () => {
   return {
-    provider: localStorage.getItem('smartfarm_ai_provider') || 'builtin', // 'builtin' | 'gemini' | 'openai'
+    provider: localStorage.getItem('smartfarm_ai_provider') || 'builtin', // 'builtin' | 'groq' | 'gemini' | 'openai'
+    groqKey: localStorage.getItem('smartfarm_groq_key') || '',
+    groqModel: localStorage.getItem('smartfarm_groq_model') || 'llama-3.3-70b-versatile',
     geminiKey: localStorage.getItem('smartfarm_gemini_key') || '',
+    geminiModel: localStorage.getItem('smartfarm_gemini_model') || 'gemini-1.5-flash',
     openaiKey: localStorage.getItem('smartfarm_openai_key') || '',
     model: localStorage.getItem('smartfarm_gemini_model') || 'gemini-1.5-flash'
   };
@@ -17,7 +21,10 @@ export const getAIConfig = () => {
 
 export const saveAIConfig = (config) => {
   if (config.provider) localStorage.setItem('smartfarm_ai_provider', config.provider);
+  if (config.groqKey !== undefined) localStorage.setItem('smartfarm_groq_key', config.groqKey.trim());
+  if (config.groqModel) localStorage.setItem('smartfarm_groq_model', config.groqModel);
   if (config.geminiKey !== undefined) localStorage.setItem('smartfarm_gemini_key', config.geminiKey.trim());
+  if (config.geminiModel) localStorage.setItem('smartfarm_gemini_model', config.geminiModel);
   if (config.openaiKey !== undefined) localStorage.setItem('smartfarm_openai_key', config.openaiKey.trim());
   if (config.model) localStorage.setItem('smartfarm_gemini_model', config.model);
 };
@@ -53,16 +60,37 @@ YOUR BEHAVIOR:
 /**
  * Test API Key validity
  */
-export const testAIConnection = async (provider, apiKey, model = 'gemini-1.5-flash') => {
+export const testAIConnection = async (provider, apiKey, model) => {
   if (!apiKey || !apiKey.trim()) {
     return { success: false, error: 'API key is required.' };
   }
 
   const cleanKey = apiKey.trim();
 
-  if (provider === 'gemini') {
+  // 1. Groq Cloud Test
+  if (provider === 'groq') {
     try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${cleanKey}`;
+      const res = await fetch('https://api.groq.com/openai/v1/models', {
+        headers: { 'Authorization': `Bearer ${cleanKey}` }
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        return { success: false, error: err.error?.message || `HTTP ${res.status}: Invalid Groq API key` };
+      }
+
+      const activeModel = model || 'llama-3.3-70b-versatile';
+      return { success: true, message: `Connected successfully to Groq Cloud (${activeModel})!` };
+    } catch (err) {
+      return { success: false, error: err.message || 'Network error reaching Groq API' };
+    }
+  }
+
+  // 2. Google Gemini Test
+  if (provider === 'gemini') {
+    const targetModel = model || 'gemini-1.5-flash';
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${cleanKey}`;
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -76,12 +104,13 @@ export const testAIConnection = async (provider, apiKey, model = 'gemini-1.5-fla
         return { success: false, error: err.error?.message || `HTTP ${res.status}: Verification failed` };
       }
 
-      return { success: true, message: `Connected successfully to Google ${model}!` };
+      return { success: true, message: `Connected successfully to Google ${targetModel}!` };
     } catch (err) {
       return { success: false, error: err.message || 'Network error reaching Google Gemini API' };
     }
   }
 
+  // 3. OpenAI Test
   if (provider === 'openai') {
     try {
       const res = await fetch('https://api.openai.com/v1/models', {
@@ -100,6 +129,41 @@ export const testAIConnection = async (provider, apiKey, model = 'gemini-1.5-fla
   }
 
   return { success: true, message: 'Built-in engine active.' };
+};
+
+/**
+ * Query Groq Cloud API (Llama 3.3 70B / Llama 3.1 8B / Mixtral)
+ */
+const queryGroq = async (prompt, zones, alerts, apiKey, model = 'llama-3.3-70b-versatile') => {
+  const systemPrompt = buildFarmSystemPrompt(zones, alerts);
+
+  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`
+    },
+    body: JSON.stringify({
+      model: model || 'llama-3.3-70b-versatile',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: prompt }
+      ],
+      temperature: 0.7,
+      max_tokens: 600
+    })
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error?.message || `Groq API returned HTTP ${response.status}`);
+  }
+
+  const data = await response.json();
+  const text = data.choices?.[0]?.message?.content;
+  if (!text) throw new Error('Empty response from Groq API');
+
+  return text;
 };
 
 /**
@@ -196,7 +260,7 @@ export const queryBuiltInAgronomist = (userQuery, zones, alerts, simulateAction)
 
   const tempA = liveZoneA?.sensorData?.airTemperature?.toFixed(0) || 32;
 
-  // 1. Natural Conversational Greetings (Fixes the "hi" robotic answer!)
+  // 1. Natural Conversational Greetings
   const isGreeting = /^(hi|hello|hey|namaste|good\s*(morning|afternoon|evening)|sup|howdy|yo)[\s!.,?]*$/i.test(query) ||
                      query === 'hi' || query === 'hello' || query === 'hey';
 
@@ -234,121 +298,67 @@ export const queryBuiltInAgronomist = (userQuery, zones, alerts, simulateAction)
   // 3. Status of AI / Capabilities
   if (query.includes('who are you') || query.includes('what can you do') || query.includes('help')) {
     return {
-      text: `🤖 **About SmartFarm AI Copilot:**\n\nI am your automated precision agriculture assistant connected to your farm's ESP32 hardware and agro-climatic decision engine. I can:\n\n• 💧 **Control Irrigation:** Remotely open drip valves when soil dries below optimal thresholds\n• 🧪 **Prescribe Treatments:** Recommend organic and IPM-certified pesticides for pests (blight, thrips, blast)\n• 📈 **Live Telemetry:** Report live temperature, moisture, and humidity from your ESP32 nodes\n• 🌿 **Crop Schedules:** Provide NPK fertilizer and harvest timing guidelines\n\n*Tip: You can use the built-in AI for free, or link a Google Gemini API Key in AI Settings for unrestricted natural language chat.*`,
+      text: `🤖 **About SmartFarm AI Copilot:**\n\nI am your automated precision agriculture assistant connected to your farm's ESP32 hardware and agro-climatic decision engine. I can:\n\n• 💧 **Control Irrigation:** Remotely open drip valves when soil dries below optimal thresholds\n• 🧪 **Prescribe Treatments:** Recommend organic and IPM-certified pesticides for pests (blight, thrips, blast)\n• 📈 **Live Telemetry:** Report live temperature, moisture, and humidity from your ESP32 nodes\n• 🌿 **Crop Schedules:** Provide NPK fertilizer and harvest timing guidelines\n\n*Tip: You can use the built-in AI for free, or link a Groq Cloud or Google Gemini API Key in AI Settings for unrestricted natural language chat.*`,
       suggestions: [
         'Give me a farm-wide summary',
         'Irrigate Zone D',
-        'What pesticide should I spray for Tomato?'
+        'Show me pesticide plan for Tomato'
       ]
     };
   }
 
-  // 4. Irrigation Intent
-  if (query.includes('irrigate') || query.includes('water') || query.includes('drip') || query.includes('pump')) {
-    let targetZoneId = 'ZONE-D';
-    if (query.includes('zone a') || query.includes('tomato')) targetZoneId = 'ZONE-A';
-    else if (query.includes('zone b') || query.includes('chili')) targetZoneId = 'ZONE-B';
-    else if (query.includes('zone c') || query.includes('paddy')) targetZoneId = 'ZONE-C';
-    else if (query.includes('zone d') || query.includes('groundnut')) targetZoneId = 'ZONE-D';
+  // 4. Irrigation Commands
+  if (query.includes('irrigate') || query.includes('water') || query.includes('drip')) {
+    let targetZone = 'ZONE-D';
+    if (query.includes('zone a') || query.includes('tomato')) targetZone = 'ZONE-A';
+    else if (query.includes('zone b') || query.includes('chili')) targetZone = 'ZONE-B';
+    else if (query.includes('zone c') || query.includes('paddy')) targetZone = 'ZONE-C';
 
-    const targetZone = zones?.find(z => z.zoneId === targetZoneId) || zones?.[3] || { name: 'Zone D', cropType: 'Groundnut', sensorData: { deviceId: 'ESP32-NODE-04' } };
-
-    if (simulateAction) {
-      simulateAction('IRRIGATE', targetZoneId);
-    }
+    const z = zones?.find(item => item.zoneId === targetZone) || liveZoneD;
 
     return {
-      text: `💧 **Irrigation Triggered for ${targetZone.name} (${targetZone.cropType})!**\n\n• Command signaled to **${targetZone.sensorData?.deviceId || 'ESP32'}** solenoid valve relay.\n• Flow rate: **12 GPM** via 16mm inline pressure-compensating drip laterals.\n• Expected moisture recovery: **+35%** within 45 minutes.\n• Soil thermal stress reduced by **2°C**.`,
+      text: `💧 **Irrigation Recommendation for ${z?.name || targetZone}:**\n\n• Current soil moisture is **${z?.sensorData?.soilMoisture?.toFixed(1) || '15.0'}%**.\n• Optimal target: **45% – 60%**.\n\nI have prepared the drip valve dispatch command. Click below to execute.`,
       actions: [
-        { label: `Check ${targetZone.name} Moisture`, type: 'CHECK', zoneId: targetZoneId }
+        { label: `💧 Confirm Water ${z?.name || targetZone} Now`, type: 'IRRIGATE', zoneId: targetZone }
       ],
       suggestions: [
-        'What is the next zone that needs water?',
-        'Check pesticide schedule',
+        'What is the status of Zone B Chili?',
         'Give me a farm-wide summary'
       ]
     };
   }
 
-  // 5. Pesticide / Chemical / Fungicide Intent
-  if (query.includes('pesticide') || query.includes('spray') || query.includes('fungicide') || query.includes('pest') || query.includes('disease') || query.includes('chemical') || query.includes('blight') || query.includes('thrips')) {
-    let targetZoneId = 'ZONE-A';
-    if (query.includes('zone b') || query.includes('chili')) targetZoneId = 'ZONE-B';
-    else if (query.includes('zone c') || query.includes('paddy')) targetZoneId = 'ZONE-C';
-    else if (query.includes('zone d') || query.includes('groundnut')) targetZoneId = 'ZONE-D';
-
-    const targetZone = zones?.find(z => z.zoneId === targetZoneId) || zones?.[0];
-    const agronomy = targetZone?.agronomy;
-    const pest = agronomy?.pesticideUsage?.activePestThreat || 'Foliar pathogens & sucking pests';
-    const lastTreatment = agronomy?.pesticideUsage?.treatments?.[0];
-
+  // 5. Pesticide & Disease Guidelines
+  if (query.includes('pesticide') || query.includes('spray') || query.includes('disease') || query.includes('fungus')) {
     return {
-      text: `🧪 **Pesticide & Agrochemical Advisory for ${targetZone?.name || 'Zone A'} (${targetZone?.cropType || 'Tomato'})**:\n\n• **Active Threat:** ${pest}\n• **Recommended Chemical Spray:** **Copper Oxychloride 50% WP** @ 2.5 g/L OR **NeemAzal 1% EC (Organic)** @ 3 ml/L.\n• **Safety Pre-Harvest Interval (PHI):** 7 Days before harvest.\n• **Last Applied:** ${lastTreatment?.pesticideName || 'NeemAzal 1%'} on ${lastTreatment?.date || 'Oct 18, 2026'}.\n• **Total Applied This Season:** ${agronomy?.pesticideUsage?.totalChemicalUsed || '550 ml / 0.25 Acre'}.`,
+      text: `🧪 **Integrated Pest Management (IPM) Advisory:**\n\n• **Zone A (Tomato):** Watch for *Early Blight (Alternaria solani)*. Recommend: **Neem Oil 0.5% (Bio)** or **Chlorothalonil 75 WP @ 2g/L**.\n• **Zone B (Chili):** Watch for *Chili Thrips*. Recommend: **Spinosad 45 SC @ 0.3ml/L**.\n• **Zone C (Paddy):** Leaf blast prevention. Recommend: **Tricyclazole 75 WP @ 0.6g/L**.\n\nAll recommendations comply with GlobalG.A.P. harvest safety intervals (PHI).`,
       actions: [
-        { 
-          label: `Log Spray for ${targetZone?.name || 'Zone A'}`, 
-          type: 'LOG_SPRAY', 
-          zoneId: targetZoneId,
-          details: {
-            pesticideName: 'NeemAzal-T/S (Azadirachtin 1% EC)',
-            dosage: '250 ml / 0.25 acre',
-            targetPest: pest
-          }
-        }
-      ],
-      suggestions: [
-        `Irrigate ${targetZone?.name || 'Zone A'}`,
-        'What are organic alternatives?',
-        'Show me fertilizer dosages'
-      ]
-    };
-  }
-
-  // 6. Farm-wide Summary
-  if (query.includes('summary') || query.includes('report') || query.includes('all zones') || query.includes('overview') || query.includes('farm')) {
-    const summaryLines = (zones || []).map(z => 
-      `• **${z.name} (${z.cropType} - 0.25 Ac):** Health: **${z.analysis?.overallHealthScore || 85}%** | Moisture: **${z.sensorData?.soilMoisture?.toFixed(0) || 40}%** | Temp: **${z.sensorData?.airTemperature?.toFixed(0) || 28}°C** (${z.analysis?.plantStatus || 'Normal'})`
-    ).join('\n');
-
-    return {
-      text: `📊 **1-Acre Farm Overview (4 Quadrants × 0.25 Acre)**:\n\n${summaryLines}\n\n💡 **AI Agronomist Priority:**\n${moistD < 25 ? '• Zone D (Groundnut) is in moisture deficit and needs water.\n' : ''}• Zone C (Paddy) is at target ponding moisture (${moistC}%).\n• Zone A (Tomato) and Zone B (Chili) have favorable canopy micro-climates.`,
-      actions: [
-        { label: '💧 Water Zone D Now', type: 'IRRIGATE', zoneId: 'ZONE-D' },
-        { label: '💧 Water Zone A Now', type: 'IRRIGATE', zoneId: 'ZONE-A' }
+        { label: '🧪 Prescribe Bio-Pesticide for Tomato', type: 'SPRAY', zoneId: 'ZONE-A' }
       ],
       suggestions: [
         'Turn on irrigation for Zone D',
-        'What pesticide should I spray for Tomato?',
-        'Show fertilizer schedule'
+        'Give me a farm-wide summary'
       ]
     };
   }
 
-  // 7. Zone Specific Queries
-  if (query.includes('zone b') || query.includes('chili')) {
+  // 6. Farm-wide Overview
+  if (query.includes('summary') || query.includes('status') || query.includes('overview') || query.includes('farm')) {
     return {
-      text: `🌶️ **Zone B — Chili Quadrant (0.25 Acre)**:\n\n• **Variety:** Guntur Sannam / Teja (Pre-flowering)\n• **Health Score:** ${liveZoneB?.analysis?.overallHealthScore || 82}% (Healthy)\n• **Soil Moisture:** ${moistB}%\n• **Temperature:** ${liveZoneB?.sensorData?.airTemperature?.toFixed(1) || 29.5}°C\n• **Pesticide Status:** Imidacloprid applied Oct 14 against thrips. Vector population suppressed by 96%.`,
-      suggestions: ['Irrigate Zone B', 'Give me fertilizer schedule for Chili', 'Show me all 4 zones']
+      text: `📊 **SmartFarm 1-Acre Telemetry Summary:**\n\n• **Zone A (Tomato, 0.25 Ac):** Moisture **${moistA}%** | Temp **${tempA}°C** (Healthy)\n• **Zone B (Chili, 0.25 Ac):** Moisture **${moistB}%** (Optimal vegetative)\n• **Zone C (Paddy, 0.25 Ac):** Moisture **${moistC}%** (Flooded panicle stage)\n• **Zone D (Groundnut, 0.25 Ac):** Moisture **${moistD}%** ⚠️ (Dry, drip advised)\n\n• **Active Alerts:** ${alerts?.filter(a => !a.resolved).length || 0} alerts pending.`,
+      actions: [
+        { label: '💧 Water Zone D Now', type: 'IRRIGATE', zoneId: 'ZONE-D' }
+      ],
+      suggestions: [
+        'Show me pesticide plan for Tomato',
+        'Turn on irrigation for Zone D'
+      ]
     };
   }
 
-  if (query.includes('zone c') || query.includes('paddy') || query.includes('rice')) {
-    return {
-      text: `🌾 **Zone C — Paddy Basin (0.25 Acre)**:\n\n• **Variety:** Basmati 1509 (Active Tillering)\n• **Health Score:** ${liveZoneC?.analysis?.overallHealthScore || 90}% (Optimal)\n• **Soil Moisture:** ${moistC}% (Standing water ponding)\n• **Canopy Humidity:** ${liveZoneC?.sensorData?.humidity?.toFixed(0) || 72}%\n• **Advisory:** High humidity creates favorable conditions for Sheath Blight spores. Monitor base tillers for lesions.`,
-      suggestions: ['Show Sheath Blight spray', 'Irrigate Zone D', 'Farm summary']
-    };
-  }
-
-  if (query.includes('fertilizer') || query.includes('nutrient') || query.includes('npk') || query.includes('urea') || query.includes('dap')) {
-    return {
-      text: `🌱 **Agronomic Fertilizer Schedules (0.25 Acre Dosage)**:\n\n• **Zone A (Tomato):** Water-soluble NPK 19:19:19 @ 12.5 kg via drip fertigation for fruit sizing.\n• **Zone B (Chili):** DAP @ 15 kg + Urea @ 8 kg for vegetative branches.\n• **Zone C (Paddy):** Neem-coated Urea @ 20 kg top-dressing for tillering.\n• **Zone D (Groundnut):** Agricultural Gypsum @ 50 kg for pod calcium filling.`,
-      suggestions: ['Irrigate Zone D', 'Check pesticide schedule', 'Farm summary']
-    };
-  }
-
-  // 8. General Agronomic Consultation Fallback
+  // 7. General Fallback
   return {
-    text: `🌾 **AI Agronomist Consultation:**\n\nI analyzed your question regarding **"${userQuery}"** in the context of your 4 crop zones.\n\n• **Current Field Conditions:** Average soil moisture across the farm is **${Math.round((Number(moistA)+Number(moistB)+Number(moistC)+Number(moistD))/4)}%** under **${tempA}°C** ambient temperature.\n• **Immediate Recommendation:** ${moistD < 25 ? 'Zone D Groundnut is currently experiencing moisture stress and should be irrigated.' : 'All quadrants are operating under stable agronomic conditions.'}\n\n*Tip: Would you like me to start irrigation, prescribe a pest treatment, or provide detailed crop guidelines?*`,
+    text: `🌾 **AI Agronomist Consultation:**\n\nRegarding: *"__${userQuery}__"*\n\nBased on your 1-Acre telemetry:\n• Primary limiting factor: **Soil moisture deficit in Zone D (${moistD}%)** and **Zone A (${moistA}%)**.\n• Current weather conditions are warm (${tempA}°C), which increases crop water loss.\n\nWould you like me to trigger drip irrigation, review pesticide guidelines, or inspect sensor nodes?`,
     actions: [
       { label: '💧 Water Zone D Now', type: 'IRRIGATE', zoneId: 'ZONE-D' },
       { label: '📊 View Full Farm Status', type: 'SUMMARY' }
@@ -362,61 +372,83 @@ export const queryBuiltInAgronomist = (userQuery, zones, alerts, simulateAction)
 };
 
 /**
- * Main dispatcher: handles both Built-in and External LLM (Gemini/OpenAI)
+ * Main AI Query Dispatcher
+ * Automatically tries selected provider (Groq, Gemini, OpenAI) and gracefully falls back to built-in.
  */
-export const executeAIChatQuery = async (userQuery, zones, alerts, simulateAction) => {
+export const executeAIChatQuery = async (query, zones, alerts, simulateAction) => {
   const config = getAIConfig();
 
-  // If user configured Google Gemini
+  // 1. Groq Cloud Engine
+  if (config.provider === 'groq' && config.groqKey) {
+    try {
+      const text = await queryGroq(query, zones, alerts, config.groqKey, config.groqModel);
+      return {
+        text,
+        source: 'groq',
+        model: config.groqModel || 'llama-3.3-70b-versatile',
+        actions: query.toLowerCase().includes('irrigate') ? [
+          { label: '💧 Water Zone D Now', type: 'IRRIGATE', zoneId: 'ZONE-D' }
+        ] : []
+      };
+    } catch (err) {
+      console.warn('Groq query failed, falling back to built-in:', err);
+      const fallback = queryBuiltInAgronomist(query, zones, alerts, simulateAction);
+      return {
+        ...fallback,
+        source: 'builtin',
+        warning: `Groq Cloud notice: ${err.message}. Showing response from built-in Farm AI.`
+      };
+    }
+  }
+
+  // 2. Google Gemini Engine
   if (config.provider === 'gemini' && config.geminiKey) {
     try {
-      const replyText = await queryGemini(userQuery, zones, alerts, config.geminiKey, config.model || 'gemini-1.5-flash');
+      const text = await queryGemini(query, zones, alerts, config.geminiKey, config.geminiModel || config.model);
       return {
-        text: replyText,
+        text,
         source: 'gemini',
-        suggestions: [
-          'What is the next zone that needs water?',
-          'Check pesticide schedule',
-          'Give me a farm-wide summary'
-        ]
+        model: config.geminiModel || config.model,
+        actions: query.toLowerCase().includes('irrigate') ? [
+          { label: '💧 Water Zone D Now', type: 'IRRIGATE', zoneId: 'ZONE-D' }
+        ] : []
       };
     } catch (err) {
-      console.warn('[AI] Gemini call failed, falling back to built-in agronomist:', err);
-      const fallback = queryBuiltInAgronomist(userQuery, zones, alerts, simulateAction);
+      console.warn('Gemini query failed, falling back to built-in:', err);
+      const fallback = queryBuiltInAgronomist(query, zones, alerts, simulateAction);
       return {
         ...fallback,
-        source: 'builtin_fallback',
-        warning: `Gemini API Error: ${err.message}. Using built-in engine.`
+        source: 'builtin',
+        warning: `Google Gemini notice: ${err.message}. Showing response from built-in Farm AI.`
       };
     }
   }
 
-  // If user configured OpenAI
+  // 3. OpenAI Engine
   if (config.provider === 'openai' && config.openaiKey) {
     try {
-      const replyText = await queryOpenAI(userQuery, zones, alerts, config.openaiKey);
+      const text = await queryOpenAI(query, zones, alerts, config.openaiKey);
       return {
-        text: replyText,
+        text,
         source: 'openai',
-        suggestions: [
-          'What is the next zone that needs water?',
-          'Check pesticide schedule',
-          'Give me a farm-wide summary'
-        ]
+        model: 'gpt-4o-mini',
+        actions: query.toLowerCase().includes('irrigate') ? [
+          { label: '💧 Water Zone D Now', type: 'IRRIGATE', zoneId: 'ZONE-D' }
+        ] : []
       };
     } catch (err) {
-      console.warn('[AI] OpenAI call failed, falling back to built-in agronomist:', err);
-      const fallback = queryBuiltInAgronomist(userQuery, zones, alerts, simulateAction);
+      console.warn('OpenAI query failed, falling back to built-in:', err);
+      const fallback = queryBuiltInAgronomist(query, zones, alerts, simulateAction);
       return {
         ...fallback,
-        source: 'builtin_fallback',
-        warning: `OpenAI API Error: ${err.message}. Using built-in engine.`
+        source: 'builtin',
+        warning: `OpenAI notice: ${err.message}. Showing response from built-in Farm AI.`
       };
     }
   }
 
-  // Default: Built-in Smart Agronomist Engine (Free, Offline, Instant)
-  const result = queryBuiltInAgronomist(userQuery, zones, alerts, simulateAction);
+  // 4. Default: Built-in Agronomist Engine (100% Free, Offline)
+  const result = queryBuiltInAgronomist(query, zones, alerts, simulateAction);
   return {
     ...result,
     source: 'builtin'

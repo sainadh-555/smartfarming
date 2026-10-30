@@ -59,6 +59,8 @@ export default function Settings() {
   // AI Configuration State
   const initialAI = getAIConfig();
   const [aiProvider, setAiProvider] = useState(initialAI.provider);
+  const [groqKey, setGroqKey] = useState(initialAI.groqKey || '');
+  const [groqModel, setGroqModel] = useState(initialAI.groqModel || 'llama-3.3-70b-versatile');
   const [geminiKey, setGeminiKey] = useState(initialAI.geminiKey);
   const [openaiKey, setOpenaiKey] = useState(initialAI.openaiKey);
   const [geminiModel, setGeminiModel] = useState(initialAI.model || 'gemini-1.5-flash');
@@ -87,8 +89,18 @@ export default function Settings() {
   const handleTestAI = async () => {
     setTestingAIKey(true);
     setAiTestResult(null);
-    const key = aiProvider === 'gemini' ? geminiKey : openaiKey;
-    const res = await testAIConnection(aiProvider, key, geminiModel);
+    let key = '';
+    let model = '';
+    if (aiProvider === 'groq') {
+      key = groqKey;
+      model = groqModel;
+    } else if (aiProvider === 'gemini') {
+      key = geminiKey;
+      model = geminiModel;
+    } else if (aiProvider === 'openai') {
+      key = openaiKey;
+    }
+    const res = await testAIConnection(aiProvider, key, model);
     setAiTestResult(res);
     setTestingAIKey(false);
   };
@@ -98,7 +110,10 @@ export default function Settings() {
     setBackendUrl(inputCloudUrl);
     saveAIConfig({
       provider: aiProvider,
+      groqKey: groqKey,
+      groqModel: groqModel,
       geminiKey: geminiKey,
+      geminiModel: geminiModel,
       openaiKey: openaiKey,
       model: geminiModel
     });
@@ -216,17 +231,17 @@ export default function Settings() {
             </div>
             <div>
               <h3 className="font-extrabold text-sm text-slate-900">AI Agronomist Copilot & API Settings</h3>
-              <p className="text-xs text-slate-500">Choose between the free built-in farm engine or external LLMs (Gemini / OpenAI)</p>
+              <p className="text-xs text-slate-500">Choose between the free built-in farm engine or external LLMs (Groq / Gemini / OpenAI)</p>
             </div>
           </div>
 
           <span className="text-[10px] font-mono font-bold px-2.5 py-1 rounded-full bg-purple-50 text-purple-700 border border-purple-200">
-            {aiProvider === 'gemini' ? 'Google Gemini' : aiProvider === 'openai' ? 'OpenAI GPT' : 'Built-in (Zero API Key)'}
+            {aiProvider === 'groq' ? 'Groq Llama 3.3' : aiProvider === 'gemini' ? 'Google Gemini' : aiProvider === 'openai' ? 'OpenAI GPT' : 'Built-in (Zero API Key)'}
           </span>
         </div>
 
         {/* Engine Selection */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <div 
             onClick={() => setAiProvider('builtin')}
             className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all ${
@@ -245,6 +260,26 @@ export default function Settings() {
           </div>
 
           <div 
+            onClick={() => setAiProvider('groq')}
+            className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all ${
+              aiProvider === 'groq'
+                ? 'border-amber-500 bg-amber-50/50 shadow-xs'
+                : 'border-slate-200 bg-slate-50/50 hover:border-slate-300'
+            }`}
+          >
+            <div className="flex items-center justify-between mb-1">
+              <span className="font-bold text-xs text-slate-900 flex items-center gap-1">
+                <Zap className="w-3.5 h-3.5 text-amber-600" />
+                Groq Cloud
+              </span>
+              <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-1.5 py-0.2 rounded">Ultra-Fast</span>
+            </div>
+            <p className="text-[11px] text-slate-500 leading-relaxed">
+              500 tokens/sec with Meta Llama 3.3 70B Versatile. Free tier at console.groq.com.
+            </p>
+          </div>
+
+          <div 
             onClick={() => setAiProvider('gemini')}
             className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all ${
               aiProvider === 'gemini'
@@ -253,7 +288,7 @@ export default function Settings() {
             }`}
           >
             <div className="flex items-center justify-between mb-1">
-              <span className="font-bold text-xs text-slate-900">Google Gemini AI</span>
+              <span className="font-bold text-xs text-slate-900">Google Gemini</span>
               <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-1.5 py-0.2 rounded">Free Key</span>
             </div>
             <p className="text-[11px] text-slate-500 leading-relaxed">
@@ -278,6 +313,69 @@ export default function Settings() {
             </p>
           </div>
         </div>
+
+        {/* Groq Key Config */}
+        {aiProvider === 'groq' && (
+          <div className="p-4 bg-amber-50/70 border border-amber-200 rounded-xl space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-amber-900 flex items-center gap-1.5">
+                <Zap className="w-4 h-4 text-amber-600" />
+                <span>Groq Cloud API Key</span>
+              </label>
+              <a
+                href="https://console.groq.com/keys"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[11px] text-amber-700 hover:underline flex items-center gap-1 font-semibold"
+              >
+                <span>Get Free Groq Key (console.groq.com/keys)</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
+
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <input
+                  type={showKey ? 'text' : 'password'}
+                  value={groqKey}
+                  onChange={(e) => setGroqKey(e.target.value)}
+                  placeholder="gsk_..."
+                  className="w-full pl-3 pr-10 py-2 bg-white border border-amber-300 rounded-xl text-xs font-mono focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowKey(!showKey)}
+                  className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600"
+                >
+                  {showKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleTestAI}
+                disabled={testingAIKey || !groqKey}
+                className="px-4 py-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shrink-0 active:scale-95 flex items-center gap-1.5"
+              >
+                {testingAIKey ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+                <span>{testingAIKey ? 'Testing...' : 'Test Key'}</span>
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2 text-xs text-slate-600">
+              <span className="font-semibold">Model:</span>
+              <select
+                value={groqModel}
+                onChange={(e) => setGroqModel(e.target.value)}
+                className="bg-white border border-slate-300 rounded-lg px-2.5 py-1 text-xs font-medium"
+              >
+                <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile (Best & Recommended)</option>
+                <option value="llama-3.1-8b-instant">llama-3.1-8b-instant (Fastest)</option>
+                <option value="mixtral-8x7b-32768">mixtral-8x7b-32768</option>
+              </select>
+            </div>
+          </div>
+        )}
 
         {/* Gemini Key Config */}
         {aiProvider === 'gemini' && (
