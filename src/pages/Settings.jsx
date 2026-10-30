@@ -373,8 +373,6 @@ export default function Settings() {
                 <option value="openai/gpt-oss-120b">openai/gpt-oss-120b (Flagship 120B)</option>
                 <option value="openai/gpt-oss-20b">openai/gpt-oss-20b (Lightweight 20B)</option>
                 <option value="allam-2-7b">allam-2-7b (Multilingual 7B)</option>
-                <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile</option>
-                <option value="llama-3.1-8b-instant">llama-3.1-8b-instant</option>
               </select>
             </div>
           </div>
