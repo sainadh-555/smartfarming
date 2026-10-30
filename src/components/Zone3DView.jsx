@@ -25,7 +25,8 @@ export default function Zone3DView({ zone, onSimulateIrrigate }) {
   const terrainMeshRef = useRef(null);
 
   const rawSensor = zone.sensorData || {};
-  const crop = zone.agronomy?.crop || {};
+  const agronomy = zone.agronomy || {};
+  const crop = agronomy.crop || {};
   const cropType = zone.cropType;
   const moisture = typeof rawSensor.soilMoisture === 'number' ? rawSensor.soilMoisture : 40;
   const airTemp = typeof rawSensor.airTemperature === 'number' ? rawSensor.airTemperature : 28;

@@ -26,7 +26,7 @@ import { useFarmData } from '../context/FarmContext';
 import Zone3DView from './Zone3DView';
 import ErrorBoundary from './ErrorBoundary';
 
-export default function ZoneDetailModal({ zoneId, onClose, onSelectZone }) {
+export default function ZoneDetailModal({ zone: propZone, zoneId, onClose, onSelectZone }) {
   const { zones, simulateAction, logPesticideSpray } = useFarmData();
   const [activeTab, setActiveTab] = useState('3d'); // '3d' | 'pesticides' | 'crop' | 'telemetry' | 'ai'
   const [isLoggingSpray, setIsLoggingSpray] = useState(false);
@@ -43,7 +43,8 @@ export default function ZoneDetailModal({ zoneId, onClose, onSelectZone }) {
     operator: 'Farm Operator (You)'
   });
 
-  const zone = zones?.find(z => z.zoneId === zoneId);
+  const targetId = zoneId || propZone?.zoneId;
+  const zone = (zones?.find(z => z.zoneId === targetId)) || propZone || zones?.[0];
 
   if (!zone) return null;
 
@@ -430,7 +431,7 @@ export default function ZoneDetailModal({ zoneId, onClose, onSelectZone }) {
           {activeTab === '3d' && (
             <div className="space-y-4 animate-fadeIn">
               <ErrorBoundary title="3D Field Digital Twin">
-                <Zone3DView zone={{ ...zone, sensorData }} onSimulateIrrigate={handleIrrigate} />
+                <Zone3DView zone={{ ...zone, agronomy, sensorData }} onSimulateIrrigate={handleIrrigate} />
               </ErrorBoundary>
               
               {/* 3D Scene Condition Insights */}
