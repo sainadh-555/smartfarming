@@ -24,13 +24,20 @@ export default function Zone3DView({ zone, onSimulateIrrigate }) {
   const plantsGroupRef = useRef(null);
   const terrainMeshRef = useRef(null);
 
-  const { sensorData, analysis, agronomy } = zone;
-  const crop = agronomy?.crop || {};
+  const rawSensor = zone.sensorData || {};
+  const crop = zone.agronomy?.crop || {};
   const cropType = zone.cropType;
-  const moisture = sensorData.soilMoisture;
-  const airTemp = sensorData.airTemperature;
-  const health = analysis.overallHealthScore;
-  const plantStatus = analysis.plantStatus;
+  const moisture = typeof rawSensor.soilMoisture === 'number' ? rawSensor.soilMoisture : 40;
+  const airTemp = typeof rawSensor.airTemperature === 'number' ? rawSensor.airTemperature : 28;
+  const soilPH = typeof rawSensor.soilPH === 'number' ? rawSensor.soilPH : 6.5;
+  const health = zone.analysis?.overallHealthScore ?? 75;
+  const plantStatus = zone.analysis?.plantStatus || 'Healthy';
+  const sensorData = {
+    ...rawSensor,
+    soilMoisture: moisture,
+    airTemperature: airTemp,
+    soilPH: soilPH
+  };
 
   useEffect(() => {
     const container = mountRef.current;

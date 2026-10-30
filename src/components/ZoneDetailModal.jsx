@@ -47,15 +47,17 @@ export default function ZoneDetailModal({ zoneId, onClose, onSelectZone }) {
 
   if (!zone) return null;
 
-  const sensorData = zone.sensorData || {
-    soilMoisture: 30,
-    soilTemperature: 28,
-    airTemperature: 30,
-    humidity: 50,
-    soilPH: 6.5,
-    lightIntensity: 800,
-    rainfall: 0,
-    plantHealthScore: 75
+  const rawSensor = zone.sensorData || {};
+  const sensorData = {
+    ...rawSensor,
+    soilMoisture: typeof rawSensor.soilMoisture === 'number' ? rawSensor.soilMoisture : 35,
+    soilTemperature: typeof rawSensor.soilTemperature === 'number' ? rawSensor.soilTemperature : 25,
+    airTemperature: typeof rawSensor.airTemperature === 'number' ? rawSensor.airTemperature : 28,
+    humidity: typeof rawSensor.humidity === 'number' ? rawSensor.humidity : 55,
+    soilPH: typeof rawSensor.soilPH === 'number' ? rawSensor.soilPH : 6.5,
+    lightIntensity: typeof rawSensor.lightIntensity === 'number' ? rawSensor.lightIntensity : 800,
+    rainfall: typeof rawSensor.rainfall === 'number' ? rawSensor.rainfall : 0,
+    plantHealthScore: typeof rawSensor.plantHealthScore === 'number' ? rawSensor.plantHealthScore : 75
   };
   const analysis = zone.analysis || {
     overallHealthScore: 75,
@@ -428,7 +430,7 @@ export default function ZoneDetailModal({ zoneId, onClose, onSelectZone }) {
           {activeTab === '3d' && (
             <div className="space-y-4 animate-fadeIn">
               <ErrorBoundary title="3D Field Digital Twin">
-                <Zone3DView zone={zone} onSimulateIrrigate={handleIrrigate} />
+                <Zone3DView zone={{ ...zone, sensorData }} onSimulateIrrigate={handleIrrigate} />
               </ErrorBoundary>
               
               {/* 3D Scene Condition Insights */}

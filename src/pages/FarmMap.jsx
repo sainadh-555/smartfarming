@@ -164,7 +164,7 @@ export default function FarmMap() {
                   </div>
 
                   <div className="flex items-center justify-between pt-1">
-                    <span className="text-[11px] text-slate-400">Health: {zone.analysis.overallHealthScore}%</span>
+                    <span className="text-[11px] text-slate-400">Health: {zone.analysis?.overallHealthScore ?? 80}%</span>
                     <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${getStatusTextBadge(status)}`}>
                       {status}
                     </span>
