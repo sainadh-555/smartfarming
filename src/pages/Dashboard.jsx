@@ -20,6 +20,8 @@ import {
   MapPin,
   Clock,
   Compass,
+  Navigation,
+  LocateFixed,
   CloudSun,
   CloudFog,
   CloudDrizzle,
@@ -68,7 +70,12 @@ export default function Dashboard() {
     exitSimulation,
     usbStatus,
     usbPort,
-    downloadAuditCSV
+    downloadAuditCSV,
+    farmLocation,
+    requestLiveLocation,
+    resetLocation,
+    isLocating,
+    locationError
   } = useFarmData();
 
   const [selectedZone, setSelectedZone] = useState(null);
@@ -77,6 +84,7 @@ export default function Dashboard() {
   const [weatherData, setWeatherData] = useState(null);
   const [weatherLoading, setWeatherLoading] = useState(true);
   const [isSimulating, setIsSimulating] = useState(false);
+  const [locationFeedback, setLocationFeedback] = useState(null);
 
   // Live ticking clock (seconds precision)
   useEffect(() => {
@@ -84,12 +92,14 @@ export default function Dashboard() {
     return () => clearInterval(timer);
   }, []);
 
-  // Fetch real external weather from Open-Meteo independently of ESP32
+  // Fetch real external weather from Open-Meteo for the current location (dynamic coordinates)
   useEffect(() => {
     let mounted = true;
     const loadWeather = async () => {
       setWeatherLoading(true);
-      const res = await fetchLiveWeather();
+      const lat = farmLocation?.latitude ?? DEFAULT_FARM_LOCATION.latitude;
+      const lon = farmLocation?.longitude ?? DEFAULT_FARM_LOCATION.longitude;
+      const res = await fetchLiveWeather(lat, lon);
       if (mounted) {
         setWeatherData(res);
         setWeatherLoading(false);
@@ -101,7 +111,36 @@ export default function Dashboard() {
       mounted = false;
       clearInterval(interval);
     };
-  }, []);
+  }, [farmLocation?.latitude, farmLocation?.longitude]);
+
+  // Handler for Take Live Location button
+  const handleAcquireLocation = async () => {
+    setLocationFeedback(null);
+    try {
+      const loc = await requestLiveLocation();
+      setLocationFeedback({
+        type: 'success',
+        message: `Live GPS locked: ${loc.city || loc.name} (${loc.latitude.toFixed(2)}°, ${loc.longitude.toFixed(2)}°)`
+      });
+      setTimeout(() => setLocationFeedback(null), 6000);
+    } catch (err) {
+      setLocationFeedback({
+        type: 'error',
+        message: err.message || 'Failed to detect location. Please allow browser location permissions.'
+      });
+      setTimeout(() => setLocationFeedback(null), 7000);
+    }
+  };
+
+  // Handler to revert to default farm location
+  const handleResetLocation = () => {
+    resetLocation();
+    setLocationFeedback({
+      type: 'info',
+      message: 'Reverted location to Green Valley Farm default (Hyderabad, IN).'
+    });
+    setTimeout(() => setLocationFeedback(null), 4000);
+  };
 
   // Handler for ONE SIMULATE DATA button
   const handleSimulateClick = async () => {
@@ -216,10 +255,49 @@ export default function Dashboard() {
                 SmartFarm AI
               </span>
               <span className="text-slate-300">•</span>
-              <span className="text-xs font-semibold text-slate-600 flex items-center gap-1">
-                <MapPin className="w-3.5 h-3.5 text-slate-400" />
-                {DEFAULT_FARM_LOCATION.displayLocation}
-              </span>
+              
+              {/* Geolocation Tag & Live Location Actions */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-semibold text-slate-700 flex items-center gap-1">
+                  <MapPin className={`w-3.5 h-3.5 ${farmLocation?.isLive ? 'text-emerald-600' : 'text-slate-400'}`} />
+                  {farmLocation?.displayLocation || DEFAULT_FARM_LOCATION.displayLocation}
+                </span>
+
+                {farmLocation?.isLive && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.2 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 font-mono">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    LIVE GPS
+                  </span>
+                )}
+
+                {/* Take Live Location Button */}
+                <button
+                  type="button"
+                  onClick={handleAcquireLocation}
+                  disabled={isLocating}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold transition-all border shadow-2xs cursor-pointer ${
+                    farmLocation?.isLive
+                      ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300 active:scale-95'
+                      : 'bg-white hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 border-slate-300 hover:border-emerald-400 active:scale-95'
+                  }`}
+                  title={farmLocation?.isLive ? "Refresh live GPS coordinates from browser" : "Detect your real live location using browser GPS"}
+                >
+                  <Navigation className={`w-3 h-3 ${isLocating ? 'animate-spin text-emerald-600' : (farmLocation?.isLive ? 'text-emerald-600' : 'text-slate-500')}`} />
+                  <span>{isLocating ? 'Acquiring GPS...' : (farmLocation?.isLive ? 'Refresh GPS' : 'Take Live Location')}</span>
+                </button>
+
+                {farmLocation?.isLive && (
+                  <button
+                    type="button"
+                    onClick={handleResetLocation}
+                    className="text-[11px] text-slate-400 hover:text-slate-600 underline cursor-pointer transition-colors"
+                    title="Reset to default farm location"
+                  >
+                    Reset
+                  </button>
+                )}
+              </div>
+
               <span className="text-slate-300">•</span>
               <span className="text-xs font-mono text-slate-500 flex items-center gap-1">
                 <Clock className="w-3.5 h-3.5 text-slate-400" />
@@ -227,9 +305,31 @@ export default function Dashboard() {
               </span>
             </div>
 
+            {/* Location Feedback Toast */}
+            {locationFeedback && (
+              <div className={`mt-2.5 text-xs px-3 py-1.5 rounded-lg flex items-center justify-between transition-all duration-300 ${
+                locationFeedback.type === 'error'
+                  ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                  : (locationFeedback.type === 'success'
+                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                      : 'bg-slate-100 text-slate-700 border border-slate-200')
+              }`}>
+                <span className="font-medium flex items-center gap-1.5">
+                  {locationFeedback.type === 'error' ? '⚠️' : '📍'} {locationFeedback.message}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setLocationFeedback(null)}
+                  className="text-slate-400 hover:text-slate-700 font-bold ml-2 cursor-pointer"
+                >
+                  ×
+                </button>
+              </div>
+            )}
+
             <div className="flex items-baseline gap-3 mt-1.5 flex-wrap">
               <h1 className="text-2xl font-black text-slate-900 tracking-tight">
-                {DEFAULT_FARM_LOCATION.name}
+                {farmLocation?.name || DEFAULT_FARM_LOCATION.name}
               </h1>
 
               {/* Hardware Connection Status */}
@@ -402,11 +502,16 @@ export default function Dashboard() {
                   <CloudSun className="w-4 h-4" />
                 </div>
                 <div>
-                  <h3 className="font-extrabold text-sm text-slate-900">
+                  <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-1.5">
                     Live Outdoor Weather
+                    {farmLocation?.isLive && (
+                      <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 font-mono">
+                        GPS
+                      </span>
+                    )}
                   </h3>
-                  <p className="text-[11px] text-slate-400">
-                    Hyper-local agrometeorological feed via Open-Meteo API
+                  <p className="text-[11px] text-slate-500">
+                    Hyper-local agrometeorological feed for {farmLocation?.city || farmLocation?.name || 'Local Farm'}
                   </p>
                 </div>
               </div>

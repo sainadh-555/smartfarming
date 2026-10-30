@@ -42,7 +42,8 @@ export default function Layout() {
     lastHardwareSync,
     dataMode,
     usbStatus,
-    usbPort
+    usbPort,
+    farmLocation
   } = useFarmData();
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -187,7 +188,7 @@ export default function Layout() {
 
             <div className="flex flex-col">
               <div className="flex items-center gap-2">
-                <h2 className="text-sm sm:text-base font-bold text-slate-900 tracking-tight">Green Valley Farm</h2>
+                <h2 className="text-sm sm:text-base font-bold text-slate-900 tracking-tight">{farmLocation?.name || 'Green Valley Farm'}</h2>
                 {operatingMode === 'live_hardware' && (
                   <span className={`hidden sm:inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-mono font-bold border ${
                     hardwareData?.connectionStatus === 'connected' && !hardwareData?.isStale
@@ -220,7 +221,7 @@ export default function Layout() {
                 )}
               </div>
               <span className="text-[11px] text-slate-500 font-medium hidden sm:inline">
-                Field 1 • 1.00 Acre (4 Zones)
+                {farmLocation?.isLive ? `${farmLocation.displayLocation} • Field 1` : 'Field 1 • 1.00 Acre (4 Zones)'}
               </span>
             </div>
           </div>

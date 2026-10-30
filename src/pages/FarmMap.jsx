@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 
 export default function FarmMap() {
-  const { zones, formatTemp, formatArea, unitSystem } = useFarmData();
+  const { zones, formatTemp, formatArea, unitSystem, farmLocation } = useFarmData();
   const [selectedZoneId, setSelectedZoneId] = useState(null);
 
   const getBorderColor = (status) => {
@@ -54,10 +54,10 @@ export default function FarmMap() {
         <div>
           <div className="flex items-center gap-2 text-emerald-600 font-bold text-xs uppercase tracking-wider mb-1">
             <Layers className="w-4 h-4 text-emerald-600" />
-            <span>Farm Layout & Zonal Management</span>
+            <span>Farm Layout & Zonal Management {farmLocation?.isLive ? `• ${farmLocation.displayLocation}` : ''}</span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
-            Farm Map: Green Valley
+            Farm Map: {farmLocation?.name || 'Green Valley'}
           </h1>
           <p className="text-sm text-slate-500 mt-1">
             Total Area: <strong className="text-slate-800">1.00 Acre (43,560 sq ft)</strong> partitioned into <strong className="text-emerald-700">4 Precision Zones (0.25 Acre each)</strong>. Click any zone to inspect real-time temperature, moisture, crop growth, and pesticide dosage.

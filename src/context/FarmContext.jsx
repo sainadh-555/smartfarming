@@ -7,6 +7,12 @@ import {
   UnitConverters, 
   I18N_DICTIONARY 
 } from '../services/standardsEngine';
+import {
+  DEFAULT_FARM_LOCATION,
+  getStoredLocation,
+  getLiveBrowserLocation,
+  clearStoredLocation
+} from '../services/weatherService';
 
 const FarmContext = createContext();
 
@@ -16,6 +22,30 @@ export const FarmProvider = ({ children }) => {
   const [data, setData] = useState(apiService.getAllData());
   const [unitSystem, setUnitSystem] = useState(() => localStorage.getItem('smartfarm_unit_system') || 'metric');
   const [language, setLanguage] = useState(() => localStorage.getItem('smartfarm_language') || 'en');
+  const [farmLocation, setFarmLocation] = useState(() => getStoredLocation());
+  const [isLocating, setIsLocating] = useState(false);
+  const [locationError, setLocationError] = useState(null);
+
+  const requestLiveLocation = async () => {
+    setIsLocating(true);
+    setLocationError(null);
+    try {
+      const loc = await getLiveBrowserLocation();
+      setFarmLocation(loc);
+      return loc;
+    } catch (err) {
+      setLocationError(err.message);
+      throw err;
+    } finally {
+      setIsLocating(false);
+    }
+  };
+
+  const resetLocation = () => {
+    clearStoredLocation();
+    setFarmLocation(DEFAULT_FARM_LOCATION);
+    setLocationError(null);
+  };
 
   useEffect(() => {
     localStorage.setItem('smartfarm_unit_system', unitSystem);
@@ -109,6 +139,13 @@ export const FarmProvider = ({ children }) => {
     formatVolume,
     formatArea,
     formatPressure,
+    // Live Farm Location Management
+    farmLocation,
+    setFarmLocation,
+    requestLiveLocation,
+    resetLocation,
+    isLocating,
+    locationError,
     // Hybrid Mode Controls
     setOperatingMode: (mode) => apiService.setOperatingMode(mode),
     triggerSimulateData: () => apiService.triggerSimulateData(),
