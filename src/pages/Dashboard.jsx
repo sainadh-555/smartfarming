@@ -29,7 +29,9 @@ import {
   CloudLightning,
   Snowflake,
   TrendingUp,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Plus,
+  Cable
 } from 'lucide-react';
 import { 
   ResponsiveContainer, 
@@ -41,6 +43,7 @@ import {
   CartesianGrid 
 } from 'recharts';
 import ZoneDetailModal from '../components/ZoneDetailModal';
+import AddPlotModal from '../components/AddPlotModal';
 
 // Clean Weather Icon Resolver
 function WeatherIconComponent({ iconName, className }) {
@@ -75,9 +78,16 @@ export default function Dashboard() {
     requestLiveLocation,
     resetLocation,
     isLocating,
-    locationError
+    locationError,
+    language,
+    t,
+    connectWebSerial,
+    isWebSerialSupported,
+    deleteZone,
+    formatINR
   } = useFarmData();
 
+  const isTe = language === 'te';
   const [selectedZone, setSelectedZone] = useState(null);
   const [activeTrendMetric, setActiveTrendMetric] = useState('temperature');
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -85,6 +95,33 @@ export default function Dashboard() {
   const [weatherLoading, setWeatherLoading] = useState(true);
   const [isSimulating, setIsSimulating] = useState(false);
   const [locationFeedback, setLocationFeedback] = useState(null);
+  const [showAddPlotModal, setShowAddPlotModal] = useState(false);
+  const [serialConnecting, setSerialConnecting] = useState(false);
+
+  const handleConnectWebSerial = async () => {
+    setSerialConnecting(true);
+    setLocationFeedback(null);
+    try {
+      await connectWebSerial();
+      setLocationFeedback({
+        type: 'success',
+        message: isTe ? 'ESP32 COM7 వద్ద విజయవంతంగా కనెక్ట్ చేయబడింది! లైవ్ డేటా ప్రసారం అవుతోంది.' : 'ESP32 connected via Web Serial on COM7! Live telemetry streaming.'
+      });
+      setTimeout(() => setLocationFeedback(null), 6000);
+    } catch (err) {
+      const msg = err.message || '';
+      const isBusy = msg.includes('Permission') || msg.includes('busy') || msg.includes('Access');
+      setLocationFeedback({
+        type: 'error',
+        message: isBusy 
+          ? (isTe ? 'COM7 పోర్ట్ బిజీగా ఉంది! దయచేసి ముందుగా Arduino IDE లో Serial Monitor మూసివేయండి.' : 'Port COM7 is busy! Please close Arduino IDE Serial Monitor first.')
+          : (err.message || 'Failed to open serial port.')
+      });
+      setTimeout(() => setLocationFeedback(null), 8000);
+    } finally {
+      setSerialConnecting(false);
+    }
+  };
 
   // Live ticking clock (seconds precision)
   useEffect(() => {
@@ -357,8 +394,21 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Action Center: Exactly ONE prominent SIMULATE DATA button */}
-          <div className="flex items-center gap-3 shrink-0">
+          {/* Action Center: Connect ESP32 (Web Serial) & ONE prominent SIMULATE DATA button */}
+          <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
+            {isLive && !hasHardware && isWebSerialSupported() && (
+              <button
+                type="button"
+                onClick={handleConnectWebSerial}
+                disabled={serialConnecting}
+                className="px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 transition-all flex items-center gap-1.5 active:scale-95 shadow-sm"
+                title={isTe ? 'బ్రౌజర్ ద్వారా COM7 కి నేరుగా కనెక్ట్ చేయండి (Arduino IDE Serial Monitor మూసివేయండి)' : 'Connect directly to COM7 (Close Arduino IDE Serial Monitor first)'}
+              >
+                <Cable className={`w-3.5 h-3.5 text-emerald-400 ${serialConnecting ? 'animate-pulse' : ''}`} />
+                <span>{serialConnecting ? (isTe ? 'కనెక్ట్ అవుతోంది...' : 'Connecting...') : (isTe ? 'ESP32 కనెక్ట్ చేయండి (COM7)' : 'Connect ESP32 (COM7)')}</span>
+              </button>
+            )}
+
             {isSimulated && (
               <button
                 type="button"
@@ -562,7 +612,7 @@ export default function Dashboard() {
               </div>
 
               <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-                <span className="text-[10px] text-slate-400 font-bold uppercase block">Rainfall</span>
+                <span className="text-[10px] text-slate-400 font-bold uppercase block">{isTe ? 'వర్షపాతం' : 'Rainfall'}</span>
                 <span className="text-sm font-black font-mono text-blue-700 block mt-0.5">
                   {weatherData?.rainfall !== null && weatherData?.rainfall !== undefined 
                     ? `${weatherData.rainfall} mm` 
@@ -570,6 +620,29 @@ export default function Dashboard() {
                 </span>
               </div>
             </div>
+
+            {/* 5-Day Upcoming Weather Forecast Strip */}
+            {weatherData?.dailyForecast && weatherData.dailyForecast.length > 0 && (
+              <div className="pt-3 border-t border-slate-100">
+                <span className="text-[10px] uppercase font-bold text-slate-500 block mb-2">
+                  {isTe ? 'రాబోయే 5 రోజుల వాతావరణ సూచన:' : '5-Day Upcoming Forecast:'}
+                </span>
+                <div className="grid grid-cols-5 gap-1.5 text-center">
+                  {weatherData.dailyForecast.map((day, idx) => (
+                    <div key={idx} className="p-2 rounded-xl bg-slate-50 border border-slate-100 flex flex-col items-center">
+                      <span className="text-[10px] font-bold text-slate-600 uppercase">{day.dayName}</span>
+                      <WeatherIconComponent iconName={day.icon} className="w-5 h-5 text-sky-600 my-1" />
+                      <span className="text-[11px] font-black font-mono text-slate-800">
+                        {day.maxTemp !== null ? `${Math.round(day.maxTemp)}°` : 'N/A'}
+                      </span>
+                      <span className="text-[9px] text-blue-600 font-mono font-bold mt-0.5">
+                        {day.rainMm > 0 ? `${day.rainMm}mm` : '0mm'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="mt-4 pt-3 border-t border-slate-100 text-[10px] text-slate-400 flex items-center justify-between font-mono">
@@ -758,15 +831,25 @@ export default function Dashboard() {
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={downloadAuditCSV}
-            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-all border border-slate-200 flex items-center gap-1.5 self-start sm:self-auto"
-            title="Export farm data to CSV"
-          >
-            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-            <span>Export CSV</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowAddPlotModal(true)}
+              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition-all shadow-xs flex items-center gap-1.5 self-start sm:self-auto"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>{isTe ? '+ ప్లాట్ జోడించండి' : '+ Add Plot'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={downloadAuditCSV}
+              className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-all border border-slate-200 flex items-center gap-1.5 self-start sm:self-auto"
+              title="Export farm data to CSV"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+              <span>{isTe ? 'CSV డౌన్‌లోడ్' : 'Export CSV'}</span>
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -866,6 +949,12 @@ export default function Dashboard() {
           onClose={() => setSelectedZone(null)}
         />
       )}
+
+      {/* Add Plot Modal */}
+      <AddPlotModal
+        isOpen={showAddPlotModal}
+        onClose={() => setShowAddPlotModal(false)}
+      />
 
     </div>
   );

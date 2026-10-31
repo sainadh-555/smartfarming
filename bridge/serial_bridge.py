@@ -143,11 +143,21 @@ class SerialBridgeState:
 # ==========================================
 # 2. SERIAL PROTOCOL PARSER
 # ==========================================
+# 2. SERIAL PROTOCOL PARSER
+# ==========================================
+
+import re
 
 def parse_serial_line(line_str):
     """
     Parses a single line received from ESP32 serial.
-    Returns (dict, None) on success, or (None, str_reason) on skip/failure.
+    Supports:
+      1. Full JSON strings: {"temperature": 30.5, "humidity": 74.8, ...}
+      2. Key-value lines from standard Arduino Serial prints:
+         Temperature: 30.50
+         Humidity: 74.80
+         Soil raw: 4095
+         Light raw: 721
     """
     if not line_str:
         return None, "empty_line"
@@ -156,17 +166,16 @@ def parse_serial_line(line_str):
     if not cleaned:
         return None, "empty_line"
 
-    # Safely skip non-JSON diagnostic lines or comments
-    if cleaned.startswith("#") or cleaned.startswith("//") or not cleaned.startswith("{"):
-        return None, f"diagnostic_line: {cleaned[:40]}"
+    # Full JSON packet
+    if cleaned.startswith("{") and cleaned.endswith("}"):
+        try:
+            data = json.loads(cleaned)
+            if isinstance(data, dict):
+                return data, None
+        except json.JSONDecodeError as err:
+            return None, f"json_decode_error: {err}"
 
-    try:
-        data = json.loads(cleaned)
-        if not isinstance(data, dict):
-            return None, "not_a_json_object"
-        return data, None
-    except json.JSONDecodeError as err:
-        return None, f"json_decode_error: {err}"
+    return None, f"line: {cleaned}"
 
 
 # ==========================================
@@ -177,10 +186,13 @@ def serial_worker_loop(state, stop_event):
     """
     Continuously opens the serial port and reads lines.
     Re-attempts connection automatically on disconnect.
+    Supports both JSON and multi-line Arduino Serial.println format.
     """
     if not SERIAL_AVAILABLE:
         state.set_disconnected("pyserial module not installed. Run: pip install pyserial")
         return
+
+    kv_buffer = {}
 
     while not stop_event.is_set():
         ser = None
@@ -190,13 +202,14 @@ def serial_worker_loop(state, stop_event):
                 baudrate=state.baud,
                 timeout=1.5
             )
-            # Flush existing buffer garbage
+            # Flush existing buffer
             ser.reset_input_buffer()
-            # If we don't have readings yet, keep waiting_data; otherwise connected
             if state.readings is None:
                 state.status = "waiting_data"
             else:
                 state.set_connected()
+
+            print(f"[SerialBridge] Connected to {state.port} @ {state.baud} baud. Listening for telemetry...")
 
             while not stop_event.is_set():
                 try:
@@ -206,22 +219,86 @@ def serial_worker_loop(state, stop_event):
                     break
 
                 if not raw_bytes:
-                    continue  # Timeout occurred, loop again
+                    continue
 
                 try:
-                    line_str = raw_bytes.decode("utf-8", errors="replace")
+                    line_str = raw_bytes.decode("utf-8", errors="replace").strip()
                 except Exception:
                     state.record_corrupted_frame()
                     continue
 
-                payload, err = parse_serial_line(line_str)
-                if payload is not None:
-                    state.update_readings(payload)
-                elif err and not err.startswith("empty_line") and not err.startswith("diagnostic_line"):
-                    state.record_corrupted_frame()
+                if not line_str:
+                    continue
+
+                # 1. Check if complete JSON
+                if line_str.startswith("{") and line_str.endswith("}"):
+                    try:
+                        data = json.loads(line_str)
+                        if isinstance(data, dict):
+                            state.update_readings(data)
+                            kv_buffer.clear()
+                            continue
+                    except Exception:
+                        pass
+
+                # 2. Key-Value parsing (ESP2.ino format)
+                temp_match = re.search(r'temperature\s*[:=]\s*([0-9.]+)', line_str, re.IGNORECASE)
+                if temp_match:
+                    try:
+                        kv_buffer["temperature"] = float(temp_match.group(1))
+                    except ValueError:
+                        pass
+
+                hum_match = re.search(r'humidity\s*[:=]\s*([0-9.]+)', line_str, re.IGNORECASE)
+                if hum_match:
+                    try:
+                        kv_buffer["humidity"] = float(hum_match.group(1))
+                    except ValueError:
+                        pass
+
+                soil_match = re.search(r'soil(?:\s+raw)?\s*[:=]\s*([0-9.]+)', line_str, re.IGNORECASE)
+                if soil_match:
+                    try:
+                        kv_buffer["soil_raw"] = int(float(soil_match.group(1)))
+                    except ValueError:
+                        pass
+
+                light_match = re.search(r'light(?:\s+raw)?\s*[:=]\s*([0-9.]+)', line_str, re.IGNORECASE)
+                if light_match:
+                    try:
+                        kv_buffer["light_raw"] = int(float(light_match.group(1)))
+                    except ValueError:
+                        pass
+
+                # Delimiter line (e.g. "-------------------") or complete batch
+                is_delimiter = "---" in line_str or "===" in line_str
+                has_core_readings = "temperature" in kv_buffer and "humidity" in kv_buffer
+
+                if (is_delimiter or has_core_readings) and kv_buffer:
+                    # Calibrate soil moisture percentage from raw 12-bit ADC
+                    soil_raw = kv_buffer.get("soil_raw")
+                    if soil_raw is not None:
+                        # 4095 is dry in air, ~1400 is wet in water
+                        calc_moist = (4095 - soil_raw) / (4095 - 1400) * 100.0
+                        kv_buffer["soil_moisture"] = round(max(0.0, min(100.0, calc_moist)), 1)
+                    
+                    light_raw = kv_buffer.get("light_raw")
+                    if light_raw is not None:
+                        # Light percentage approximation
+                        calc_light = (light_raw / 4095.0) * 100.0
+                        kv_buffer["light_lux"] = int(light_raw)
+                        kv_buffer["light_intensity"] = round(max(0.0, min(100.0, calc_light)), 1)
+
+                    state.update_readings(kv_buffer)
+                    if is_delimiter:
+                        kv_buffer.clear()
 
         except serial.SerialException as e:
-            state.set_disconnected(f"Cannot open {state.port}: {e}")
+            err_msg = str(e)
+            if "PermissionError" in err_msg or "Access is denied" in err_msg:
+                state.set_disconnected(f"Port {state.port} is busy! Please close Arduino IDE Serial Monitor.")
+            else:
+                state.set_disconnected(f"Cannot open {state.port}: {e}")
         except Exception as ex:
             state.set_disconnected(f"Unexpected error: {ex}")
         finally:
@@ -359,7 +436,7 @@ def create_app(state):
 
 def main():
     parser = argparse.ArgumentParser(description="SmartFarm AI USB Serial Bridge")
-    parser.add_argument("--port", type=str, default="COM3", help="Serial COM port (e.g. COM3, COM7, /dev/ttyUSB0)")
+    parser.add_argument("--port", type=str, default="COM7", help="Serial COM port (e.g. COM7, COM3, /dev/ttyUSB0)")
     parser.add_argument("--baud", type=int, default=115200, help="Baud rate (default: 115200)")
     parser.add_argument("--host", type=str, default="127.0.0.1", help="Host interface (strictly 127.0.0.1)")
     parser.add_argument("--http-port", type=int, default=5000, help="HTTP API port (default: 5000)")

@@ -352,8 +352,107 @@ export default function Zone3DView({ zone, onSimulateIrrigate }) {
           plant.add(panicle);
         }
 
+      } else if (type === 'Corn') {
+        // Corn: Tall stalk with arched leaves & yellow cob
+        const stemGeo = new THREE.CylinderGeometry(0.04, 0.07, 2.2, 8);
+        const stem = new THREE.Mesh(stemGeo, stemMat);
+        stem.position.y = 1.1;
+        stem.castShadow = true;
+        plant.add(stem);
+
+        for (let l = 0; l < 5; l++) {
+          const y = 0.5 + l * 0.35;
+          const leafGeo = new THREE.ConeGeometry(0.2, 1.1, 4);
+          leafGeo.rotateX(Math.PI / 2.2);
+          const leaf = new THREE.Mesh(leafGeo, leafMat);
+          leaf.position.set(0, y, 0);
+          leaf.rotation.y = (l * Math.PI) / 2;
+          leaf.castShadow = true;
+          plant.add(leaf);
+        }
+
+        // Corn cob
+        const cobGeo = new THREE.CylinderGeometry(0.06, 0.08, 0.35, 6);
+        const cobMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.5 });
+        const cob = new THREE.Mesh(cobGeo, cobMat);
+        cob.position.set(0.12, 1.2, 0.05);
+        cob.rotation.z = -0.4;
+        plant.add(cob);
+
+      } else if (type === 'Cotton') {
+        // Cotton: Shrub with fluffy white bolls
+        const stemGeo = new THREE.CylinderGeometry(0.05, 0.08, 1.2, 8);
+        const stem = new THREE.Mesh(stemGeo, stemMat);
+        stem.position.y = 0.6;
+        stem.castShadow = true;
+        plant.add(stem);
+
+        for (let a = 0; a < 6; a++) {
+          const angle = (a * 2 * Math.PI) / 6;
+          const leafGeo = new THREE.SphereGeometry(0.2, 5, 5);
+          const leaf = new THREE.Mesh(leafGeo, leafMat);
+          leaf.position.set(Math.cos(angle) * 0.35, 0.7, Math.sin(angle) * 0.35);
+          plant.add(leaf);
+
+          const bollGeo = new THREE.SphereGeometry(0.09, 8, 8);
+          const bollMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9 });
+          const boll = new THREE.Mesh(bollGeo, bollMat);
+          boll.position.set(Math.cos(angle) * 0.4, 0.85, Math.sin(angle) * 0.4);
+          plant.add(boll);
+        }
+
+      } else if (type === 'Sunflower') {
+        // Sunflower: Tall stalk with yellow flower disk
+        const stemGeo = new THREE.CylinderGeometry(0.05, 0.07, 2.0, 8);
+        const stem = new THREE.Mesh(stemGeo, stemMat);
+        stem.position.y = 1.0;
+        plant.add(stem);
+
+        const flowerDiskGeo = new THREE.CylinderGeometry(0.25, 0.25, 0.06, 16);
+        const flowerDiskMat = new THREE.MeshStandardMaterial({ color: 0x78350f, roughness: 0.8 });
+        const flowerDisk = new THREE.Mesh(flowerDiskGeo, flowerDiskMat);
+        flowerDisk.position.set(0, 2.05, 0);
+        flowerDisk.rotation.x = 0.3;
+        plant.add(flowerDisk);
+
+        const petalGeo = new THREE.TorusGeometry(0.35, 0.1, 8, 16);
+        const petalMat = new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.4 });
+        const petal = new THREE.Mesh(petalGeo, petalMat);
+        petal.position.set(0, 2.05, 0);
+        petal.rotation.x = 0.3;
+        plant.add(petal);
+
+      } else if (type === 'Wheat') {
+        // Wheat: Golden dense sheaves
+        for (let w = 0; w < 10; w++) {
+          const angle = (w * 2 * Math.PI) / 10;
+          const h = 0.9 + Math.random() * 0.2;
+          const wheatGeo = new THREE.CylinderGeometry(0.01, 0.02, h, 4);
+          const wheatMat = new THREE.MeshStandardMaterial({ color: 0xeab308, roughness: 0.5 });
+          const wheat = new THREE.Mesh(wheatGeo, wheatMat);
+          wheat.position.set(Math.cos(angle) * 0.1, h / 2, Math.sin(angle) * 0.1);
+          plant.add(wheat);
+        }
+
+      } else if (type === 'Sugarcane') {
+        // Sugarcane: Tall segmented stalks
+        const stemGeo = new THREE.CylinderGeometry(0.04, 0.06, 2.6, 8);
+        const caneMat = new THREE.MeshStandardMaterial({ color: 0x65a30d, roughness: 0.4 });
+        const stem = new THREE.Mesh(stemGeo, caneMat);
+        stem.position.y = 1.3;
+        plant.add(stem);
+
+        for (let l = 0; l < 4; l++) {
+          const leafGeo = new THREE.ConeGeometry(0.15, 1.2, 4);
+          leafGeo.rotateX(Math.PI / 2.5);
+          const leaf = new THREE.Mesh(leafGeo, leafMat);
+          leaf.position.set(0, 1.8 + l * 0.2, 0);
+          leaf.rotation.y = (l * Math.PI) / 2;
+          plant.add(leaf);
+        }
+
       } else {
-        // Groundnut (Spreading ground cover with low leaves)
+        // Groundnut / Potato / General broadleaf
         const stemGeo = new THREE.CylinderGeometry(0.04, 0.06, 0.6, 6);
         const stem = new THREE.Mesh(stemGeo, stemMat);
         stem.position.y = 0.3;

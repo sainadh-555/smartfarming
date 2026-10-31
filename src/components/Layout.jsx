@@ -48,18 +48,19 @@ export default function Layout() {
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
+  const isTe = language === 'te';
   const activeAlertsCount = alerts.filter(a => !a.resolved).length;
 
   const navItems = [
-    { name: 'Dashboard', path: '/', icon: LayoutDashboard },
-    { name: 'Farm Map', path: '/map', icon: Map, sub: 'Field Overview' },
-    { name: 'Plant Vision', path: '/vision', icon: Sprout, sub: 'Disease Detection' },
-    { name: 'AI Insights', path: '/insights', icon: Brain, sub: 'Farming Copilot' },
-    { name: 'Analytics', path: '/analytics', icon: BarChart3, sub: 'Sensor Analytics' },
-    { name: 'Inventory', path: '/inventory', icon: Package, sub: 'Seeds & Supplies' },
-    { name: 'Alerts', path: '/alerts', icon: Bell, badge: activeAlertsCount },
-    { name: 'Data Sources', path: '/data-sources', icon: Database, sub: 'Hardware & Cloud' },
-    { name: 'Settings', path: '/settings', icon: Settings },
+    { name: t('nav_dashboard', 'Dashboard'), path: '/', icon: LayoutDashboard },
+    { name: t('nav_farm_map', 'Farm Map'), path: '/map', icon: Map, sub: isTe ? 'పొలం పటం' : 'Field Overview' },
+    { name: t('nav_plant_vision', 'Plant Vision'), path: '/vision', icon: Sprout, sub: isTe ? 'తెగుళ్ల గుర్తింపు' : 'Crop Vision' },
+    { name: t('nav_ai_insights', 'AI Insights'), path: '/insights', icon: Brain, sub: isTe ? 'రైతు సలహాదారు' : 'Farming Copilot' },
+    { name: t('nav_analytics', 'Analytics'), path: '/analytics', icon: BarChart3, sub: isTe ? 'గణాంకాలు & పోకడలు' : 'Sensor Analytics' },
+    { name: t('nav_inventory', 'Inventory'), path: '/inventory', icon: Package, sub: isTe ? 'నిల్వలు & ఖర్చులు (₹)' : 'Supplies & Expenses (₹)' },
+    { name: t('nav_alerts', 'Alerts'), path: '/alerts', icon: Bell, badge: activeAlertsCount },
+    { name: t('nav_data_sources', 'Data Sources'), path: '/data-sources', icon: Database, sub: isTe ? 'హార్డ్‌వేర్ & క్లౌడ్' : 'Hardware & Cloud' },
+    { name: t('nav_settings', 'Settings'), path: '/settings', icon: Settings },
   ];
 
   const SidebarContent = () => (
@@ -76,7 +77,7 @@ export default function Layout() {
                 <h1 className="text-base font-extrabold tracking-tight text-white">SmartFarm AI</h1>
                 <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">PRO</span>
               </div>
-              <p className="text-[11px] text-slate-400 font-medium">Smart Farming System</p>
+              <p className="text-[11px] text-slate-400 font-medium">{isTe ? 'స్మార్ట్ ఫార్మింగ్ ప్లాట్‌ఫామ్' : 'Smart Farming Platform'}</p>
             </div>
           </div>
           <button 
@@ -92,7 +93,7 @@ export default function Layout() {
       <nav className="flex-1 px-3 space-y-1 overflow-y-auto">
         {navItems.map((item) => (
           <NavLink
-            key={item.name}
+            key={item.path}
             to={item.path}
             onClick={() => setIsMobileMenuOpen(false)}
             className={({ isActive }) =>
@@ -119,13 +120,13 @@ export default function Layout() {
         ))}
       </nav>
       
-      {/* Telemetry Status & Simulation */}
+      {/* Telemetry Status */}
       <div className="p-4 border-t border-slate-800 bg-slate-950/60">
         <div className="bg-slate-900/90 rounded-xl p-3 border border-slate-800">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Sensor Gateway</span>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{isTe ? 'సెన్సార్ స్థితి' : 'Sensor Gateway'}</span>
             <span className="text-[10px] font-mono text-emerald-400 flex items-center gap-1">
-              <Wifi className="w-3 h-3 animate-pulse" /> 10 Hz
+              <Wifi className="w-3 h-3 animate-pulse" /> {isTe ? 'లైవ్' : 'Active'}
             </span>
           </div>
 
@@ -261,13 +262,10 @@ export default function Layout() {
                 id="lang-select"
                 value={language}
                 onChange={(e) => setLanguage(e.target.value)}
-                className="pl-7 pr-2 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold border border-slate-300/70 focus:outline-none cursor-pointer"
+                className="pl-7 pr-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-bold border border-slate-300/70 focus:outline-none cursor-pointer"
               >
-                <option value="en">EN</option>
-                <option value="es">ES</option>
-                <option value="fr">FR</option>
-                <option value="hi">हिन्दी</option>
-                <option value="te">తెలుగు</option>
+                <option value="en">English</option>
+                <option value="te">తెలుగు (Telugu)</option>
               </select>
             </div>
 

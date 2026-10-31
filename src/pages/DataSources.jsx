@@ -59,13 +59,44 @@ export default function DataSources() {
     setBackendUrl,
     cloudStatus,
     lastCloudSync,
-    testBackendConnection
+    testBackendConnection,
+    connectWebSerial,
+    disconnectWebSerial,
+    isWebSerialSupported,
+    language,
+    t
   } = useFarmData();
 
+  const isTe = language === 'te';
   const [selectedZoneId, setSelectedZoneId] = useState('ZONE-A');
   const [selectedPgn, setSelectedPgn] = useState('PGN_65488');
   const [copied, setCopied] = useState(false);
   const [simulatedNotice, setSimulatedNotice] = useState(false);
+  const [webSerialConnecting, setWebSerialConnecting] = useState(false);
+  const [webSerialFeedback, setWebSerialFeedback] = useState(null);
+
+  const handleConnectWebSerial = async () => {
+    setWebSerialConnecting(true);
+    setWebSerialFeedback(null);
+    try {
+      await connectWebSerial();
+      setWebSerialFeedback({
+        type: 'success',
+        message: isTe ? 'ESP32 COM7 వద్ద విజయవంతంగా కనెక్ట్ చేయబడింది! లైవ్ డేటా ప్రసారం ప్రారంభమైంది.' : 'ESP32 connected via Web Serial on COM7! Live telemetry streaming.'
+      });
+    } catch (err) {
+      const msg = err.message || '';
+      const isBusy = msg.includes('Permission') || msg.includes('busy') || msg.includes('Access');
+      setWebSerialFeedback({
+        type: 'error',
+        message: isBusy
+          ? (isTe ? 'COM7 పోర్ట్ బిజీగా ఉంది! దయచేసి ముందుగా Arduino IDE లో Serial Monitor మూసివేయండి.' : 'Port COM7 is busy! Please close the Serial Monitor in Arduino IDE first.')
+          : (err.message || 'Failed to connect.')
+      });
+    } finally {
+      setWebSerialConnecting(false);
+    }
+  };
 
   // USB Bridge Testing
   const [testingBridge, setTestingBridge] = useState(false);
@@ -493,6 +524,50 @@ export default function DataSources() {
         </div>
 
         <div className="p-6 space-y-6">
+          
+          {/* Arduino IDE Serial Monitor Exclusive Lock Callout */}
+          <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+              <div className="text-xs">
+                <strong className="font-bold text-amber-900 block mb-0.5">
+                  {isTe ? 'ముఖ్యమైన సూచన (COM7):' : 'Important Note for Connecting COM7:'}
+                </strong>
+                <span className="text-amber-800 leading-relaxed">
+                  {isTe 
+                    ? 'Arduino IDE లో Serial Monitor తెరిచి ఉంటే, COM7 పోర్ట్ లాక్ చేయబడుతుంది. వెబ్‌లో కనెక్ట్ చేయడానికి లేదా పైథాన్ బ్రిడ్జ్ ప్రారంభించడానికి ముందు Arduino IDE లోని Serial Monitor ను మూసివేయండి.' 
+                    : 'In Windows, only one application can access COM7 at a time. Please close the Serial Monitor in Arduino IDE before clicking "Connect" or running the Python bridge.'}
+                </span>
+              </div>
+            </div>
+
+            {isWebSerialSupported() && (
+              <button
+                type="button"
+                onClick={handleConnectWebSerial}
+                disabled={webSerialConnecting}
+                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all shrink-0 active:scale-95 flex items-center gap-2 shadow-xs"
+              >
+                <Cable className={`w-4 h-4 text-emerald-400 ${webSerialConnecting ? 'animate-pulse' : ''}`} />
+                <span>{webSerialConnecting ? (isTe ? 'కనెక్ట్ అవుతోంది...' : 'Connecting...') : (isTe ? 'బ్రౌజర్ ద్వారా కనెక్ట్ చేయండి (COM7)' : 'Connect ESP32 (COM7 Direct)')}</span>
+              </button>
+            )}
+          </div>
+
+          {webSerialFeedback && (
+            <div className={`p-3 rounded-xl text-xs font-medium border flex items-center gap-2 ${
+              webSerialFeedback.type === 'success' 
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-800' 
+                : 'bg-rose-50 border-rose-200 text-rose-800'
+            }`}>
+              {webSerialFeedback.type === 'success' ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              ) : (
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+              )}
+              <span>{webSerialFeedback.message}</span>
+            </div>
+          )}
           
           {/* Real Sensor Telemetry Display Grid */}
           <div>

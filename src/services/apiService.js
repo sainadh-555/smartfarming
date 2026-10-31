@@ -3,10 +3,26 @@ import initialZones from '../data/farm_zones.json';
 import initialAgronomy from '../data/zone_agronomy.json';
 import { analyzeFarmData, SIMULATION_PRESETS } from '../ai/farmDecisionEngine';
 
+export const CROPS_CATALOG = [
+  { id: 'Tomato', name: 'Tomato', nameTe: 'టమోటా', variety: 'Arka Rakshak F1', soilType: 'Red Sandy Loam', durationDays: 120, waterDemand: '4-6 mm/day', optimalTemp: '20-30°C' },
+  { id: 'Chili', name: 'Chili', nameTe: 'మిర్చి', variety: 'Guntur Sannam', soilType: 'Black Cotton Soil', durationDays: 150, waterDemand: '3-5 mm/day', optimalTemp: '22-32°C' },
+  { id: 'Paddy', name: 'Paddy (Rice)', nameTe: 'వరి', variety: 'BPT 5204 (Sona Masoori)', soilType: 'Clayey Loam', durationDays: 135, waterDemand: '8-10 mm/day', optimalTemp: '24-34°C' },
+  { id: 'Groundnut', name: 'Groundnut', nameTe: 'వేరుశనగ', variety: 'Kadiri 6', soilType: 'Sandy Loam', durationDays: 110, waterDemand: '3-4 mm/day', optimalTemp: '22-30°C' },
+  { id: 'Corn', name: 'Corn (Maize)', nameTe: 'మొక్కజొన్న', variety: 'DHM 117', soilType: 'Well-drained Loam', durationDays: 105, waterDemand: '4-5 mm/day', optimalTemp: '20-32°C' },
+  { id: 'Cotton', name: 'Cotton', nameTe: 'ప్రత్తి', variety: 'Bt Cotton Hybrid', soilType: 'Deep Black Soil', durationDays: 160, waterDemand: '4-6 mm/day', optimalTemp: '24-35°C' },
+  { id: 'Wheat', name: 'Wheat', nameTe: 'గోధుమ', variety: 'Sharbati HD-2967', soilType: 'Fertile Loam', durationDays: 120, waterDemand: '3-5 mm/day', optimalTemp: '18-25°C' },
+  { id: 'Sunflower', name: 'Sunflower', nameTe: 'పొద్దుతిరుగుడు', variety: 'KBSH-44', soilType: 'Sandy Clay Loam', durationDays: 95, waterDemand: '3-4 mm/day', optimalTemp: '22-30°C' },
+  { id: 'Sugarcane', name: 'Sugarcane', nameTe: 'చెరకు', variety: 'Co 86032', soilType: 'Rich Loam', durationDays: 360, waterDemand: '7-10 mm/day', optimalTemp: '25-35°C' },
+  { id: 'Potato', name: 'Potato', nameTe: 'బంగాళాదుంప', variety: 'Kufri Jyoti', soilType: 'Sandy Loam', durationDays: 90, waterDemand: '4-5 mm/day', optimalTemp: '16-24°C' },
+  { id: 'Bell Pepper', name: 'Bell Pepper (Capsicum)', nameTe: 'క్యాప్సికం', variety: 'Indra Hybrid', soilType: 'Loamy Soil', durationDays: 100, waterDemand: '4-6 mm/day', optimalTemp: '20-28°C' },
+  { id: 'Soybean', name: 'Soybean', nameTe: 'సోయాబీన్', variety: 'JS 335', soilType: 'Clay Loam', durationDays: 100, waterDemand: '4-5 mm/day', optimalTemp: '22-30°C' },
+  { id: 'Custom', name: 'Other / Custom Crop', nameTe: 'ఇతర / అనుకూల పంట', variety: 'Farmer Selected Variety', soilType: 'Field Soil', durationDays: 120, waterDemand: 'Variable', optimalTemp: '20-30°C' }
+];
+
 /**
  * SmartFarm API Service — Hybrid Architecture
  * Supports:
- * 1. LIVE HARDWARE MODE (Actual ESP32 via USB bridge or Render Cloud)
+ * 1. LIVE HARDWARE MODE (Actual ESP32 via USB bridge, Web Serial, or Render Cloud)
  * 2. REAL-DATA-BASED SIMULATION MODE (Captures real readings as baseline, modifies separate simulation state)
  * 3. MANUAL MODE (User-entered values with sliders/inputs)
  * 
@@ -18,11 +34,24 @@ import { analyzeFarmData, SIMULATION_PRESETS } from '../ai/farmDecisionEngine';
  */
 class SmartFarmApiService {
   constructor() {
-    this.zones = [...initialZones];
-    this.agronomyData = JSON.parse(JSON.stringify(initialAgronomy));
+    let loadedZones = initialZones;
+    let loadedAgronomy = initialAgronomy;
+    try {
+      const savedZones = localStorage.getItem('smartfarm_custom_zones');
+      if (savedZones) loadedZones = JSON.parse(savedZones);
+      const savedAgro = localStorage.getItem('smartfarm_custom_agronomy');
+      if (savedAgro) loadedAgronomy = JSON.parse(savedAgro);
+    } catch (e) {
+      console.warn('Error reading stored custom zones:', e);
+    }
+
+    this.zones = [...loadedZones];
+    this.agronomyData = JSON.parse(JSON.stringify(loadedAgronomy));
     this.alerts = [];
     this.history = [];
     this.subscribers = new Set();
+    this.webSerialPort = null;
+    this.webSerialConnected = false;
 
     // -------------------------------------------------------------
     // THREE SEPARATE DATA OBJECTS (Strict Data Integrity)
@@ -674,33 +703,24 @@ class SmartFarmApiService {
         const temp = typeof r.temperature === 'number' ? r.temperature : null;
         const hum = typeof r.humidity === 'number' ? r.humidity : null;
         const moist = typeof r.soil_moisture === 'number' ? r.soil_moisture : null;
-        const light = typeof r.light_lux === 'number' ? Math.min(100, Math.round((r.light_lux / 1000) * 100)) : 65;
+        const light = typeof r.light_intensity === 'number' 
+          ? r.light_intensity 
+          : (typeof r.light_lux === 'number' ? Math.min(100, Math.round((r.light_lux / 1000) * 100)) : 65);
 
-        // IMMUTABLE UPDATE TO HARDWARE DATA
-        this.hardwareData.hasReadings = true;
-        this.hardwareData.readingsCount += 1;
-        this.hardwareData.lastUpdated = payload.last_updated 
-          ? new Date(payload.last_updated).toLocaleTimeString() 
-          : new Date().toLocaleTimeString();
-        this.hardwareData.lastUpdatedEpoch = Date.now();
-        this.hardwareData.isStale = false;
-        this.hardwareData.connectionStatus = 'connected';
-        this.hardwareData.port = payload.port || this.hardwareData.port;
-        this.hardwareData.temperature = temp;
-        this.hardwareData.humidity = hum;
-        this.hardwareData.soilMoisture = moist;
-        this.hardwareData.lightIntensity = light;
-        this.hardwareData.soilRaw = r.soil_raw;
-        this.hardwareData.lightRaw = r.light_raw;
-        this.hardwareData.dhtOk = r.dht_ok;
+        this.ingestRealHardwareReading({
+          temperature: temp,
+          humidity: hum,
+          soilMoisture: moist,
+          lightIntensity: light,
+          soilRaw: r.soil_raw,
+          lightRaw: r.light_raw,
+          port: payload.port || this.hardwareData.port || 'COM7',
+          lastUpdated: payload.last_updated
+        });
 
-        this.usbPort = payload.port || this.usbPort;
+        this.usbPort = payload.port || this.usbPort || 'COM7';
         this.usbStatus = 'connected';
         this.usbError = null;
-
-        if (this.operatingMode === 'live_hardware') {
-          this.checkAlerts('ZONE-A');
-        }
       } else if (payload.status === 'waiting_data') {
         this.hardwareData.connectionStatus = 'waiting_data';
         this.usbStatus = 'waiting_data';
@@ -945,6 +965,244 @@ class SmartFarmApiService {
 
     this.notify();
     return newTreatment;
+  }
+
+  // =============================================================
+  // HARDWARE DATA INGESTION (UNIFIED ACROSS SOURCES)
+  // =============================================================
+
+  ingestRealHardwareReading(r = {}) {
+    const temp = typeof r.temperature === 'number' ? r.temperature : null;
+    const hum = typeof r.humidity === 'number' ? r.humidity : null;
+    const moist = typeof r.soilMoisture === 'number' ? r.soilMoisture : null;
+    const light = typeof r.lightIntensity === 'number' ? r.lightIntensity : null;
+
+    this.hardwareData.hasReadings = true;
+    this.hardwareData.readingsCount += 1;
+    this.hardwareData.lastUpdated = r.lastUpdated 
+      ? new Date(r.lastUpdated).toLocaleTimeString() 
+      : new Date().toLocaleTimeString();
+    this.hardwareData.lastUpdatedEpoch = Date.now();
+    this.hardwareData.isStale = false;
+    this.hardwareData.connectionStatus = 'connected';
+    if (r.port) this.hardwareData.port = r.port;
+    if (temp !== null) this.hardwareData.temperature = temp;
+    if (hum !== null) this.hardwareData.humidity = hum;
+    if (moist !== null) this.hardwareData.soilMoisture = moist;
+    if (light !== null) this.hardwareData.lightIntensity = light;
+    if (r.soilRaw !== undefined) this.hardwareData.soilRaw = r.soilRaw;
+    if (r.lightRaw !== undefined) this.hardwareData.lightRaw = r.lightRaw;
+    this.hardwareData.dhtOk = true;
+
+    // Only record hardware readings in real history
+    if (temp !== null || moist !== null) {
+      this.history.push({
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+        temperature: this.hardwareData.temperature,
+        humidity: this.hardwareData.humidity,
+        soilMoisture: this.hardwareData.soilMoisture,
+        lightIntensity: this.hardwareData.lightIntensity,
+        isSimulation: false,
+        source: 'hardware'
+      });
+      if (this.history.length > 100) this.history.shift();
+    }
+
+    if (this.operatingMode === 'live_hardware') {
+      this.checkAlerts('ZONE-A');
+    }
+    this.notify();
+  }
+
+  // =============================================================
+  // WEB SERIAL API (DIRECT BROWSER-TO-ESP32 VIA CHROME/EDGE)
+  // =============================================================
+
+  isWebSerialSupported() {
+    return typeof navigator !== 'undefined' && 'serial' in navigator;
+  }
+
+  async connectWebSerial() {
+    if (!this.isWebSerialSupported()) {
+      throw new Error('Web Serial is not supported in this browser. Please use Chrome or Edge.');
+    }
+
+    try {
+      this.webSerialPort = await navigator.serial.requestPort();
+      await this.webSerialPort.open({ baudRate: 115200 });
+      this.webSerialConnected = true;
+      this.hardwareData.port = 'WebSerial (COM7)';
+      this.operatingMode = 'live_hardware';
+      localStorage.setItem('smartfarm_operating_mode', 'live_hardware');
+      this.readWebSerialStream();
+      this.notify();
+      return true;
+    } catch (err) {
+      this.webSerialConnected = false;
+      throw err;
+    }
+  }
+
+  async disconnectWebSerial() {
+    if (this.webSerialPort) {
+      try {
+        await this.webSerialPort.close();
+      } catch (e) {}
+      this.webSerialPort = null;
+      this.webSerialConnected = false;
+      this.markHardwareStale('Disconnected Web Serial');
+      this.notify();
+    }
+  }
+
+  async readWebSerialStream() {
+    if (!this.webSerialPort || !this.webSerialPort.readable) return;
+
+    try {
+      const textDecoder = new TextDecoderStream();
+      this.webSerialPort.readable.pipeTo(textDecoder.writable).catch(() => {});
+      const reader = textDecoder.readable.getReader();
+      let lineBuffer = '';
+      let kvBuffer = {};
+
+      while (this.webSerialConnected) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        lineBuffer += value;
+        const lines = lineBuffer.split('\n');
+        lineBuffer = lines.pop();
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+
+          // Check if JSON
+          if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+            try {
+              const data = JSON.parse(trimmed);
+              this.ingestRealHardwareReading({
+                ...data,
+                port: 'WebSerial (COM7)'
+              });
+              kvBuffer = {};
+              continue;
+            } catch (e) {}
+          }
+
+          // Parse Key-Value (ESP2.ino format from Arduino IDE)
+          const tempMatch = trimmed.match(/temperature\s*[:=]\s*([0-9.]+)/i);
+          if (tempMatch) kvBuffer.temperature = parseFloat(tempMatch[1]);
+
+          const humMatch = trimmed.match(/humidity\s*[:=]\s*([0-9.]+)/i);
+          if (humMatch) kvBuffer.humidity = parseFloat(humMatch[1]);
+
+          const soilMatch = trimmed.match(/soil(?:\s+raw)?\s*[:=]\s*([0-9.]+)/i);
+          if (soilMatch) kvBuffer.soil_raw = parseInt(soilMatch[1], 10);
+
+          const lightMatch = trimmed.match(/light(?:\s+raw)?\s*[:=]\s*([0-9.]+)/i);
+          if (lightMatch) kvBuffer.light_raw = parseInt(lightMatch[1], 10);
+
+          const isDelimiter = trimmed.includes('---') || trimmed.includes('===');
+          const hasReadings = kvBuffer.temperature !== undefined && kvBuffer.humidity !== undefined;
+
+          if (isDelimiter || hasReadings) {
+            let moist = null;
+            if (typeof kvBuffer.soil_raw === 'number') {
+              const calc = ((4095 - kvBuffer.soil_raw) / (4095 - 1400)) * 100;
+              moist = Math.max(0, Math.min(100, Math.round(calc * 10) / 10));
+            }
+            let lightInt = null;
+            if (typeof kvBuffer.light_raw === 'number') {
+              lightInt = Math.max(0, Math.min(100, Math.round((kvBuffer.light_raw / 4095) * 100)));
+            }
+
+            this.ingestRealHardwareReading({
+              temperature: kvBuffer.temperature,
+              humidity: kvBuffer.humidity,
+              soilMoisture: moist,
+              soilRaw: kvBuffer.soil_raw,
+              lightIntensity: lightInt,
+              lightRaw: kvBuffer.light_raw,
+              port: 'WebSerial (COM7)'
+            });
+
+            if (isDelimiter) kvBuffer = {};
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[WebSerial] Error reading stream:', err);
+    }
+  }
+
+  // =============================================================
+  // PLOT / ZONE MANAGEMENT (ADD EXTRA PLOT & ANY CROP)
+  // =============================================================
+
+  addZone(plotData = {}) {
+    const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
+    const nextIndex = this.zones.length;
+    const nextLetter = letters[nextIndex] || `Z${nextIndex + 1}`;
+    const zoneId = `ZONE-${nextLetter}`;
+    const cropType = plotData.cropType || 'Tomato';
+    const acreage = parseFloat(plotData.acreage) || 0.25;
+    const cropConfig = CROPS_CATALOG.find(c => c.id === cropType) || CROPS_CATALOG[0];
+
+    const newZone = {
+      zoneId,
+      name: plotData.name || `Zone ${nextLetter}`,
+      cropType,
+      status: 'Healthy',
+      coordinates: { x: nextIndex % 2, y: Math.floor(nextIndex / 2) }
+    };
+
+    this.agronomyData[zoneId] = {
+      zoneId,
+      name: newZone.name,
+      quadrant: `Plot ${nextLetter} (${cropType})`,
+      acreage,
+      acreageDisplay: `${acreage} Acre`,
+      crop: {
+        name: cropType,
+        variety: plotData.variety || cropConfig.variety,
+        growthStage: 'Vegetative Growth',
+        stagePercent: 40,
+        daysAfterSowing: 30,
+        soilType: plotData.soilType || cropConfig.soilType,
+        optimalTempRange: cropConfig.optimalTemp,
+        dripLine: 'Drip Lateral 16mm, 2.0 LPH emitters'
+      },
+      pesticideUsage: {
+        totalApplications: 0,
+        treatments: []
+      }
+    };
+
+    this.zones.push(newZone);
+    this.saveZonesToStorage();
+    this.notify();
+    return newZone;
+  }
+
+  deleteZone(zoneId) {
+    if (zoneId === 'ZONE-A') {
+      console.warn('Cannot delete primary hardware monitored Zone A');
+      return false;
+    }
+    this.zones = this.zones.filter(z => z.zoneId !== zoneId);
+    delete this.agronomyData[zoneId];
+    this.saveZonesToStorage();
+    this.notify();
+    return true;
+  }
+
+  saveZonesToStorage() {
+    try {
+      localStorage.setItem('smartfarm_custom_zones', JSON.stringify(this.zones));
+      localStorage.setItem('smartfarm_custom_agronomy', JSON.stringify(this.agronomyData));
+    } catch (e) {
+      console.warn('Failed to save zones to storage:', e);
+    }
   }
 }
 

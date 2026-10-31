@@ -5,41 +5,45 @@
  */
 
 export const WMO_WEATHER_CODES = {
-  0: { label: 'Clear Sky', icon: 'Sun' },
-  1: { label: 'Mainly Clear', icon: 'Sun' },
-  2: { label: 'Partly Cloudy', icon: 'CloudSun' },
-  3: { label: 'Overcast', icon: 'Cloud' },
-  45: { label: 'Foggy', icon: 'CloudFog' },
-  48: { label: 'Depositing Rime Fog', icon: 'CloudFog' },
-  51: { label: 'Light Drizzle', icon: 'CloudDrizzle' },
-  53: { label: 'Moderate Drizzle', icon: 'CloudDrizzle' },
-  55: { label: 'Dense Drizzle', icon: 'CloudDrizzle' },
-  56: { label: 'Light Freezing Drizzle', icon: 'CloudSnow' },
-  57: { label: 'Dense Freezing Drizzle', icon: 'CloudSnow' },
-  61: { label: 'Slight Rain', icon: 'CloudRain' },
-  63: { label: 'Moderate Rain', icon: 'CloudRain' },
-  65: { label: 'Heavy Rain', icon: 'CloudRain' },
-  66: { label: 'Light Freezing Rain', icon: 'CloudSnow' },
-  67: { label: 'Heavy Freezing Rain', icon: 'CloudSnow' },
-  71: { label: 'Slight Snow Fall', icon: 'Snowflake' },
-  73: { label: 'Moderate Snow Fall', icon: 'Snowflake' },
-  75: { label: 'Heavy Snow Fall', icon: 'Snowflake' },
-  77: { label: 'Snow Grains', icon: 'Snowflake' },
-  80: { label: 'Slight Rain Showers', icon: 'CloudRain' },
-  81: { label: 'Moderate Rain Showers', icon: 'CloudRain' },
-  82: { label: 'Violent Rain Showers', icon: 'CloudLightning' },
-  85: { label: 'Slight Snow Showers', icon: 'Snowflake' },
-  86: { label: 'Heavy Snow Showers', icon: 'Snowflake' },
-  95: { label: 'Thunderstorm', icon: 'CloudLightning' },
-  96: { label: 'Thunderstorm with Slight Hail', icon: 'CloudLightning' },
-  99: { label: 'Thunderstorm with Heavy Hail', icon: 'CloudLightning' }
+  0: { label: 'Clear Sky', labelTe: 'నిర్మలమైన ఆకాశం', icon: 'Sun' },
+  1: { label: 'Mainly Clear', labelTe: 'దాదాపు నిర్మలం', icon: 'Sun' },
+  2: { label: 'Partly Cloudy', labelTe: 'పాక్షికంగా మేఘావృతం', icon: 'CloudSun' },
+  3: { label: 'Overcast', labelTe: 'పూర్తిగా మేఘావృతం', icon: 'Cloud' },
+  45: { label: 'Foggy', labelTe: 'పొగమంచు', icon: 'CloudFog' },
+  48: { label: 'Depositing Rime Fog', labelTe: 'దట్టమైన పొగమంచు', icon: 'CloudFog' },
+  51: { label: 'Light Drizzle', labelTe: 'తేలికపాటి చినుకులు', icon: 'CloudDrizzle' },
+  53: { label: 'Moderate Drizzle', labelTe: 'ఒక మోస్తరు చినుకులు', icon: 'CloudDrizzle' },
+  55: { label: 'Dense Drizzle', labelTe: 'చిరుజల్లులు', icon: 'CloudDrizzle' },
+  56: { label: 'Light Freezing Drizzle', labelTe: 'చలి చినుకులు', icon: 'CloudSnow' },
+  57: { label: 'Dense Freezing Drizzle', labelTe: 'దట్టమైన చలి చినుకులు', icon: 'CloudSnow' },
+  61: { label: 'Slight Rain', labelTe: 'తేలికపాటి వర్షం', icon: 'CloudRain' },
+  63: { label: 'Moderate Rain', labelTe: 'మోస్తరు వర్షం', icon: 'CloudRain' },
+  65: { label: 'Heavy Rain', labelTe: 'భారీ వర్షం', icon: 'CloudRain' },
+  66: { label: 'Light Freezing Rain', labelTe: 'చలి వర్షం', icon: 'CloudSnow' },
+  67: { label: 'Heavy Freezing Rain', labelTe: 'తీవ్ర చలి వర్షం', icon: 'CloudSnow' },
+  71: { label: 'Slight Snow Fall', labelTe: 'తేలికపాటి మంచు', icon: 'Snowflake' },
+  73: { label: 'Moderate Snow Fall', labelTe: 'మంచు కురవడం', icon: 'Snowflake' },
+  75: { label: 'Heavy Snow Fall', labelTe: 'భారీ మంచు', icon: 'Snowflake' },
+  77: { label: 'Snow Grains', labelTe: 'మంచు రేణువులు', icon: 'Snowflake' },
+  80: { label: 'Slight Rain Showers', labelTe: 'తేలికపాటి జల్లులు', icon: 'CloudRain' },
+  81: { label: 'Moderate Rain Showers', labelTe: 'మోస్తరు జల్లులు', icon: 'CloudRain' },
+  82: { label: 'Violent Rain Showers', labelTe: 'భారీ వర్షపు జల్లులు', icon: 'CloudLightning' },
+  85: { label: 'Slight Snow Showers', labelTe: 'మంచు జల్లులు', icon: 'Snowflake' },
+  86: { label: 'Heavy Snow Showers', labelTe: 'భారీ మంచు జల్లులు', icon: 'Snowflake' },
+  95: { label: 'Thunderstorm', labelTe: 'ఉరుములతో కూడిన వర్షం', icon: 'CloudLightning' },
+  96: { label: 'Thunderstorm with Slight Hail', labelTe: 'వడగండ్ల వర్షం', icon: 'CloudLightning' },
+  99: { label: 'Thunderstorm with Heavy Hail', labelTe: 'భారీ వడగండ్ల వర్షం', icon: 'CloudLightning' }
 };
 
-export function interpretWeatherCode(code) {
+export function interpretWeatherCode(code, language = 'en') {
   if (code === undefined || code === null) {
-    return { label: 'N/A', icon: 'Cloud' };
+    return { label: 'N/A', labelTe: 'లభ్యం కాలేదు', icon: 'Cloud' };
   }
-  return WMO_WEATHER_CODES[code] || { label: 'Variable Weather', icon: 'CloudSun' };
+  const item = WMO_WEATHER_CODES[code] || { label: 'Variable Weather', labelTe: 'వాతావరణ మార్పు', icon: 'CloudSun' };
+  return {
+    ...item,
+    displayLabel: language === 'te' ? item.labelTe : item.label
+  };
 }
 
 export const DEFAULT_FARM_LOCATION = {
@@ -244,7 +248,7 @@ export async function getLiveBrowserLocation() {
 }
 
 export async function fetchLiveWeather(latitude = DEFAULT_FARM_LOCATION.latitude, longitude = DEFAULT_FARM_LOCATION.longitude) {
-  const url = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,precipitation&timezone=auto`;
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,precipitation&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto`;
 
   try {
     const res = await fetch(url, {
@@ -267,15 +271,38 @@ export async function fetchLiveWeather(latitude = DEFAULT_FARM_LOCATION.latitude
 
     const condition = interpretWeatherCode(current.weather_code);
 
+    // Parse 5-day agrometeorological forecast
+    let dailyForecast = [];
+    const daily = data?.daily;
+    if (daily && Array.isArray(daily.time)) {
+      dailyForecast = daily.time.map((t, idx) => {
+        const code = daily.weather_code?.[idx];
+        const item = interpretWeatherCode(code);
+        return {
+          date: t,
+          dayName: new Date(t).toLocaleDateString('en-US', { weekday: 'short' }),
+          maxTemp: typeof daily.temperature_2m_max?.[idx] === 'number' ? daily.temperature_2m_max[idx] : null,
+          minTemp: typeof daily.temperature_2m_min?.[idx] === 'number' ? daily.temperature_2m_min[idx] : null,
+          rainMm: typeof daily.precipitation_sum?.[idx] === 'number' ? daily.precipitation_sum[idx] : 0,
+          weatherCode: code,
+          conditionEn: item.label,
+          conditionTe: item.labelTe,
+          icon: item.icon
+        };
+      }).slice(0, 5);
+    }
+
     return {
       available: true,
       outdoorTemperature: typeof current.temperature_2m === 'number' ? current.temperature_2m : null,
       outdoorHumidity: typeof current.relative_humidity_2m === 'number' ? current.relative_humidity_2m : null,
       weatherCode: current.weather_code,
       weatherCondition: condition.label,
+      weatherConditionTe: condition.labelTe,
       weatherIcon: condition.icon,
       windSpeed: typeof current.wind_speed_10m === 'number' ? current.wind_speed_10m : null,
       rainfall: typeof current.precipitation === 'number' ? current.precipitation : null,
+      dailyForecast,
       rawTime: current.time,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       latitude: data.latitude,

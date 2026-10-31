@@ -1,12 +1,13 @@
 import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
-import { apiService } from '../services/apiService';
+import { apiService, CROPS_CATALOG } from '../services/apiService';
 import { 
   calculateFAO56_ET0, 
   evaluateGlobalGapCompliance, 
   generateAuditCSV, 
-  UnitConverters, 
-  I18N_DICTIONARY 
+  UnitConverters 
 } from '../services/standardsEngine';
+import { translate } from '../services/i18n';
+import { formatINR, formatIndianNumber } from '../services/currencyService';
 import {
   DEFAULT_FARM_LOCATION,
   getStoredLocation,
@@ -107,9 +108,8 @@ export const FarmProvider = ({ children }) => {
   };
 
   // i18n Translation helper
-  const t = (key) => {
-    const dict = I18N_DICTIONARY[language] || I18N_DICTIONARY.en;
-    return dict[key] || I18N_DICTIONARY.en[key] || key;
+  const t = (key, fallback) => {
+    return translate(key, language, fallback);
   };
 
   // Unit conversion helpers
@@ -131,6 +131,17 @@ export const FarmProvider = ({ children }) => {
     language,
     setLanguage,
     t,
+    // Centralized Indian Currency formatters
+    formatINR,
+    formatIndianNumber,
+    // Agricultural Crop Catalog & Plot Management
+    cropsCatalog: CROPS_CATALOG,
+    addZone: (plotData) => apiService.addZone(plotData),
+    deleteZone: (zoneId) => apiService.deleteZone(zoneId),
+    // Direct Web Serial API (Chrome/Edge to ESP32 on COM7)
+    connectWebSerial: () => apiService.connectWebSerial(),
+    disconnectWebSerial: () => apiService.disconnectWebSerial(),
+    isWebSerialSupported: () => apiService.isWebSerialSupported(),
     faoEt0,
     globalGap,
     downloadAuditCSV,
