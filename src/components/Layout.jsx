@@ -94,13 +94,12 @@ export default function Layout() {
       {/* Brand Header */}
       <div className="p-5 border-b border-slate-800/80">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-700 flex items-center justify-center text-white shadow-glow-emerald">
+          <div className="w-10 h-10 rounded-xl bg-emerald-600 flex items-center justify-center text-white shadow-xs">
             <Sprout className="w-6 h-6" />
           </div>
           <div>
             <div className="flex items-center gap-1.5">
               <h1 className="text-base font-extrabold tracking-tight text-white">SmartFarm AI</h1>
-              <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">PRO</span>
             </div>
             <p className="text-[11px] text-slate-400 font-medium">{isTe ? 'స్మార్ట్ ఫార్మింగ్ ప్లాట్‌ఫామ్' : 'Smart Farming Platform'}</p>
           </div>
@@ -188,7 +187,7 @@ export default function Layout() {
           {/* Left: Brand & Farm Identity */}
           <div className="flex items-center gap-2.5 min-w-0">
             {/* Mobile Brand Icon */}
-            <div className="md:hidden w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-700 flex items-center justify-center text-white shrink-0 shadow-xs">
+            <div className="md:hidden w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center text-white shrink-0 shadow-xs">
               <Sprout className="w-5 h-5" />
             </div>
 
@@ -235,20 +234,6 @@ export default function Layout() {
 
           {/* Right: Controls & Language */}
           <div className="flex items-center gap-1.5 sm:gap-2.5 text-xs shrink-0">
-            
-            {/* Water Loss Metric (Desktop only) */}
-            <div className="hidden xl:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-50/80 border border-blue-200 text-blue-900 font-medium">
-              <Gauge className="w-3.5 h-3.5 text-blue-600" />
-              <span>Water Loss:</span>
-              <strong className="font-mono font-bold text-blue-700">{faoEt0} mm/day</strong>
-            </div>
-
-            {/* Crop Health Score (Desktop only) */}
-            <div className="hidden 2xl:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-50/80 border border-emerald-200 text-emerald-900 font-medium">
-              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Crop Health:</span>
-              <strong className="font-mono font-bold text-emerald-700">{globalGap.ipmScore}%</strong>
-            </div>
 
             {/* Unit Toggle Button */}
             <button
