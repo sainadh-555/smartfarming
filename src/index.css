@@ -3,9 +3,21 @@
 @tailwind utilities;
 
 @layer base {
+  html {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+
   body {
-    @apply bg-slate-50 text-slate-900 font-sans antialiased;
+    @apply bg-slate-50 text-slate-900 antialiased;
+    font-family: 'Plus Jakarta Sans', 'Noto Sans Telugu', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  /* Ensure Telugu text flows with appropriate line height and wrapping */
+  [lang="te"] {
+    font-family: 'Noto Sans Telugu', 'Plus Jakarta Sans', system-ui, sans-serif;
+    line-height: 1.6;
   }
 }
 
@@ -26,10 +38,24 @@
   @apply font-mono tracking-tight font-semibold;
 }
 
+/* Safe Area Inset Helpers for Mobile devices (iOS notch / home bar) */
+.safe-area-bottom {
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), 0.5rem);
+}
+
+.safe-area-top {
+  padding-top: max(env(safe-area-inset-top, 0px), 0.5rem);
+}
+
+.touch-target-min {
+  min-height: 44px;
+  min-width: 44px;
+}
+
 /* Custom Scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
@@ -42,9 +68,23 @@
   background: #94a3b8;
 }
 
+/* Hide scrollbar for clean horizontal pill rows on mobile */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(4px) scale(0.99); }
   to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes slideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
 }
 
 @keyframes pulseGlow {
@@ -54,6 +94,10 @@
 
 .animate-fadeIn {
   animation: fadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-slideUp {
+  animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 .animate-pulseGlow {

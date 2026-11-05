@@ -166,67 +166,67 @@ export default function Analytics() {
         
         {/* Metric Selector Tabs */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1 sm:pb-0 w-full sm:w-auto">
             <button
               onClick={() => setActiveChartTab('temperature')}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap touch-target-min cursor-pointer ${
                 activeChartTab === 'temperature'
                   ? 'bg-amber-600 text-white shadow-2xs'
                   : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200/70'
               }`}
             >
               <Thermometer className="w-3.5 h-3.5" />
-              <span>{isTe ? 'ఉష్ణోగ్రత ధోరణి (°C)' : 'Temperature Trend (°C)'}</span>
+              <span>{isTe ? 'ఉష్ణోగ్రత (°C)' : 'Temperature (°C)'}</span>
             </button>
 
             <button
               onClick={() => setActiveChartTab('soilMoisture')}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap touch-target-min cursor-pointer ${
                 activeChartTab === 'soilMoisture'
                   ? 'bg-emerald-600 text-white shadow-2xs'
                   : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200/70'
               }`}
             >
               <Droplets className="w-3.5 h-3.5" />
-              <span>{isTe ? 'మట్టి తేమ ధోరణి (%)' : 'Soil Moisture Trend (%)'}</span>
+              <span>{isTe ? 'మట్టి తేమ (%)' : 'Soil Moisture (%)'}</span>
             </button>
 
             <button
               onClick={() => setActiveChartTab('humidity')}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap touch-target-min cursor-pointer ${
                 activeChartTab === 'humidity'
                   ? 'bg-blue-600 text-white shadow-2xs'
                   : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200/70'
               }`}
             >
               <CloudRain className="w-3.5 h-3.5" />
-              <span>{isTe ? 'గాలి తేమ ధోరణి (%)' : 'Humidity Trend (%)'}</span>
+              <span>{isTe ? 'గాలి తేమ (%)' : 'Humidity (%)'}</span>
             </button>
 
             <button
               onClick={() => setActiveChartTab('light')}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap touch-target-min cursor-pointer ${
                 activeChartTab === 'light'
                   ? 'bg-yellow-600 text-white shadow-2xs'
                   : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200/70'
               }`}
             >
               <Sun className="w-3.5 h-3.5" />
-              <span>{isTe ? 'వెలుతురు తీవ్రత (%)' : 'Light Intensity (%)'}</span>
+              <span>{isTe ? 'వెలుతురు (%)' : 'Light (%)'}</span>
             </button>
           </div>
 
-          <span className="text-[11px] font-mono text-slate-400">
-            {chartData.length} {isTe ? 'నమోదైన రీడింగ్‌లు' : 'Logged Telemetry Points'}
+          <span className="text-[10px] sm:text-[11px] font-mono text-slate-400">
+            {chartData.length} {isTe ? 'నమోదైన రీడింగ్‌లు' : 'Logged Points'}
           </span>
         </div>
 
         {/* Real Chart Rendering or Empty Data State */}
         {chartData.length > 0 ? (
-          <div className="h-72 w-full pt-2">
+          <div className="h-64 sm:h-72 w-full pt-2">
             <ResponsiveContainer width="100%" height="100%">
               {activeChartTab === 'temperature' ? (
-                <AreaChart data={chartData}>
+                <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                   <defs>
                     <linearGradient id="tempGrad" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#d97706" stopOpacity={0.3} />
@@ -234,8 +234,14 @@ export default function Analytics() {
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                  <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} />
-                  <YAxis tick={{ fontSize: 11, fill: '#64748b' }} unit="°C" domain={['dataMin - 2', 'dataMax + 2']} />
+                  <XAxis 
+                    dataKey="time" 
+                    tick={{ fontSize: 10, fill: '#64748b' }} 
+                    tickLine={false} 
+                    minTickGap={25}
+                    tickFormatter={(val) => val && val.length > 8 ? val.slice(-8) : val}
+                  />
+                  <YAxis tick={{ fontSize: 10, fill: '#64748b' }} unit="°C" domain={['dataMin - 2', 'dataMax + 2']} />
                   <Tooltip 
                     contentStyle={{ backgroundColor: '#0f172a', borderRadius: '10px', color: '#fff', fontSize: '12px' }}
                     formatter={(val) => [`${val} °C`, isTe ? 'ఉష్ణోగ్రత' : 'Temperature']}
@@ -244,7 +250,7 @@ export default function Analytics() {
                   <Area type="monotone" dataKey="temperature" name={isTe ? 'ఉష్ణోగ్రత (°C)' : 'Temperature (°C)'} stroke="#d97706" strokeWidth={2.5} fill="url(#tempGrad)" />
                 </AreaChart>
               ) : activeChartTab === 'soilMoisture' ? (
-                <AreaChart data={chartData}>
+                <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                   <defs>
                     <linearGradient id="moistGrad" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#059669" stopOpacity={0.3} />
@@ -252,8 +258,14 @@ export default function Analytics() {
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                  <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} />
-                  <YAxis tick={{ fontSize: 11, fill: '#64748b' }} unit="%" domain={[0, 100]} />
+                  <XAxis 
+                    dataKey="time" 
+                    tick={{ fontSize: 10, fill: '#64748b' }} 
+                    tickLine={false} 
+                    minTickGap={25}
+                    tickFormatter={(val) => val && val.length > 8 ? val.slice(-8) : val}
+                  />
+                  <YAxis tick={{ fontSize: 10, fill: '#64748b' }} unit="%" domain={[0, 100]} />
                   <Tooltip 
                     contentStyle={{ backgroundColor: '#0f172a', borderRadius: '10px', color: '#fff', fontSize: '12px' }}
                     formatter={(val) => [`${val} %`, isTe ? 'మట్టి తేమ' : 'Soil Moisture']}
@@ -262,7 +274,7 @@ export default function Analytics() {
                   <Area type="monotone" dataKey="soilMoisture" name={isTe ? 'మట్టి తేమ (%)' : 'Soil Moisture (%)'} stroke="#059669" strokeWidth={2.5} fill="url(#moistGrad)" />
                 </AreaChart>
               ) : activeChartTab === 'humidity' ? (
-                <AreaChart data={chartData}>
+                <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                   <defs>
                     <linearGradient id="humGrad" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#2563eb" stopOpacity={0.3} />
@@ -270,8 +282,14 @@ export default function Analytics() {
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                  <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} />
-                  <YAxis tick={{ fontSize: 11, fill: '#64748b' }} unit="%" domain={[0, 100]} />
+                  <XAxis 
+                    dataKey="time" 
+                    tick={{ fontSize: 10, fill: '#64748b' }} 
+                    tickLine={false} 
+                    minTickGap={25}
+                    tickFormatter={(val) => val && val.length > 8 ? val.slice(-8) : val}
+                  />
+                  <YAxis tick={{ fontSize: 10, fill: '#64748b' }} unit="%" domain={[0, 100]} />
                   <Tooltip 
                     contentStyle={{ backgroundColor: '#0f172a', borderRadius: '10px', color: '#fff', fontSize: '12px' }}
                     formatter={(val) => [`${val} %`, isTe ? 'గాలి తేమ' : 'Humidity']}
@@ -280,10 +298,16 @@ export default function Analytics() {
                   <Area type="monotone" dataKey="humidity" name={isTe ? 'గాలి తేమ (%)' : 'Humidity (%)'} stroke="#2563eb" strokeWidth={2.5} fill="url(#humGrad)" />
                 </AreaChart>
               ) : (
-                <AreaChart data={chartData}>
+                <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                  <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} />
-                  <YAxis tick={{ fontSize: 11, fill: '#64748b' }} unit="%" domain={[0, 100]} />
+                  <XAxis 
+                    dataKey="time" 
+                    tick={{ fontSize: 10, fill: '#64748b' }} 
+                    tickLine={false} 
+                    minTickGap={25}
+                    tickFormatter={(val) => val && val.length > 8 ? val.slice(-8) : val}
+                  />
+                  <YAxis tick={{ fontSize: 10, fill: '#64748b' }} unit="%" domain={[0, 100]} />
                   <Tooltip 
                     contentStyle={{ backgroundColor: '#0f172a', borderRadius: '10px', color: '#fff', fontSize: '12px' }}
                     formatter={(val) => [`${val} %`, isTe ? 'వెలుతురు' : 'Light']}

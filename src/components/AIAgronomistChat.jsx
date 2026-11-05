@@ -28,7 +28,8 @@ import {
 } from '../services/aiChatService';
 
 export default function AIAgronomistChat() {
-  const { zones, alerts, simulateAction, logPesticideSpray } = useFarmData();
+  const { zones, alerts, simulateAction, logPesticideSpray, language } = useFarmData();
+  const isTe = language === 'te';
   const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -491,7 +492,37 @@ export default function AIAgronomistChat() {
       </div>
 
       {/* Input Form Bar */}
-      <div className="p-4 bg-white border-t border-slate-200">
+      <div className="p-3 sm:p-4 bg-white border-t border-slate-200 space-y-2">
+        {/* Quick Farming Question Chips */}
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1 px-0.5">
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider shrink-0 flex items-center gap-1">
+            <Sparkles className="w-3 h-3 text-purple-600" />
+            <span>{isTe ? 'ప్రశ్నలు:' : 'Quick Ask:'}</span>
+          </span>
+          {(isTe ? [
+            'మట్టి తేమ ఎలా ఉంది?',
+            'నీరు ఎంత అందించాలి?',
+            'ఎండ వేడి ప్రభావం ఉందా?',
+            'టమోటా తెగుళ్ల నివారణ',
+            'అన్ని ప్లాట్ల సారాంశం'
+          ] : [
+            'How is soil moisture?',
+            'Recommend irrigation',
+            'Any heat stress?',
+            'Tomato disease care',
+            'Summary of all plots'
+          ]).map((q, idx) => (
+            <button
+              key={idx}
+              type="button"
+              onClick={() => handleSendMessage(q)}
+              className="px-2.5 py-1.5 bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-700 rounded-xl text-[11px] font-semibold whitespace-nowrap transition-colors touch-target-min cursor-pointer active:scale-95"
+            >
+              {q}
+            </button>
+          ))}
+        </div>
+
         <form 
           onSubmit={(e) => {
             e.preventDefault();
@@ -503,28 +534,28 @@ export default function AIAgronomistChat() {
             type="text"
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
-            placeholder="Ask AI Copilot (e.g. 'Irrigate Zone D', 'What pesticide for Tomato?', 'How are my crops?')..."
-            className="flex-1 px-4 py-2.5 text-xs border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 bg-slate-50/50"
+            placeholder={isTe ? "AI వ్యవసాయ సలహాదారుని అడగండి (ఉదా: 'మట్టి తేమ ఎలా ఉంది?')..." : "Ask AI Copilot (e.g. 'Irrigate Zone D', 'What pesticide for Tomato?')..."}
+            className="flex-1 px-3.5 py-2.5 text-sm sm:text-xs min-h-[44px] border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 bg-slate-50/50"
           />
 
           <button
             type="submit"
             disabled={!inputValue.trim() || isTyping}
-            className="px-4 py-2.5 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 active:scale-95"
+            className="min-h-[44px] min-w-[44px] px-4 py-2.5 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center gap-1.5 active:scale-95 touch-target-min cursor-pointer"
           >
-            <span>Send</span>
+            <span>{isTe ? 'పంపు' : 'Send'}</span>
             <Send className="w-3.5 h-3.5" />
           </button>
         </form>
 
-        <div className="flex justify-between items-center mt-2 text-[10px] text-slate-400 font-medium px-1">
-          <span>Zero API key required for built-in AI • Groq, Gemini & OpenAI supported</span>
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-1 text-[10px] text-slate-400 font-medium px-1">
+          <span>{isTe ? 'ఉచిత అంతర్నిర్మిత AI • Groq, Gemini & OpenAI కీలు కూడా మద్దతు పొందుతాయి' : 'Zero API key required for built-in AI • Groq, Gemini & OpenAI supported'}</span>
           <button 
             type="button" 
             onClick={() => setIsConfigModalOpen(true)}
-            className="text-purple-600 hover:text-purple-800 font-semibold underline flex items-center gap-1"
+            className="text-purple-600 hover:text-purple-800 font-semibold underline flex items-center gap-1 cursor-pointer"
           >
-            <span>AI Settings / API Keys</span>
+            <span>{isTe ? 'AI సెట్టింగ్స్ / API కీలు' : 'AI Settings / API Keys'}</span>
           </button>
         </div>
       </div>

@@ -19,6 +19,9 @@ import json
 import random
 import argparse
 import threading
+import queue
+import urllib.request
+import re
 from datetime import datetime, timezone
 from flask import Flask, jsonify, request
 
@@ -37,14 +40,113 @@ except ImportError:
 
 
 # ==========================================
+# 0. CLOUD SYNC WORKER (NON-BLOCKING DAEMON)
+# ==========================================
+
+class CloudSyncWorker(threading.Thread):
+    """
+    Background daemon thread that continuously forwards validated
+    serial telemetry to the Render Cloud Backend (https://smartfarming-e3b2.onrender.com).
+    Ensures that GitHub Pages and remote mobile devices see live telemetry in real-time.
+    Never blocks the USB serial reader loop.
+    """
+    def __init__(self, cloud_url="https://smartfarming-e3b2.onrender.com", stop_event=None):
+        super().__init__(daemon=True)
+        self.cloud_url = cloud_url.rstrip("/") if cloud_url else None
+        self.stop_event = stop_event or threading.Event()
+        self.queue = queue.Queue(maxsize=10)
+        self.last_sync_time = 0
+        self.sync_count = 0
+        self.last_error = None
+        self.last_success_time = None
+
+    def enqueue(self, readings):
+        if not self.cloud_url or not readings:
+            return
+        try:
+            if self.queue.full():
+                try:
+                    self.queue.get_nowait()
+                except queue.Empty:
+                    pass
+            self.queue.put_nowait(dict(readings))
+        except Exception:
+            pass
+
+    def run(self):
+        while not self.stop_event.is_set():
+            try:
+                readings = self.queue.get(timeout=1.0)
+            except queue.Empty:
+                continue
+
+            # Rate limit to at most one cloud POST every 2 seconds
+            elapsed = time.time() - self.last_sync_time
+            if elapsed < 2.0:
+                time.sleep(2.0 - elapsed)
+
+            temp = readings.get("temperature")
+            hum = readings.get("humidity")
+            if temp is None or hum is None:
+                continue
+
+            moist = readings.get("soil_moisture")
+            if moist is None and readings.get("soil_raw") is not None:
+                calc = (4095 - readings["soil_raw"]) / (4095 - 1400) * 100.0
+                moist = round(max(0.0, min(100.0, calc)), 1)
+            if moist is None:
+                moist = 45.0
+
+            light = readings.get("light_lux") or readings.get("light_raw") or 720
+            if readings.get("light_intensity") is not None:
+                try:
+                    light = int(readings["light_intensity"])
+                except Exception:
+                    pass
+
+            body = {
+                "deviceId": "ESP32-DEV-USB",
+                "farmId": "FARM-001",
+                "zoneId": "ZONE-A",
+                "airTemperature": float(temp),
+                "humidity": float(hum),
+                "soilMoisture": float(moist),
+                "lightIntensity": int(light)
+            }
+
+            try:
+                data_bytes = json.dumps(body).encode("utf-8")
+                req = urllib.request.Request(
+                    f"{self.cloud_url}/api/sensor-data",
+                    data=data_bytes,
+                    headers={
+                        "Content-Type": "application/json",
+                        "User-Agent": "SmartFarm-Bridge/2.0"
+                    },
+                    method="POST"
+                )
+                with urllib.request.urlopen(req, timeout=6.0) as resp:
+                    if resp.status in (200, 201):
+                        self.sync_count += 1
+                        self.last_sync_time = time.time()
+                        self.last_success_time = datetime.now(timezone.utc).isoformat()
+                        self.last_error = None
+                        print(f"[CloudSync] -> {self.cloud_url}/api/sensor-data (T={temp}°C, H={hum}%, M={moist}%, L={light}) [OK #{self.sync_count}]")
+            except Exception as err:
+                self.last_error = str(err)
+                print(f"[CloudSync] Sync note: {err}")
+
+
+# ==========================================
 # 1. BRIDGE STATE CONTAINER (THREAD-SAFE)
 # ==========================================
 
 class SerialBridgeState:
-    def __init__(self, port="COM3", baud=115200):
+    def __init__(self, port="COM3", baud=115200, cloud_worker=None):
         self.lock = threading.Lock()
         self.port = port
         self.baud = baud
+        self.cloud_worker = cloud_worker
         self.status = "waiting_data"  # "waiting_data" | "connected" | "disconnected" | "port_error"
         self.last_updated = None
         self.last_updated_epoch = 0
@@ -71,7 +173,7 @@ class SerialBridgeState:
             self.stats["reconnect_attempts"] += 1
 
     def update_readings(self, payload):
-        """Update sensor readings from validated JSON dictionary."""
+        """Update sensor readings from validated JSON dictionary and forward to cloud."""
         with self.lock:
             now_dt = datetime.now(timezone.utc)
             self.last_updated = now_dt.isoformat()
@@ -92,8 +194,8 @@ class SerialBridgeState:
 
             # Preserve raw ADC; compute percentage if missing
             if soil_moisture is None and soil_raw is not None:
-                # 3500 dry -> 0%, 1300 wet -> 100%
-                calc = (3500 - soil_raw) / (3500 - 1300) * 100.0
+                # 4095 dry in air, ~1400 wet in water
+                calc = (4095 - soil_raw) / (4095 - 1400) * 100.0
                 soil_moisture = round(max(0.0, min(100.0, calc)), 1)
 
             if light_lux is None and light_raw is not None:
@@ -111,6 +213,10 @@ class SerialBridgeState:
                 "dht_ok": bool(dht_ok),
                 "uptime_ms": int(uptime_ms)
             }
+
+            # Forward to cloud sync worker
+            if self.cloud_worker:
+                self.cloud_worker.enqueue(self.readings)
 
     def record_corrupted_frame(self):
         with self.lock:
@@ -136,7 +242,14 @@ class SerialBridgeState:
                 "is_stale": is_stale,
                 "last_error": self.last_error,
                 "readings": self.readings,
-                "stats": dict(self.stats)
+                "stats": dict(self.stats),
+                "cloud_sync": {
+                    "enabled": bool(self.cloud_worker and self.cloud_worker.cloud_url),
+                    "url": self.cloud_worker.cloud_url if self.cloud_worker else None,
+                    "sync_count": self.cloud_worker.sync_count if self.cloud_worker else 0,
+                    "last_success": self.cloud_worker.last_success_time if self.cloud_worker else None,
+                    "last_error": self.cloud_worker.last_error if self.cloud_worker else None
+                }
             }
 
 
@@ -270,11 +383,16 @@ def serial_worker_loop(state, stop_event):
                     except ValueError:
                         pass
 
-                # Delimiter line (e.g. "-------------------") or complete batch
+                # Delimiter line (e.g. "-------------------") or complete batch of 4 metrics
                 is_delimiter = "---" in line_str or "===" in line_str
-                has_core_readings = "temperature" in kv_buffer and "humidity" in kv_buffer
+                has_all_readings = (
+                    "temperature" in kv_buffer and 
+                    "humidity" in kv_buffer and 
+                    ("soil_raw" in kv_buffer or "soil_moisture" in kv_buffer) and 
+                    ("light_raw" in kv_buffer or "light_lux" in kv_buffer)
+                )
 
-                if (is_delimiter or has_core_readings) and kv_buffer:
+                if (is_delimiter or has_all_readings) and kv_buffer:
                     # Calibrate soil moisture percentage from raw 12-bit ADC
                     soil_raw = kv_buffer.get("soil_raw")
                     if soil_raw is not None:
@@ -440,13 +558,18 @@ def main():
     parser.add_argument("--baud", type=int, default=115200, help="Baud rate (default: 115200)")
     parser.add_argument("--host", type=str, default="127.0.0.1", help="Host interface (strictly 127.0.0.1)")
     parser.add_argument("--http-port", type=int, default=5000, help="HTTP API port (default: 5000)")
+    parser.add_argument("--cloud-url", type=str, default="https://smartfarming-e3b2.onrender.com", help="Render Cloud Backend URL for automatic global telemetry sync")
+    parser.add_argument("--no-cloud", action="store_true", help="Disable automatic cloud synchronization")
     args = parser.parse_args()
+
+    cloud_sync_target = None if args.no_cloud else args.cloud_url
 
     print("=" * 60)
     print("      SmartFarm AI™ — Local USB-to-HTTP Serial Bridge      ")
     print("=" * 60)
     print(f" Serial Port : {args.port} @ {args.baud} baud")
     print(f" Local API   : http://{args.host}:{args.http_port}")
+    print(f" Cloud Sync  : {cloud_sync_target or 'Disabled'}")
     print(f" Endpoints   : http://{args.host}:{args.http_port}/api/readings")
     print(f"               http://{args.host}:{args.http_port}/api/health")
     print("-" * 60)
@@ -455,8 +578,14 @@ def main():
     print("   2. Only one program can own a COM port at a time.")
     print("=" * 60)
 
-    state = SerialBridgeState(port=args.port, baud=args.baud)
     stop_event = threading.Event()
+
+    cloud_worker = None
+    if cloud_sync_target:
+        cloud_worker = CloudSyncWorker(cloud_url=cloud_sync_target, stop_event=stop_event)
+        cloud_worker.start()
+
+    state = SerialBridgeState(port=args.port, baud=args.baud, cloud_worker=cloud_worker)
 
     worker_thread = threading.Thread(target=serial_worker_loop, args=(state, stop_event), daemon=True)
     worker_thread.start()
@@ -470,6 +599,8 @@ def main():
     finally:
         stop_event.set()
         worker_thread.join(timeout=1.0)
+        if cloud_worker:
+            cloud_worker.join(timeout=1.0)
         print("USB bridge stopped cleanly.")
 
 

@@ -546,10 +546,10 @@ export default function DataSources() {
                 type="button"
                 onClick={handleConnectWebSerial}
                 disabled={webSerialConnecting}
-                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all shrink-0 active:scale-95 flex items-center gap-2 shadow-xs"
+                className="w-full sm:w-auto px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all shrink-0 active:scale-95 flex items-center justify-center gap-2 shadow-xs touch-target-min cursor-pointer"
               >
                 <Cable className={`w-4 h-4 text-emerald-400 ${webSerialConnecting ? 'animate-pulse' : ''}`} />
-                <span>{webSerialConnecting ? (isTe ? 'కనెక్ట్ అవుతోంది...' : 'Connecting...') : (isTe ? 'బ్రౌజర్ ద్వారా కనెక్ట్ చేయండి (COM7)' : 'Connect ESP32 (COM7 Direct)')}</span>
+                <span>{webSerialConnecting ? (isTe ? 'కనెక్ట్ అవుతోంది...' : 'Connecting...') : (isTe ? 'బ్రౌజర్ ద్వారా కనెక్ట్ (COM7)' : 'Connect ESP32 (COM7 Direct)')}</span>
               </button>
             )}
           </div>

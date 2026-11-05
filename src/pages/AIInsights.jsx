@@ -150,29 +150,29 @@ export default function AIInsights() {
         </div>
 
         {/* View Switcher Pills */}
-        <div className="flex items-center gap-1.5 bg-slate-100 p-1.5 rounded-xl border border-slate-200 self-start sm:self-auto">
+        <div className="w-full sm:w-auto grid grid-cols-2 sm:flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200">
           <button
             onClick={() => setActiveView('predictions')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+            className={`px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 touch-target-min cursor-pointer ${
               activeView === 'predictions'
                 ? 'bg-emerald-600 text-white shadow-2xs'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>{isTe ? 'వ్యవసాయ అంచనాలు (5)' : 'Predictions (5)'}</span>
+            <Sparkles className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">{isTe ? 'అంచనాలు (5)' : 'Predictions (5)'}</span>
           </button>
 
           <button
             onClick={() => setActiveView('chat')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+            className={`px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 touch-target-min cursor-pointer ${
               activeView === 'chat'
                 ? 'bg-purple-600 text-white shadow-2xs'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            <MessageSquare className="w-3.5 h-3.5" />
-            <span>{isTe ? 'AI చాట్‌బాట్' : 'AI Copilot Chat'}</span>
+            <MessageSquare className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">{isTe ? 'AI చాట్' : 'AI Copilot Chat'}</span>
           </button>
         </div>
       </div>

@@ -102,12 +102,27 @@ class SmartFarmApiService {
       lightIntensity: 70.0
     };
 
+    // Detect execution environment:
+    const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
+    const isLocalhost = typeof window !== 'undefined' && (
+      window.location.hostname === 'localhost' || 
+      window.location.hostname === '127.0.0.1' || 
+      window.location.hostname === '[::1]'
+    );
+
     // Active Operating Mode: 'live_hardware' | 'simulation' | 'manual'
     const savedMode = localStorage.getItem('smartfarm_operating_mode');
     this.operatingMode = (savedMode === 'simulation' || savedMode === 'manual') ? savedMode : 'live_hardware';
 
     // Hardware Ingestion Protocol: 'usb_hardware' | 'cloud_backend'
-    this.hardwareSource = localStorage.getItem('smartfarm_hardware_source') || 'usb_hardware';
+    // On HTTPS (such as GitHub Pages) or remote mobile devices, default to 'cloud_backend'
+    // to avoid browser Mixed Content errors (http://127.0.0.1:5000 is blocked on https).
+    const savedSource = localStorage.getItem('smartfarm_hardware_source');
+    if (!savedSource) {
+      this.hardwareSource = (isHttps || !isLocalhost) ? 'cloud_backend' : 'usb_hardware';
+    } else {
+      this.hardwareSource = savedSource;
+    }
 
     // Local USB Serial Bridge (http://127.0.0.1:5000)
     this.bridgeUrl = localStorage.getItem('smartfarm_bridge_url') || 'http://127.0.0.1:5000';
@@ -692,7 +707,8 @@ class SmartFarmApiService {
       });
 
       if (!response.ok) {
-        this.markHardwareStale(`Bridge returned HTTP ${response.status}`);
+        // Fallback to cloud if bridge is unreachable or returned error
+        await this.fetchLiveCloudData(true);
         return;
       }
 
@@ -721,18 +737,19 @@ class SmartFarmApiService {
         this.usbPort = payload.port || this.usbPort || 'COM7';
         this.usbStatus = 'connected';
         this.usbError = null;
+        this.notify();
       } else if (payload.status === 'waiting_data') {
         this.hardwareData.connectionStatus = 'waiting_data';
         this.usbStatus = 'waiting_data';
+        this.notify();
       } else if (payload.status === 'stale') {
-        this.markHardwareStale('Telemetry packet interval exceeded');
+        await this.fetchLiveCloudData(true);
       } else {
-        this.markHardwareStale('No active packets');
+        await this.fetchLiveCloudData(true);
       }
-
-      this.notify();
     } catch {
-      this.markHardwareStale('Bridge connection lost');
+      // Local bridge failed (e.g. Mixed Content block on GitHub Pages HTTPS or bridge not started)
+      await this.fetchLiveCloudData(true);
     }
   }
 
@@ -803,8 +820,9 @@ class SmartFarmApiService {
     }
   }
 
-  async fetchLiveCloudData() {
-    if (this.hardwareSource !== 'cloud_backend' || !this.backendUrl) return;
+  async fetchLiveCloudData(isFallback = false) {
+    if (!this.backendUrl) return;
+    if (!isFallback && this.hardwareSource !== 'cloud_backend') return;
 
     try {
       const response = await fetch(`${this.backendUrl}/api/sensor-data`, {
@@ -815,35 +833,46 @@ class SmartFarmApiService {
 
       if (!response.ok) {
         this.cloudStatus = 'disconnected';
-        this.markHardwareStale(`Cloud HTTP ${response.status}`);
+        if (!isFallback) this.markHardwareStale(`Cloud HTTP ${response.status}`);
         return;
       }
 
       const data = await response.json();
       if (data && data.zones && data.zones['ZONE-A']) {
         const live = data.zones['ZONE-A'];
-        this.hardwareData.hasReadings = true;
-        this.hardwareData.readingsCount += 1;
-        this.hardwareData.lastUpdated = live.lastUpdated ? new Date(live.lastUpdated).toLocaleTimeString() : new Date().toLocaleTimeString();
-        this.hardwareData.lastUpdatedEpoch = Date.now();
-        this.hardwareData.isStale = false;
-        this.hardwareData.connectionStatus = 'connected';
-        this.hardwareData.temperature = live.airTemperature;
-        this.hardwareData.humidity = live.humidity;
-        this.hardwareData.soilMoisture = live.soilMoisture;
-        this.hardwareData.lightIntensity = live.lightIntensity;
+        const lastUpdatedDate = live.lastUpdated ? new Date(live.lastUpdated) : null;
+        const secondsOld = lastUpdatedDate ? (Date.now() - lastUpdatedDate.getTime()) / 1000 : 999999;
+        const isFresh = live.isLiveHardware || secondsOld < 180;
 
-        this.cloudStatus = 'connected';
-        this.lastCloudSync = this.hardwareData.lastUpdated;
+        if (isFresh && (typeof live.airTemperature === 'number' || typeof live.soilMoisture === 'number')) {
+          this.ingestRealHardwareReading({
+            temperature: typeof live.airTemperature === 'number' ? live.airTemperature : null,
+            humidity: typeof live.humidity === 'number' ? live.humidity : null,
+            soilMoisture: typeof live.soilMoisture === 'number' ? live.soilMoisture : null,
+            lightIntensity: typeof live.lightIntensity === 'number' ? live.lightIntensity : null,
+            port: `Render Cloud (${live.deviceId || 'ESP32'})`,
+            lastUpdated: live.lastUpdated
+          });
 
-        if (this.operatingMode === 'live_hardware') {
-          this.checkAlerts('ZONE-A');
+          this.cloudStatus = 'connected';
+          this.lastCloudSync = this.hardwareData.lastUpdated;
+          this.usbPort = `Render Cloud (${live.deviceId || 'ESP32'})`;
+          this.usbStatus = 'connected';
+          this.usbError = null;
+        } else {
+          this.cloudStatus = 'connected';
+          if (!this.hardwareData.hasReadings) {
+            this.hardwareData.connectionStatus = 'waiting_data';
+            this.usbStatus = 'waiting_data';
+          }
+          this.notify();
         }
-        this.notify();
       }
     } catch {
       this.cloudStatus = 'disconnected';
-      this.markHardwareStale('Cloud offline');
+      if (!isFallback) {
+        this.markHardwareStale('Cloud offline');
+      }
     }
   }
 
@@ -1084,6 +1113,26 @@ class SmartFarmApiService {
                 ...data,
                 port: 'WebSerial (COM7)'
               });
+
+              // Forward to Render Cloud backend so remote mobile devices see the live data
+              if (this.backendUrl && typeof data.temperature === 'number') {
+                const moist = typeof data.soil_moisture === 'number' ? data.soil_moisture : 45.0;
+                const light = typeof data.light_lux === 'number' ? data.light_lux : 720;
+                fetch(`${this.backendUrl}/api/sensor-data`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    deviceId: 'ESP32-WEBSERIAL',
+                    farmId: 'FARM-001',
+                    zoneId: 'ZONE-A',
+                    airTemperature: data.temperature,
+                    humidity: data.humidity,
+                    soilMoisture: moist,
+                    lightIntensity: light
+                  })
+                }).catch(() => {});
+              }
+
               kvBuffer = {};
               continue;
             } catch (e) {}
@@ -1103,30 +1152,58 @@ class SmartFarmApiService {
           if (lightMatch) kvBuffer.light_raw = parseInt(lightMatch[1], 10);
 
           const isDelimiter = trimmed.includes('---') || trimmed.includes('===');
-          const hasReadings = kvBuffer.temperature !== undefined && kvBuffer.humidity !== undefined;
+          const hasAllReadings = (
+            kvBuffer.temperature !== undefined &&
+            kvBuffer.humidity !== undefined &&
+            (kvBuffer.soil_raw !== undefined || kvBuffer.soil_moisture !== undefined) &&
+            (kvBuffer.light_raw !== undefined || kvBuffer.light_lux !== undefined)
+          );
 
-          if (isDelimiter || hasReadings) {
+          if (isDelimiter || hasAllReadings) {
             let moist = null;
-            if (typeof kvBuffer.soil_raw === 'number') {
+            if (typeof kvBuffer.soil_moisture === 'number') {
+              moist = kvBuffer.soil_moisture;
+            } else if (typeof kvBuffer.soil_raw === 'number') {
               const calc = ((4095 - kvBuffer.soil_raw) / (4095 - 1400)) * 100;
               moist = Math.max(0, Math.min(100, Math.round(calc * 10) / 10));
             }
             let lightInt = null;
-            if (typeof kvBuffer.light_raw === 'number') {
+            if (typeof kvBuffer.light_lux === 'number') {
+              lightInt = Math.max(0, Math.min(100, Math.round((kvBuffer.light_lux / 1000) * 100)));
+            } else if (typeof kvBuffer.light_raw === 'number') {
               lightInt = Math.max(0, Math.min(100, Math.round((kvBuffer.light_raw / 4095) * 100)));
             }
 
-            this.ingestRealHardwareReading({
-              temperature: kvBuffer.temperature,
-              humidity: kvBuffer.humidity,
-              soilMoisture: moist,
-              soilRaw: kvBuffer.soil_raw,
-              lightIntensity: lightInt,
-              lightRaw: kvBuffer.light_raw,
-              port: 'WebSerial (COM7)'
-            });
+            if (kvBuffer.temperature !== undefined && kvBuffer.humidity !== undefined) {
+              this.ingestRealHardwareReading({
+                temperature: kvBuffer.temperature,
+                humidity: kvBuffer.humidity,
+                soilMoisture: moist,
+                soilRaw: kvBuffer.soil_raw,
+                lightIntensity: lightInt,
+                lightRaw: kvBuffer.light_raw,
+                port: 'WebSerial (COM7)'
+              });
 
-            if (isDelimiter) kvBuffer = {};
+              // Forward to Render Cloud backend so remote mobile devices see the live data
+              if (this.backendUrl) {
+                fetch(`${this.backendUrl}/api/sensor-data`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    deviceId: 'ESP32-WEBSERIAL',
+                    farmId: 'FARM-001',
+                    zoneId: 'ZONE-A',
+                    airTemperature: kvBuffer.temperature,
+                    humidity: kvBuffer.humidity,
+                    soilMoisture: moist !== null ? moist : 45.0,
+                    lightIntensity: lightInt !== null ? lightInt : 720
+                  })
+                }).catch(() => {});
+              }
+            }
+
+            if (isDelimiter || hasAllReadings) kvBuffer = {};
           }
         }
       }

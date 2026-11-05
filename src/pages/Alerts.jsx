@@ -13,7 +13,8 @@ import {
 } from 'lucide-react';
 
 export default function Alerts() {
-  const { alerts, resolveAlert } = useFarmData();
+  const { alerts, resolveAlert, language } = useFarmData();
+  const isTe = language === 'te';
   const [filterSeverity, setFilterSeverity] = useState('ALL');
 
   const getAlertIcon = (severity) => {
@@ -49,30 +50,35 @@ export default function Alerts() {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-              Regulatory & Agronomic Audit Alerts
+              {isTe ? 'పొలం హెచ్చరికలు & నోటిఫికేషన్లు' : 'Farm Alerts & Crop Warnings'}
             </h1>
             <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-              ISO 11783-10
+              {isTe ? 'నిరంతర పర్యవేక్షణ' : 'Live Monitor'}
             </span>
           </div>
           <p className="text-xs sm:text-sm text-slate-500 mt-1">
-            Real-time agro-climatic anomalies, moisture deficit triggers, and GlobalG.A.P. compliance flags.
+            {isTe ? 'మట్టి తేమ లోపం, ఉష్ణోగ్రత హెచ్చరికలు మరియు తక్షణ నిర్వహణ సూచనలు.' : 'Real-time agro-climatic anomalies, moisture deficit triggers, and irrigation flags.'}
           </p>
         </div>
 
         {/* Filter Pills */}
-        <div className="flex items-center gap-1.5 bg-white p-1 rounded-xl border border-slate-200 shadow-2xs">
-          {['ALL', 'UNRESOLVED', 'Critical', 'Warning'].map(tab => (
+        <div className="flex items-center gap-1.5 bg-white p-1 rounded-xl border border-slate-200 shadow-2xs overflow-x-auto no-scrollbar w-full sm:w-auto">
+          {[
+            { id: 'ALL', label: isTe ? 'అన్నీ' : 'All' },
+            { id: 'UNRESOLVED', label: isTe ? 'క్రియాశీలం' : 'Active' },
+            { id: 'Critical', label: isTe ? 'కీలకం' : 'Critical' },
+            { id: 'Warning', label: isTe ? 'హెచ్చరిక' : 'Warning' }
+          ].map(tab => (
             <button
-              key={tab}
-              onClick={() => setFilterSeverity(tab)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                filterSeverity === tab
+              key={tab.id}
+              onClick={() => setFilterSeverity(tab.id)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap touch-target-min cursor-pointer ${
+                filterSeverity === tab.id
                   ? 'bg-slate-900 text-white shadow-xs'
                   : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
               }`}
             >
-              {tab === 'ALL' ? 'All Alerts' : tab}
+              {tab.label}
             </button>
           ))}
         </div>
@@ -121,24 +127,24 @@ export default function Alerts() {
                     {alert.message}
                   </p>
                   
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3 flex-wrap">
                     {!alert.resolved ? (
                       <button 
                         onClick={() => resolveAlert(alert.id)}
-                        className="text-xs font-bold px-3 py-1.5 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl text-slate-700 transition-all shadow-2xs active:scale-95 flex items-center gap-1.5"
+                        className="text-xs font-bold px-3.5 py-2 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl text-slate-700 transition-all shadow-2xs active:scale-95 flex items-center gap-1.5 touch-target-min cursor-pointer"
                       >
                         <Check className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>Acknowledge & Resolve</span>
+                        <span>{isTe ? 'సమస్య పరిష్కరించబడింది' : 'Acknowledge & Resolve'}</span>
                       </button>
                     ) : (
-                      <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 flex items-center gap-1">
+                      <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1.5 rounded-lg border border-emerald-200 flex items-center gap-1">
                         <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>Resolved</span>
+                        <span>{isTe ? 'పరిష్కరించబడింది' : 'Resolved'}</span>
                       </span>
                     )}
 
                     <span className="text-[10px] font-mono text-slate-400">
-                      Standard: ISO 11783-10 Exception
+                      {isTe ? 'పొలం పర్యవేక్షణ నోటిఫికేషన్' : 'Field Sensor Trigger'}
                     </span>
                   </div>
                 </div>

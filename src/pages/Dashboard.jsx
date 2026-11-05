@@ -31,7 +31,9 @@ import {
   TrendingUp,
   FileSpreadsheet,
   Plus,
-  Cable
+  Cable,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import { 
   ResponsiveContainer, 
@@ -97,6 +99,7 @@ export default function Dashboard() {
   const [locationFeedback, setLocationFeedback] = useState(null);
   const [showAddPlotModal, setShowAddPlotModal] = useState(false);
   const [serialConnecting, setSerialConnecting] = useState(false);
+  const [showForecastDetails, setShowForecastDetails] = useState(false);
 
   const handleConnectWebSerial = async () => {
     setSerialConnecting(true);
@@ -370,16 +373,16 @@ export default function Dashboard() {
               </h1>
 
               {/* Hardware Connection Status */}
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 flex-wrap">
                 {hasHardware ? (
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
                     <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                    Hardware Connected {usbPort ? `(${usbPort})` : ''}
+                    {isTe ? 'హార్డ్‌వేర్ లైవ్ కనెక్ట్ అయింది' : 'Hardware Connected'} {usbPort ? `(${usbPort})` : ''}
                   </span>
                 ) : (
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600 border border-slate-200">
                     <span className="w-2 h-2 rounded-full bg-slate-400" />
-                    Hardware Disconnected (USB Serial)
+                    {isTe ? 'హార్డ్‌వేర్ డిస్‌కనెక్ట్ అయింది' : 'Hardware Disconnected'}
                   </span>
                 )}
 
@@ -387,25 +390,25 @@ export default function Dashboard() {
                 {isSimulated && (
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-50 text-purple-700 border border-purple-200">
                     <span className="w-1.5 h-1.5 rounded-full bg-purple-500 animate-ping" />
-                    Simulation Active
+                    {isTe ? 'సిమ్యులేషన్ సక్రియంగా ఉంది' : 'Simulation Active'}
                   </span>
                 )}
               </div>
             </div>
           </div>
 
-          {/* Action Center: Connect ESP32 (Web Serial) & ONE prominent SIMULATE DATA button */}
-          <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
+          {/* Action Center: Connect ESP32 (Web Serial) & prominent SIMULATE DATA button */}
+          <div className="flex items-center gap-2 shrink-0 flex-wrap w-full sm:w-auto pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100">
             {isLive && !hasHardware && isWebSerialSupported() && (
               <button
                 type="button"
                 onClick={handleConnectWebSerial}
                 disabled={serialConnecting}
-                className="px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 transition-all flex items-center gap-1.5 active:scale-95 shadow-sm"
+                className="flex-1 min-[400px]:flex-initial px-3.5 py-2.5 rounded-xl text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 transition-all flex items-center justify-center gap-1.5 active:scale-95 shadow-sm touch-target-min cursor-pointer"
                 title={isTe ? 'బ్రౌజర్ ద్వారా COM7 కి నేరుగా కనెక్ట్ చేయండి (Arduino IDE Serial Monitor మూసివేయండి)' : 'Connect directly to COM7 (Close Arduino IDE Serial Monitor first)'}
               >
                 <Cable className={`w-3.5 h-3.5 text-emerald-400 ${serialConnecting ? 'animate-pulse' : ''}`} />
-                <span>{serialConnecting ? (isTe ? 'కనెక్ట్ అవుతోంది...' : 'Connecting...') : (isTe ? 'ESP32 కనెక్ట్ చేయండి (COM7)' : 'Connect ESP32 (COM7)')}</span>
+                <span>{serialConnecting ? (isTe ? 'కనెక్ట్...' : 'Connecting...') : (isTe ? 'ESP32 (COM7)' : 'Connect ESP32 (COM7)')}</span>
               </button>
             )}
 
@@ -413,11 +416,11 @@ export default function Dashboard() {
               <button
                 type="button"
                 onClick={exitSimulation}
-                className="px-3.5 py-2 text-xs font-bold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all border border-slate-200 flex items-center gap-1.5 active:scale-95"
+                className="px-3.5 py-2.5 text-xs font-bold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all border border-slate-200 flex items-center justify-center gap-1.5 active:scale-95 touch-target-min cursor-pointer"
                 title="Exit simulation and restore live hardware readings"
               >
                 <X className="w-3.5 h-3.5 text-slate-500" />
-                <span>Exit Simulation</span>
+                <span>{isTe ? 'నిష్క్రమించు' : 'Exit Simulation'}</span>
               </button>
             )}
 
@@ -426,7 +429,7 @@ export default function Dashboard() {
               id="simulate-data-button"
               onClick={handleSimulateClick}
               disabled={isSimulating}
-              className={`px-5 py-2.5 rounded-xl text-xs font-extrabold uppercase tracking-wider text-white shadow-sm transition-all flex items-center gap-2 active:scale-95 ${
+              className={`flex-1 min-[400px]:flex-initial px-4 py-2.5 rounded-xl text-xs font-extrabold uppercase tracking-wider text-white shadow-sm transition-all flex items-center justify-center gap-2 active:scale-95 touch-target-min cursor-pointer ${
                 isSimulating 
                   ? 'bg-emerald-400 cursor-wait' 
                   : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-700/20'
@@ -434,7 +437,7 @@ export default function Dashboard() {
               title="Generate fresh, internally consistent sensor readings via Python backend"
             >
               <Sparkles className={`w-4 h-4 ${isSimulating ? 'animate-spin' : ''}`} />
-              <span>{isSimulated ? 'Simulate Data' : 'SIMULATE DATA'}</span>
+              <span>{isSimulated ? (isTe ? 'డేటా సిమ్యులేట్' : 'Simulate Data') : (isTe ? 'సిమ్యులేట్ డేటా' : 'SIMULATE DATA')}</span>
             </button>
           </div>
 
@@ -457,80 +460,80 @@ export default function Dashboard() {
           </span>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 min-[360px]:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           
           {/* Temperature Card */}
-          <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-xs hover:border-slate-300 transition-all group">
+          <div className="bg-white p-3.5 sm:p-5 rounded-2xl border border-slate-200/90 shadow-xs hover:border-slate-300 transition-all group">
             <div className="flex items-start justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Air Temperature</span>
-              <div className="p-2 rounded-xl bg-amber-50 text-amber-600 group-hover:scale-105 transition-transform">
-                <Thermometer className="w-5 h-5" />
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">{isTe ? 'ఉష్ణోగ్రత' : 'Air Temperature'}</span>
+              <div className="p-1.5 sm:p-2 rounded-xl bg-amber-50 text-amber-600 group-hover:scale-105 transition-transform">
+                <Thermometer className="w-4 h-4 sm:w-5 sm:h-5" />
               </div>
             </div>
-            <div className="mt-3">
-              <div className="text-3xl font-black font-mono tracking-tight text-slate-900">
+            <div className="mt-2 sm:mt-3">
+              <div className="text-2xl sm:text-3xl font-black font-mono tracking-tight text-slate-900">
                 {tempDisplay}
               </div>
-              <p className="text-xs text-slate-500 mt-1 flex items-center justify-between">
-                <span>Target: 22.0 – 30.0°C</span>
-                <span className="font-mono text-[11px] text-slate-400">DHT11</span>
+              <p className="text-[11px] sm:text-xs text-slate-500 mt-1 flex items-center justify-between">
+                <span>{isTe ? 'పరిమితి: 22–30°C' : 'Target: 22–30°C'}</span>
+                <span className="font-mono text-[10px] sm:text-[11px] text-slate-400">DHT11</span>
               </p>
             </div>
           </div>
 
           {/* Humidity Card */}
-          <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-xs hover:border-slate-300 transition-all group">
+          <div className="bg-white p-3.5 sm:p-5 rounded-2xl border border-slate-200/90 shadow-xs hover:border-slate-300 transition-all group">
             <div className="flex items-start justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Air Humidity</span>
-              <div className="p-2 rounded-xl bg-teal-50 text-teal-600 group-hover:scale-105 transition-transform">
-                <Wind className="w-5 h-5" />
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">{isTe ? 'గాలి తేమ' : 'Air Humidity'}</span>
+              <div className="p-1.5 sm:p-2 rounded-xl bg-teal-50 text-teal-600 group-hover:scale-105 transition-transform">
+                <Wind className="w-4 h-4 sm:w-5 sm:h-5" />
               </div>
             </div>
-            <div className="mt-3">
-              <div className="text-3xl font-black font-mono tracking-tight text-slate-900">
+            <div className="mt-2 sm:mt-3">
+              <div className="text-2xl sm:text-3xl font-black font-mono tracking-tight text-slate-900">
                 {humidityDisplay}
               </div>
-              <p className="text-xs text-slate-500 mt-1 flex items-center justify-between">
-                <span>Target: 50.0 – 75.0%</span>
-                <span className="font-mono text-[11px] text-slate-400">DHT11</span>
+              <p className="text-[11px] sm:text-xs text-slate-500 mt-1 flex items-center justify-between">
+                <span>{isTe ? 'పరిమితి: 50–75%' : 'Target: 50–75%'}</span>
+                <span className="font-mono text-[10px] sm:text-[11px] text-slate-400">DHT11</span>
               </p>
             </div>
           </div>
 
           {/* Soil Moisture Card */}
-          <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-xs hover:border-slate-300 transition-all group">
+          <div className="bg-white p-3.5 sm:p-5 rounded-2xl border border-slate-200/90 shadow-xs hover:border-slate-300 transition-all group">
             <div className="flex items-start justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Soil Moisture</span>
-              <div className="p-2 rounded-xl bg-blue-50 text-blue-600 group-hover:scale-105 transition-transform">
-                <Droplets className="w-5 h-5" />
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">{isTe ? 'మట్టి తేమ' : 'Soil Moisture'}</span>
+              <div className="p-1.5 sm:p-2 rounded-xl bg-blue-50 text-blue-600 group-hover:scale-105 transition-transform">
+                <Droplets className="w-4 h-4 sm:w-5 sm:h-5" />
               </div>
             </div>
-            <div className="mt-3">
-              <div className="text-3xl font-black font-mono tracking-tight text-slate-900">
+            <div className="mt-2 sm:mt-3">
+              <div className="text-2xl sm:text-3xl font-black font-mono tracking-tight text-slate-900">
                 {moistureDisplay}
               </div>
-              <p className="text-xs text-slate-500 mt-1 flex items-center justify-between">
-                <span>Field Capacity: 45 – 70%</span>
-                <span className="font-mono text-[11px] text-slate-400">GPIO 34</span>
+              <p className="text-[11px] sm:text-xs text-slate-500 mt-1 flex items-center justify-between">
+                <span>{isTe ? 'ఫీల్డ్ కెపాసిటీ: 45–70%' : 'Capacity: 45–70%'}</span>
+                <span className="font-mono text-[10px] sm:text-[11px] text-slate-400">GPIO 34</span>
               </p>
             </div>
           </div>
 
           {/* Light Intensity Card */}
-          <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-xs hover:border-slate-300 transition-all group">
+          <div className="bg-white p-3.5 sm:p-5 rounded-2xl border border-slate-200/90 shadow-xs hover:border-slate-300 transition-all group">
             <div className="flex items-start justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Light Intensity</span>
-              <div className="p-2 rounded-xl bg-amber-50 text-amber-600 group-hover:scale-105 transition-transform">
-                <Sun className="w-5 h-5" />
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">{isTe ? 'సూర్యరశ్మి' : 'Light Intensity'}</span>
+              <div className="p-1.5 sm:p-2 rounded-xl bg-amber-50 text-amber-600 group-hover:scale-105 transition-transform">
+                <Sun className="w-4 h-4 sm:w-5 sm:h-5" />
               </div>
             </div>
-            <div className="mt-3">
-              <div className="text-3xl font-black font-mono tracking-tight text-slate-900">
+            <div className="mt-2 sm:mt-3">
+              <div className="text-2xl sm:text-3xl font-black font-mono tracking-tight text-slate-900">
                 {lightDisplay}
               </div>
-              <p className="text-xs text-slate-500 mt-1 flex items-center justify-between">
-                <span>Photosynthetic Band</span>
-                <span className="font-mono text-[11px] text-slate-400">LDR (GPIO 35)</span>
+              <p className="text-[11px] sm:text-xs text-slate-500 mt-1 flex items-center justify-between">
+                <span>{isTe ? 'కిరణజన్య సంయోగ' : 'Photosynthetic'}</span>
+                <span className="font-mono text-[10px] sm:text-[11px] text-slate-400">GPIO 35</span>
               </p>
             </div>
           </div>
@@ -541,10 +544,10 @@ export default function Dashboard() {
       {/* ======================================================== */}
       {/* 3. LIVE WEATHER & FARM HEALTH GRID                       */}
       {/* ======================================================== */}
-      <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <section className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
 
         {/* Dedicated Live Weather Section (Open-Meteo) */}
-        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-5 md:p-6 flex flex-col justify-between">
+        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-4 sm:p-6 flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2">
@@ -553,7 +556,7 @@ export default function Dashboard() {
                 </div>
                 <div>
                   <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-1.5">
-                    Live Outdoor Weather
+                    {isTe ? 'లైవ్ వాతావరణం' : 'Live Outdoor Weather'}
                     {farmLocation?.isLive && (
                       <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 font-mono">
                         GPS
@@ -561,59 +564,59 @@ export default function Dashboard() {
                     )}
                   </h3>
                   <p className="text-[11px] text-slate-500">
-                    Hyper-local agrometeorological feed for {farmLocation?.city || farmLocation?.name || 'Local Farm'}
+                    {isTe ? `${farmLocation?.city || 'స్థానిక ప్రాంతం'} వాతావరణం` : `Hyper-local agrometeorological feed for ${farmLocation?.city || farmLocation?.name || 'Local Farm'}`}
                   </p>
                 </div>
               </div>
               <span className="text-[10px] font-mono font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
-                {weatherLoading ? 'Updating...' : (weatherData?.timestamp ? `Synced ${weatherData.timestamp}` : 'Satellite Link')}
+                {weatherLoading ? (isTe ? 'నవీకరిస్తోంది...' : 'Updating...') : (weatherData?.timestamp ? `Synced ${weatherData.timestamp}` : 'Satellite Link')}
               </span>
             </div>
 
             {/* Current Outdoor Weather Headline */}
-            <div className="flex items-center justify-between my-5">
+            <div className="flex items-center justify-between my-4 sm:my-5">
               <div>
                 <div className="flex items-baseline gap-2">
-                  <span className="text-3xl font-black font-mono tracking-tight text-slate-900">
+                  <span className="text-2xl sm:text-3xl font-black font-mono tracking-tight text-slate-900">
                     {weatherData?.outdoorTemperature !== null && weatherData?.outdoorTemperature !== undefined 
                       ? `${weatherData.outdoorTemperature.toFixed(1)}°C` 
                       : 'N/A'}
                   </span>
-                  <span className="text-xs font-bold text-slate-500">Outdoor</span>
+                  <span className="text-xs font-bold text-slate-500">{isTe ? 'బయటి ఉష్ణోగ్రత' : 'Outdoor'}</span>
                 </div>
                 <div className="text-xs font-semibold text-slate-600 mt-1 flex items-center gap-1.5">
                   <span>{weatherData?.weatherCondition || 'N/A'}</span>
                 </div>
               </div>
 
-              <div className="p-3 bg-sky-50 rounded-2xl text-sky-600">
-                <WeatherIconComponent iconName={weatherData?.weatherIcon} className="w-9 h-9" />
+              <div className="p-2.5 sm:p-3 bg-sky-50 rounded-2xl text-sky-600">
+                <WeatherIconComponent iconName={weatherData?.weatherIcon} className="w-8 h-8 sm:w-9 sm:h-9" />
               </div>
             </div>
 
             {/* Weather Metric Breakdown */}
-            <div className="grid grid-cols-3 gap-3 pt-3 border-t border-slate-100 text-center">
-              <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-                <span className="text-[10px] text-slate-400 font-bold uppercase block">Outdoor RH</span>
-                <span className="text-sm font-black font-mono text-slate-800 block mt-0.5">
+            <div className="grid grid-cols-3 gap-2 sm:gap-3 pt-3 border-t border-slate-100 text-center">
+              <div className="bg-slate-50 p-2 sm:p-2.5 rounded-xl border border-slate-100">
+                <span className="text-[10px] text-slate-400 font-bold uppercase block">{isTe ? 'గాలి తేమ' : 'Outdoor RH'}</span>
+                <span className="text-xs sm:text-sm font-black font-mono text-slate-800 block mt-0.5">
                   {weatherData?.outdoorHumidity !== null && weatherData?.outdoorHumidity !== undefined 
                     ? `${weatherData.outdoorHumidity}%` 
                     : 'N/A'}
                 </span>
               </div>
 
-              <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-                <span className="text-[10px] text-slate-400 font-bold uppercase block">Wind Speed</span>
-                <span className="text-sm font-black font-mono text-slate-800 block mt-0.5">
+              <div className="bg-slate-50 p-2 sm:p-2.5 rounded-xl border border-slate-100">
+                <span className="text-[10px] text-slate-400 font-bold uppercase block">{isTe ? 'గాలి వేగం' : 'Wind Speed'}</span>
+                <span className="text-xs sm:text-sm font-black font-mono text-slate-800 block mt-0.5">
                   {weatherData?.windSpeed !== null && weatherData?.windSpeed !== undefined 
                     ? `${weatherData.windSpeed} km/h` 
                     : 'N/A'}
                 </span>
               </div>
 
-              <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+              <div className="bg-slate-50 p-2 sm:p-2.5 rounded-xl border border-slate-100">
                 <span className="text-[10px] text-slate-400 font-bold uppercase block">{isTe ? 'వర్షపాతం' : 'Rainfall'}</span>
-                <span className="text-sm font-black font-mono text-blue-700 block mt-0.5">
+                <span className="text-xs sm:text-sm font-black font-mono text-blue-700 block mt-0.5">
                   {weatherData?.rainfall !== null && weatherData?.rainfall !== undefined 
                     ? `${weatherData.rainfall} mm` 
                     : 'N/A'}
@@ -621,25 +624,45 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* 5-Day Upcoming Weather Forecast Strip */}
+            {/* 5-Day Upcoming Weather Forecast Strip (Expandable on Mobile) */}
             {weatherData?.dailyForecast && weatherData.dailyForecast.length > 0 && (
               <div className="pt-3 border-t border-slate-100">
-                <span className="text-[10px] uppercase font-bold text-slate-500 block mb-2">
-                  {isTe ? 'రాబోయే 5 రోజుల వాతావరణ సూచన:' : '5-Day Upcoming Forecast:'}
-                </span>
-                <div className="grid grid-cols-5 gap-1.5 text-center">
-                  {weatherData.dailyForecast.map((day, idx) => (
-                    <div key={idx} className="p-2 rounded-xl bg-slate-50 border border-slate-100 flex flex-col items-center">
-                      <span className="text-[10px] font-bold text-slate-600 uppercase">{day.dayName}</span>
-                      <WeatherIconComponent iconName={day.icon} className="w-5 h-5 text-sky-600 my-1" />
-                      <span className="text-[11px] font-black font-mono text-slate-800">
-                        {day.maxTemp !== null ? `${Math.round(day.maxTemp)}°` : 'N/A'}
-                      </span>
-                      <span className="text-[9px] text-blue-600 font-mono font-bold mt-0.5">
-                        {day.rainMm > 0 ? `${day.rainMm}mm` : '0mm'}
-                      </span>
-                    </div>
-                  ))}
+                <button
+                  type="button"
+                  onClick={() => setShowForecastDetails(!showForecastDetails)}
+                  className="w-full py-2 px-3 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200/80 text-xs font-bold text-slate-700 flex items-center justify-between transition-all touch-target-min cursor-pointer active:scale-98"
+                  aria-expanded={showForecastDetails}
+                >
+                  <span className="flex items-center gap-1.5">
+                    <CloudSun className="w-4 h-4 text-sky-600 shrink-0" />
+                    <span>
+                      {isTe 
+                        ? (showForecastDetails ? '5 రోజుల సూచన దాచండి' : '5 రోజుల వాతావరణ సూచన (వివరాలు చూడండి)') 
+                        : (showForecastDetails ? 'Hide 5-Day Forecast' : 'View 5-Day Weather Forecast')}
+                    </span>
+                  </span>
+                  {showForecastDetails ? <ChevronUp className="w-4 h-4 text-slate-500" /> : <ChevronDown className="w-4 h-4 text-slate-500" />}
+                </button>
+
+                {/* 5-Day Forecast Grid (visible when expanded on mobile, or always on tablet/desktop) */}
+                <div className={`${showForecastDetails ? 'block' : 'hidden sm:block'} mt-3 transition-all animate-fadeIn`}>
+                  <span className="text-[10px] uppercase font-bold text-slate-500 block mb-2">
+                    {isTe ? 'రాబోయే 5 రోజుల సూచన:' : '5-Day Upcoming Forecast:'}
+                  </span>
+                  <div className="grid grid-cols-5 gap-1 sm:gap-1.5 text-center">
+                    {weatherData.dailyForecast.map((day, idx) => (
+                      <div key={idx} className="p-1.5 sm:p-2 rounded-xl bg-slate-50 border border-slate-100 flex flex-col items-center">
+                        <span className="text-[9px] sm:text-[10px] font-bold text-slate-600 uppercase truncate w-full">{day.dayName}</span>
+                        <WeatherIconComponent iconName={day.icon} className="w-4 h-4 sm:w-5 sm:h-5 text-sky-600 my-0.5 sm:my-1" />
+                        <span className="text-[10px] sm:text-[11px] font-black font-mono text-slate-800">
+                          {day.maxTemp !== null ? `${Math.round(day.maxTemp)}°` : 'N/A'}
+                        </span>
+                        <span className="text-[8px] sm:text-[9px] text-blue-600 font-mono font-bold mt-0.5">
+                          {day.rainMm > 0 ? `${day.rainMm}mm` : '0mm'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
             )}
