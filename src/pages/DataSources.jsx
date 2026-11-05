@@ -28,7 +28,8 @@ import {
   Globe,
   Sparkles,
   Sliders,
-  RotateCcw
+  RotateCcw,
+  Bluetooth
 } from 'lucide-react';
 import { useFarmData } from '../context/FarmContext';
 import { ISOBUS_PGN_DEFINITIONS, generateIsoBusTelemetryFrame } from '../services/standardsEngine';
@@ -63,6 +64,12 @@ export default function DataSources() {
     connectWebSerial,
     disconnectWebSerial,
     isWebSerialSupported,
+    connectWebBluetooth,
+    disconnectWebBluetooth,
+    isWebBluetoothSupported,
+    bleConnected,
+    bleConnecting,
+    bleDeviceName,
     language,
     t
   } = useFarmData();
@@ -74,6 +81,8 @@ export default function DataSources() {
   const [simulatedNotice, setSimulatedNotice] = useState(false);
   const [webSerialConnecting, setWebSerialConnecting] = useState(false);
   const [webSerialFeedback, setWebSerialFeedback] = useState(null);
+  const [bleConnectingState, setBleConnectingState] = useState(false);
+  const [bleFeedback, setBleFeedback] = useState(null);
 
   const handleConnectWebSerial = async () => {
     setWebSerialConnecting(true);
@@ -95,6 +104,51 @@ export default function DataSources() {
       });
     } finally {
       setWebSerialConnecting(false);
+    }
+  };
+
+  const handleDisconnectWebSerial = async () => {
+    try {
+      await disconnectWebSerial();
+      setWebSerialFeedback({
+        type: 'info',
+        message: isTe ? 'USB Serial డిస్‌కనెక్ట్ చేయబడింది.' : 'USB Serial disconnected.'
+      });
+    } catch (err) {
+      console.warn(err);
+    }
+  };
+
+  const handleConnectWebBluetooth = async () => {
+    setBleConnectingState(true);
+    setBleFeedback(null);
+    try {
+      const res = await connectWebBluetooth();
+      setBleFeedback({
+        type: 'success',
+        message: isTe 
+          ? `Bluetooth LE ESP32 (${res.deviceName}) విజయవంతంగా కనెక్ట్ చేయబడింది! లైవ్ డేటా ప్రసారం ప్రారంభమైంది.`
+          : `Bluetooth LE ESP32 (${res.deviceName}) connected! Streaming live telemetry.`
+      });
+    } catch (err) {
+      setBleFeedback({
+        type: 'error',
+        message: err.message || (isTe ? 'Bluetooth LE కనెక్షన్ విఫలమైంది.' : 'Bluetooth LE connection failed.')
+      });
+    } finally {
+      setBleConnectingState(false);
+    }
+  };
+
+  const handleDisconnectWebBluetooth = async () => {
+    try {
+      await disconnectWebBluetooth();
+      setBleFeedback({
+        type: 'info',
+        message: isTe ? 'Bluetooth LE డిస్‌కనెక్ట్ చేయబడింది.' : 'Bluetooth LE disconnected.'
+      });
+    } catch (err) {
+      console.warn(err);
     }
   };
 
@@ -502,82 +556,181 @@ export default function DataSources() {
       </div>
 
       {/* ------------------------------------------------------------- */}
-      {/* 2. LOCAL USB SERIAL BRIDGE CARD */}
+      {/* 2. PHYSICAL ESP32 LIVE HARDWARE INGESTION HUB (USB & BLE) */}
       {/* ------------------------------------------------------------- */}
-      <div className={`bg-white rounded-2xl border-2 ${hardwareSource === 'usb_hardware' && operatingMode === 'live_hardware' ? 'border-emerald-500 shadow-md' : 'border-slate-200 shadow-xs'} overflow-hidden transition-all`}>
-        <div className="bg-gradient-to-r from-slate-900 to-slate-850 px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between text-white gap-2">
+      <div className={`bg-white rounded-2xl border-2 ${operatingMode === 'live_hardware' && hardwareData.connectionStatus === 'connected' ? 'border-emerald-500 shadow-md' : 'border-slate-200 shadow-xs'} overflow-hidden transition-all`}>
+        <div className="bg-gradient-to-r from-slate-900 via-slate-850 to-slate-900 px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between text-white gap-2">
           <div className="flex items-center gap-2.5">
             <div className="p-2 bg-emerald-600 text-white rounded-xl shadow-xs">
-              <Cable className="w-5 h-5" />
+              <Cpu className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-extrabold text-sm text-white">Physical ESP32 USB Cable Ingestion</h3>
-              <p className="text-xs text-slate-400">Direct USB Serial at 115200 baud via local Python bridge (127.0.0.1:5000)</p>
+              <h3 className="font-extrabold text-sm text-white">Physical ESP32 Live Hardware Ingestion</h3>
+              <p className="text-xs text-slate-400">Direct in-browser telemetry via Web Serial (USB Cable) or Web Bluetooth (BLE 4.0+ GATT)</p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded-full bg-slate-800 text-emerald-400 border border-slate-700">
-              Direct USB • No Wi-Fi
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[10px] font-mono uppercase px-2.5 py-0.5 rounded-full bg-slate-800 text-emerald-400 border border-slate-700">
+              No Wi-Fi Required • Direct In-Browser
             </span>
           </div>
         </div>
 
         <div className="p-6 space-y-6">
-          
-          {/* Arduino IDE Serial Monitor Exclusive Lock Callout */}
-          <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-start gap-2.5">
-              <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-              <div className="text-xs">
-                <strong className="font-bold text-amber-900 block mb-0.5">
-                  {isTe ? 'ముఖ్యమైన సూచన (COM7):' : 'Important Note for Connecting COM7:'}
-                </strong>
-                <span className="text-amber-800 leading-relaxed">
-                  {isTe 
-                    ? 'Arduino IDE లో Serial Monitor తెరిచి ఉంటే, COM7 పోర్ట్ లాక్ చేయబడుతుంది. వెబ్‌లో కనెక్ట్ చేయడానికి లేదా పైథాన్ బ్రిడ్జ్ ప్రారంభించడానికి ముందు Arduino IDE లోని Serial Monitor ను మూసివేయండి.' 
-                    : 'In Windows, only one application can access COM7 at a time. Please close the Serial Monitor in Arduino IDE before clicking "Connect" or running the Python bridge.'}
-                </span>
+
+          {/* Connection Modes Grid (USB Serial vs Bluetooth LE) */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            
+            {/* 1. USB SERIAL CARD */}
+            <div className={`p-4 rounded-xl border ${hardwareData.port?.includes('WebSerial') && hardwareData.connectionStatus === 'connected' ? 'bg-emerald-50/50 border-emerald-300' : 'bg-slate-50 border-slate-200'} flex flex-col justify-between space-y-4`}>
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <Cable className="w-4 h-4 text-emerald-600" />
+                    <h4 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider">
+                      USB Serial Cable
+                    </h4>
+                  </div>
+                  <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-700">
+                    115200 Baud
+                  </span>
+                </div>
+                
+                <p className="text-xs text-slate-600 leading-relaxed mb-3">
+                  Connect your ESP32 directly via USB. Read real-time JSON frames straight into the browser without Wi-Fi or local servers.
+                </p>
+
+                {/* Exclusive Port Warning */}
+                <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-[11px] text-amber-900 flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <span>
+                    <strong>Note:</strong> Close Arduino IDE Serial Monitor before connecting; only one app can access the COM port at a time.
+                  </span>
+                </div>
+
+                {!isWebSerialSupported() && (
+                  <div className="mt-2.5 p-2.5 rounded-lg bg-slate-100 border border-slate-200 text-[11px] text-slate-600">
+                    ℹ️ Web Serial is supported on desktop Google Chrome and Microsoft Edge. On mobile devices, please use <strong>Bluetooth LE</strong> below or the Render Cloud sync.
+                  </div>
+                )}
+              </div>
+
+              <div>
+                {webSerialFeedback && (
+                  <div className={`mb-3 p-2.5 rounded-lg text-xs font-medium border flex items-center gap-1.5 ${
+                    webSerialFeedback.type === 'success' 
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-800' 
+                      : (webSerialFeedback.type === 'info' ? 'bg-slate-100 border-slate-200 text-slate-700' : 'bg-rose-50 border-rose-200 text-rose-800')
+                  }`}>
+                    {webSerialFeedback.type === 'success' ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" /> : <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />}
+                    <span>{webSerialFeedback.message}</span>
+                  </div>
+                )}
+
+                {hardwareData.port?.includes('WebSerial') && hardwareData.connectionStatus === 'connected' ? (
+                  <button
+                    type="button"
+                    onClick={handleDisconnectWebSerial}
+                    className="w-full px-4 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 active:scale-95 shadow-xs touch-target-min cursor-pointer"
+                  >
+                    <X className="w-4 h-4 text-rose-600" />
+                    <span>{isTe ? 'USB Serial డిస్‌కనెక్ట్ చేయండి' : 'Disconnect USB Serial'}</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleConnectWebSerial}
+                    disabled={webSerialConnecting || !isWebSerialSupported()}
+                    className="w-full px-4 py-2.5 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-xs active:scale-95 touch-target-min cursor-pointer"
+                  >
+                    <Cable className={`w-4 h-4 text-emerald-400 ${webSerialConnecting ? 'animate-pulse' : ''}`} />
+                    <span>{webSerialConnecting ? (isTe ? 'కనెక్ట్ అవుతోంది...' : 'Connecting...') : (isTe ? 'కనెక్ట్ ESP32 (USB Serial)' : 'Connect ESP32 (USB Serial)')}</span>
+                  </button>
+                )}
               </div>
             </div>
 
-            {isWebSerialSupported() && (
-              <button
-                type="button"
-                onClick={handleConnectWebSerial}
-                disabled={webSerialConnecting}
-                className="w-full sm:w-auto px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all shrink-0 active:scale-95 flex items-center justify-center gap-2 shadow-xs touch-target-min cursor-pointer"
-              >
-                <Cable className={`w-4 h-4 text-emerald-400 ${webSerialConnecting ? 'animate-pulse' : ''}`} />
-                <span>{webSerialConnecting ? (isTe ? 'కనెక్ట్ అవుతోంది...' : 'Connecting...') : (isTe ? 'బ్రౌజర్ ద్వారా కనెక్ట్ (COM7)' : 'Connect ESP32 (COM7 Direct)')}</span>
-              </button>
-            )}
-          </div>
+            {/* 2. BLUETOOTH LE CARD */}
+            <div className={`p-4 rounded-xl border ${bleConnected ? 'bg-blue-50/50 border-blue-300' : 'bg-slate-50 border-slate-200'} flex flex-col justify-between space-y-4`}>
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <Bluetooth className="w-4 h-4 text-blue-600" />
+                    <h4 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider">
+                      Bluetooth Low Energy (BLE)
+                    </h4>
+                  </div>
+                  <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800">
+                    BLE 4.0+ GATT
+                  </span>
+                </div>
 
-          {webSerialFeedback && (
-            <div className={`p-3 rounded-xl text-xs font-medium border flex items-center gap-2 ${
-              webSerialFeedback.type === 'success' 
-                ? 'bg-emerald-50 border-emerald-200 text-emerald-800' 
-                : 'bg-rose-50 border-rose-200 text-rose-800'
-            }`}>
-              {webSerialFeedback.type === 'success' ? (
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-              ) : (
-                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-              )}
-              <span>{webSerialFeedback.message}</span>
+                <p className="text-xs text-slate-600 leading-relaxed mb-3">
+                  Wireless telemetry via Web Bluetooth API. Receives sensor JSON notifications over Nordic UART Service (NUS).
+                </p>
+
+                {/* Compatibility Callout per Section 2 */}
+                <div className="p-2.5 rounded-lg bg-blue-50 border border-blue-200 text-[11px] text-blue-900 flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                  <span>
+                    <strong>BLE Only:</strong> Web Bluetooth supports Bluetooth Low Energy (GATT). It does <em>not</em> support legacy Bluetooth Classic (SPP). Ensure your ESP32 runs <code className="bg-blue-100 px-1 py-0.5 rounded">esp/esp_ble.ino</code>.
+                  </span>
+                </div>
+
+                {!isWebBluetoothSupported() && (
+                  <div className="mt-2.5 p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-[11px] text-rose-700">
+                    ⚠️ Web Bluetooth is not supported in this browser. Supported on Google Chrome for Android, Windows (with Bluetooth LE), Mac, Linux, and ChromeOS. (Note: iOS Safari does not support Web Bluetooth).
+                  </div>
+                )}
+              </div>
+
+              <div>
+                {bleFeedback && (
+                  <div className={`mb-3 p-2.5 rounded-lg text-xs font-medium border flex items-center gap-1.5 ${
+                    bleFeedback.type === 'success' 
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-800' 
+                      : (bleFeedback.type === 'info' ? 'bg-slate-100 border-slate-200 text-slate-700' : 'bg-rose-50 border-rose-200 text-rose-800')
+                  }`}>
+                    {bleFeedback.type === 'success' ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" /> : <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />}
+                    <span>{bleFeedback.message}</span>
+                  </div>
+                )}
+
+                {bleConnected ? (
+                  <button
+                    type="button"
+                    onClick={handleDisconnectWebBluetooth}
+                    className="w-full px-4 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 active:scale-95 shadow-xs touch-target-min cursor-pointer"
+                  >
+                    <X className="w-4 h-4 text-rose-600" />
+                    <span>{isTe ? 'Bluetooth LE డిస్‌కనెక్ట్ చేయండి' : 'Disconnect Bluetooth LE'}</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleConnectWebBluetooth}
+                    disabled={bleConnectingState || !isWebBluetoothSupported()}
+                    className="w-full px-4 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-xs active:scale-95 touch-target-min cursor-pointer"
+                  >
+                    <Bluetooth className={`w-4 h-4 text-blue-200 ${bleConnectingState ? 'animate-pulse' : ''}`} />
+                    <span>{bleConnectingState ? (isTe ? 'కనెక్ట్ అవుతోంది...' : 'Connecting...') : (isTe ? 'కనెక్ట్ ESP32 (Bluetooth LE)' : 'Connect ESP32 (Bluetooth LE)')}</span>
+                  </button>
+                )}
+              </div>
             </div>
-          )}
+
+          </div>
           
           {/* Real Sensor Telemetry Display Grid */}
           <div>
-            <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
               <h4 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
                 <Cpu className="w-4 h-4 text-emerald-600" />
-                Latest Physical ESP32 Sensor Telemetry (Node: ESP32-DEV-USB)
+                Latest Physical ESP32 Sensor Telemetry ({hardwareData.port || 'Node: ESP32'})
               </h4>
               <span className="text-[11px] font-mono text-slate-500">
-                Port: <strong>{usbPort || 'Auto-detect'}</strong> • Baud: <strong>115200</strong>
+                Connection: <strong>{hardwareData.connectionStatus.toUpperCase()}</strong> • Last Sync: <strong>{hardwareData.lastUpdated || 'Waiting...'}</strong>
               </span>
             </div>
 
@@ -657,9 +810,11 @@ export default function DataSources() {
                 <div className="mt-2">
                   <div className="text-xs text-slate-500 font-semibold">Ambient Light</div>
                   <div className="text-2xl font-black font-mono text-slate-900 mt-0.5">
-                    {usbRawReadings?.light_lux !== null && usbRawReadings?.light_lux !== undefined
-                      ? `${usbRawReadings.light_lux} lux`
-                      : <span className="text-sm text-slate-400 font-bold">Standby</span>}
+                    {usbRawReadings?.light_intensity !== null && usbRawReadings?.light_intensity !== undefined
+                      ? `${usbRawReadings.light_intensity.toFixed(1)} %`
+                      : (usbRawReadings?.light_lux !== null && usbRawReadings?.light_lux !== undefined
+                          ? `${usbRawReadings.light_lux} lux`
+                          : <span className="text-sm text-slate-400 font-bold">Standby</span>)}
                   </div>
                   <div className="text-[10px] text-slate-500 mt-1 font-mono">
                     Raw ADC: <strong>{usbRawReadings?.light_raw !== null && usbRawReadings?.light_raw !== undefined ? `${usbRawReadings.light_raw} / 4095` : 'Awaiting packet'}</strong>

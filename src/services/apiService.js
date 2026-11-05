@@ -50,8 +50,34 @@ class SmartFarmApiService {
     this.alerts = [];
     this.history = [];
     this.subscribers = new Set();
+    
+    // Direct Web Serial API State
     this.webSerialPort = null;
+    this.webSerialReader = null;
     this.webSerialConnected = false;
+
+    // Direct Web Bluetooth LE (BLE) State
+    this.bleDevice = null;
+    this.bleServer = null;
+    this.bleCharacteristic = null;
+    this.bleConnected = false;
+    this.bleConnecting = false;
+    this.bleError = null;
+
+    // Buffer helpers for streaming packets
+    this._kvBuffer = {};
+    this.serialBuffer = '';
+
+    // Listen for physical USB unplug if supported
+    if (typeof navigator !== 'undefined' && 'serial' in navigator) {
+      try {
+        navigator.serial.addEventListener('disconnect', (event) => {
+          if (this.webSerialPort && event.port === this.webSerialPort) {
+            this.handleHardwareDisconnected('USB Serial device unplugged');
+          }
+        });
+      } catch {}
+    }
 
     // -------------------------------------------------------------
     // THREE SEPARATE DATA OBJECTS (Strict Data Integrity)
@@ -516,14 +542,15 @@ class SmartFarmApiService {
     };
 
     if (this.operatingMode === 'live_hardware') {
+      const isLiveHardwareActive = this.hardwareData.connectionStatus === 'connected' && !this.hardwareData.isStale;
       effectiveReading = {
-        airTemperature: this.hardwareData.temperature,
-        humidity: this.hardwareData.humidity,
-        soilMoisture: this.hardwareData.soilMoisture,
-        lightIntensity: this.hardwareData.lightIntensity,
-        soilRaw: this.hardwareData.soilRaw,
-        lightRaw: this.hardwareData.lightRaw,
-        dhtOk: this.hardwareData.dhtOk
+        airTemperature: isLiveHardwareActive ? this.hardwareData.temperature : null,
+        humidity: isLiveHardwareActive ? this.hardwareData.humidity : null,
+        soilMoisture: isLiveHardwareActive ? this.hardwareData.soilMoisture : null,
+        lightIntensity: isLiveHardwareActive ? this.hardwareData.lightIntensity : null,
+        soilRaw: isLiveHardwareActive ? this.hardwareData.soilRaw : null,
+        lightRaw: isLiveHardwareActive ? this.hardwareData.lightRaw : null,
+        dhtOk: isLiveHardwareActive ? this.hardwareData.dhtOk : null
       };
     } else if (this.operatingMode === 'simulation') {
       effectiveReading = {
@@ -625,15 +652,24 @@ class SmartFarmApiService {
       usbPort: this.hardwareData.port,
       usbLastSync: this.hardwareData.lastUpdated,
       usbLastSyncEpoch: this.hardwareData.lastUpdatedEpoch,
-      usbRawReadings: this.hardwareData.soilRaw !== null ? {
+      usbRawReadings: (this.hardwareData.temperature !== null || this.hardwareData.soilMoisture !== null) ? {
         temperature: this.hardwareData.temperature,
         humidity: this.hardwareData.humidity,
         soil_moisture: this.hardwareData.soilMoisture,
         soil_raw: this.hardwareData.soilRaw,
         light_raw: this.hardwareData.lightRaw,
+        light_lux: this.hardwareData.lightIntensity !== null ? Math.round(this.hardwareData.lightIntensity * 10) : null,
+        light_intensity: this.hardwareData.lightIntensity,
         dht_ok: this.hardwareData.dhtOk
       } : null,
       usbError: this.usbError,
+      // Bluetooth LE State
+      bleConnected: this.bleConnected,
+      bleConnecting: this.bleConnecting,
+      bleError: this.bleError,
+      bleDeviceName: this.bleDevice ? (this.bleDevice.name || 'ESP32-BLE') : null,
+      isWebBluetoothSupported: this.isWebBluetoothSupported(),
+      isWebSerialSupported: this.isWebSerialSupported(),
       // Cloud Backend State
       backendUrl: this.backendUrl,
       cloudStatus: this.cloudStatus,
@@ -997,14 +1033,50 @@ class SmartFarmApiService {
   }
 
   // =============================================================
-  // HARDWARE DATA INGESTION (UNIFIED ACROSS SOURCES)
+  // HARDWARE DATA INGESTION & DISCONNECTION (UNIFIED ACROSS SOURCES)
   // =============================================================
 
+  handleHardwareDisconnected(reason = '') {
+    this.webSerialConnected = false;
+    this.bleConnected = false;
+    this.bleConnecting = false;
+    this.hardwareData.connectionStatus = 'disconnected';
+    this.hardwareData.isStale = true;
+    this.hardwareData.port = null;
+    this.hardwareData.temperature = null;
+    this.hardwareData.humidity = null;
+    this.hardwareData.soilMoisture = null;
+    this.hardwareData.lightIntensity = null;
+    this.hardwareData.soilRaw = null;
+    this.hardwareData.lightRaw = null;
+    this.usbStatus = 'disconnected';
+    this.usbPort = null;
+    this.usbError = reason;
+    this.notify();
+  }
+
   ingestRealHardwareReading(r = {}) {
-    const temp = typeof r.temperature === 'number' ? r.temperature : null;
-    const hum = typeof r.humidity === 'number' ? r.humidity : null;
-    const moist = typeof r.soilMoisture === 'number' ? r.soilMoisture : null;
-    const light = typeof r.lightIntensity === 'number' ? r.lightIntensity : null;
+    // 1. Data Validation: Sanitize and reject out-of-range sensor values
+    const sanitizeNum = (val, min, max) => {
+      if (val === null || val === undefined || val === '' || (typeof val === 'number' && isNaN(val))) return null;
+      const num = Number(val);
+      if (isNaN(num)) return null;
+      if (num < min || num > max) return null; // Reject physical sensor overflow / glitches
+      return Number(num.toFixed(1));
+    };
+
+    const rawTemp = r.temperature !== undefined ? r.temperature : r.airTemperature;
+    const rawHum = r.humidity;
+    const rawMoist = r.soil_moisture !== undefined ? r.soil_moisture : r.soilMoisture;
+    const rawLight = r.light_intensity !== undefined ? r.light_intensity : (r.lightIntensity !== undefined ? r.lightIntensity : (typeof r.light_lux === 'number' ? Math.min(100, Math.round((r.light_lux / 1000) * 100)) : null));
+
+    const temp = sanitizeNum(rawTemp, -15.0, 70.0);
+    const hum = sanitizeNum(rawHum, 0.0, 100.0);
+    const moist = sanitizeNum(rawMoist, 0.0, 100.0);
+    const light = sanitizeNum(rawLight, 0.0, 100.0);
+
+    // If DHT11 failed (NaN, null, or out of range), keep null and flag dhtOk = false
+    const dhtOk = (temp !== null && hum !== null);
 
     this.hardwareData.hasReadings = true;
     this.hardwareData.readingsCount += 1;
@@ -1015,15 +1087,15 @@ class SmartFarmApiService {
     this.hardwareData.isStale = false;
     this.hardwareData.connectionStatus = 'connected';
     if (r.port) this.hardwareData.port = r.port;
-    if (temp !== null) this.hardwareData.temperature = temp;
-    if (hum !== null) this.hardwareData.humidity = hum;
-    if (moist !== null) this.hardwareData.soilMoisture = moist;
-    if (light !== null) this.hardwareData.lightIntensity = light;
-    if (r.soilRaw !== undefined) this.hardwareData.soilRaw = r.soilRaw;
-    if (r.lightRaw !== undefined) this.hardwareData.lightRaw = r.lightRaw;
-    this.hardwareData.dhtOk = true;
+    this.hardwareData.temperature = temp;
+    this.hardwareData.humidity = hum;
+    this.hardwareData.soilMoisture = moist;
+    this.hardwareData.lightIntensity = light;
+    this.hardwareData.soilRaw = typeof r.soil_raw === 'number' ? r.soil_raw : (typeof r.soilRaw === 'number' ? r.soilRaw : null);
+    this.hardwareData.lightRaw = typeof r.light_raw === 'number' ? r.light_raw : (typeof r.lightRaw === 'number' ? r.lightRaw : null);
+    this.hardwareData.dhtOk = dhtOk;
 
-    // Only record hardware readings in real history
+    // Only record valid hardware readings in real history
     if (temp !== null || moist !== null) {
       this.history.push({
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
@@ -1043,6 +1115,120 @@ class SmartFarmApiService {
     this.notify();
   }
 
+  parseAndIngestTelemetryLine(line, portName = 'ESP32') {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) return;
+
+    // 1. JSON Format: {"temperature":30.5,"humidity":74.8,"soil_moisture":42.0,"light_intensity":85.0}
+    if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+      try {
+        const data = JSON.parse(trimmed);
+        if (typeof data === 'object' && data !== null) {
+          this.ingestRealHardwareReading({
+            ...data,
+            port: portName
+          });
+
+          // Forward to Render Cloud backend so remote mobile devices see the live data
+          if (this.backendUrl && typeof data.temperature === 'number') {
+            const moist = typeof data.soil_moisture === 'number' ? data.soil_moisture : (typeof data.soilMoisture === 'number' ? data.soilMoisture : 45.0);
+            const light = typeof data.light_intensity === 'number' ? data.light_intensity : (typeof data.lightIntensity === 'number' ? data.lightIntensity : 720);
+            fetch(`${this.backendUrl}/api/sensor-data`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                deviceId: portName.includes('BLE') ? 'ESP32-BLE' : 'ESP32-DEV-USB',
+                farmId: 'FARM-001',
+                zoneId: 'ZONE-A',
+                airTemperature: data.temperature,
+                humidity: data.humidity,
+                soilMoisture: moist,
+                lightIntensity: light
+              })
+            }).catch(() => {});
+          }
+          return;
+        }
+      } catch {
+        // Malformed JSON: gracefully ignore per Section 5
+        return;
+      }
+    }
+
+    // 2. Key-Value format (e.g. Temperature: 30.50)
+    this.processKeyValueLine(trimmed, portName);
+  }
+
+  processKeyValueLine(line, portName) {
+    if (!this._kvBuffer) this._kvBuffer = {};
+    const kv = this._kvBuffer;
+
+    const tempMatch = line.match(/temperature\s*[:=]\s*([0-9.]+)/i);
+    if (tempMatch) kv.temperature = parseFloat(tempMatch[1]);
+
+    const humMatch = line.match(/humidity\s*[:=]\s*([0-9.]+)/i);
+    if (humMatch) kv.humidity = parseFloat(humMatch[1]);
+
+    const soilMatch = line.match(/soil(?:\s+raw)?\s*[:=]\s*([0-9.]+)/i);
+    if (soilMatch) kv.soil_raw = parseInt(soilMatch[1], 10);
+
+    const lightMatch = line.match(/light(?:\s+raw)?\s*[:=]\s*([0-9.]+)/i);
+    if (lightMatch) kv.light_raw = parseInt(lightMatch[1], 10);
+
+    const isDelimiter = line.includes('---') || line.includes('===');
+    const hasAll = (
+      kv.temperature !== undefined &&
+      kv.humidity !== undefined &&
+      (kv.soil_raw !== undefined || kv.soil_moisture !== undefined) &&
+      (kv.light_raw !== undefined || kv.light_lux !== undefined)
+    );
+
+    if (isDelimiter || hasAll) {
+      let moist = null;
+      if (typeof kv.soil_moisture === 'number') {
+        moist = kv.soil_moisture;
+      } else if (typeof kv.soil_raw === 'number') {
+        const calc = ((4095 - kv.soil_raw) / (4095 - 1400)) * 100;
+        moist = Math.max(0, Math.min(100, Math.round(calc * 10) / 10));
+      }
+      let lightInt = null;
+      if (typeof kv.light_lux === 'number') {
+        lightInt = Math.max(0, Math.min(100, Math.round((kv.light_lux / 1000) * 100)));
+      } else if (typeof kv.light_raw === 'number') {
+        lightInt = Math.max(0, Math.min(100, Math.round((kv.light_raw / 4095) * 100)));
+      }
+
+      if (kv.temperature !== undefined && kv.humidity !== undefined) {
+        this.ingestRealHardwareReading({
+          temperature: kv.temperature,
+          humidity: kv.humidity,
+          soilMoisture: moist,
+          soilRaw: kv.soil_raw,
+          lightIntensity: lightInt,
+          lightRaw: kv.light_raw,
+          port: portName
+        });
+
+        if (this.backendUrl) {
+          fetch(`${this.backendUrl}/api/sensor-data`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              deviceId: portName.includes('BLE') ? 'ESP32-BLE' : 'ESP32-DEV-USB',
+              farmId: 'FARM-001',
+              zoneId: 'ZONE-A',
+              airTemperature: kv.temperature,
+              humidity: kv.humidity,
+              soilMoisture: moist !== null ? moist : 45.0,
+              lightIntensity: lightInt !== null ? lightInt : 720
+            })
+          }).catch(() => {});
+        }
+      }
+      this._kvBuffer = {};
+    }
+  }
+
   // =============================================================
   // WEB SERIAL API (DIRECT BROWSER-TO-ESP32 VIA CHROME/EDGE)
   // =============================================================
@@ -1053,16 +1239,26 @@ class SmartFarmApiService {
 
   async connectWebSerial() {
     if (!this.isWebSerialSupported()) {
-      throw new Error('Web Serial is not supported in this browser. Please use Chrome or Edge.');
+      throw new Error('Web Serial is not supported in this browser. Please use desktop Google Chrome or Microsoft Edge.');
+    }
+
+    if (this.webSerialConnected) {
+      await this.disconnectWebSerial();
     }
 
     try {
       this.webSerialPort = await navigator.serial.requestPort();
       await this.webSerialPort.open({ baudRate: 115200 });
       this.webSerialConnected = true;
-      this.hardwareData.port = 'WebSerial (COM7)';
       this.operatingMode = 'live_hardware';
       localStorage.setItem('smartfarm_operating_mode', 'live_hardware');
+      this.hardwareData.port = 'WebSerial (COM7)';
+      this.hardwareData.connectionStatus = 'connected';
+      this.hardwareData.isStale = false;
+      this.usbPort = 'WebSerial (COM7)';
+      this.usbStatus = 'connected';
+      this.usbError = null;
+
       this.readWebSerialStream();
       this.notify();
       return true;
@@ -1073,15 +1269,25 @@ class SmartFarmApiService {
   }
 
   async disconnectWebSerial() {
+    this.webSerialConnected = false;
+    if (this.webSerialReader) {
+      try {
+        await this.webSerialReader.cancel();
+      } catch {}
+      try {
+        this.webSerialReader.releaseLock();
+      } catch {}
+      this.webSerialReader = null;
+    }
+
     if (this.webSerialPort) {
       try {
         await this.webSerialPort.close();
-      } catch (e) {}
+      } catch {}
       this.webSerialPort = null;
-      this.webSerialConnected = false;
-      this.markHardwareStale('Disconnected Web Serial');
-      this.notify();
     }
+
+    this.handleHardwareDisconnected('Disconnected Web Serial');
   }
 
   async readWebSerialStream() {
@@ -1091,8 +1297,8 @@ class SmartFarmApiService {
       const textDecoder = new TextDecoderStream();
       this.webSerialPort.readable.pipeTo(textDecoder.writable).catch(() => {});
       const reader = textDecoder.readable.getReader();
+      this.webSerialReader = reader;
       let lineBuffer = '';
-      let kvBuffer = {};
 
       while (this.webSerialConnected) {
         const { value, done } = await reader.read();
@@ -1102,114 +1308,158 @@ class SmartFarmApiService {
         lineBuffer = lines.pop();
 
         for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed) continue;
-
-          // Check if JSON
-          if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
-            try {
-              const data = JSON.parse(trimmed);
-              this.ingestRealHardwareReading({
-                ...data,
-                port: 'WebSerial (COM7)'
-              });
-
-              // Forward to Render Cloud backend so remote mobile devices see the live data
-              if (this.backendUrl && typeof data.temperature === 'number') {
-                const moist = typeof data.soil_moisture === 'number' ? data.soil_moisture : 45.0;
-                const light = typeof data.light_lux === 'number' ? data.light_lux : 720;
-                fetch(`${this.backendUrl}/api/sensor-data`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    deviceId: 'ESP32-WEBSERIAL',
-                    farmId: 'FARM-001',
-                    zoneId: 'ZONE-A',
-                    airTemperature: data.temperature,
-                    humidity: data.humidity,
-                    soilMoisture: moist,
-                    lightIntensity: light
-                  })
-                }).catch(() => {});
-              }
-
-              kvBuffer = {};
-              continue;
-            } catch (e) {}
-          }
-
-          // Parse Key-Value (ESP2.ino format from Arduino IDE)
-          const tempMatch = trimmed.match(/temperature\s*[:=]\s*([0-9.]+)/i);
-          if (tempMatch) kvBuffer.temperature = parseFloat(tempMatch[1]);
-
-          const humMatch = trimmed.match(/humidity\s*[:=]\s*([0-9.]+)/i);
-          if (humMatch) kvBuffer.humidity = parseFloat(humMatch[1]);
-
-          const soilMatch = trimmed.match(/soil(?:\s+raw)?\s*[:=]\s*([0-9.]+)/i);
-          if (soilMatch) kvBuffer.soil_raw = parseInt(soilMatch[1], 10);
-
-          const lightMatch = trimmed.match(/light(?:\s+raw)?\s*[:=]\s*([0-9.]+)/i);
-          if (lightMatch) kvBuffer.light_raw = parseInt(lightMatch[1], 10);
-
-          const isDelimiter = trimmed.includes('---') || trimmed.includes('===');
-          const hasAllReadings = (
-            kvBuffer.temperature !== undefined &&
-            kvBuffer.humidity !== undefined &&
-            (kvBuffer.soil_raw !== undefined || kvBuffer.soil_moisture !== undefined) &&
-            (kvBuffer.light_raw !== undefined || kvBuffer.light_lux !== undefined)
-          );
-
-          if (isDelimiter || hasAllReadings) {
-            let moist = null;
-            if (typeof kvBuffer.soil_moisture === 'number') {
-              moist = kvBuffer.soil_moisture;
-            } else if (typeof kvBuffer.soil_raw === 'number') {
-              const calc = ((4095 - kvBuffer.soil_raw) / (4095 - 1400)) * 100;
-              moist = Math.max(0, Math.min(100, Math.round(calc * 10) / 10));
-            }
-            let lightInt = null;
-            if (typeof kvBuffer.light_lux === 'number') {
-              lightInt = Math.max(0, Math.min(100, Math.round((kvBuffer.light_lux / 1000) * 100)));
-            } else if (typeof kvBuffer.light_raw === 'number') {
-              lightInt = Math.max(0, Math.min(100, Math.round((kvBuffer.light_raw / 4095) * 100)));
-            }
-
-            if (kvBuffer.temperature !== undefined && kvBuffer.humidity !== undefined) {
-              this.ingestRealHardwareReading({
-                temperature: kvBuffer.temperature,
-                humidity: kvBuffer.humidity,
-                soilMoisture: moist,
-                soilRaw: kvBuffer.soil_raw,
-                lightIntensity: lightInt,
-                lightRaw: kvBuffer.light_raw,
-                port: 'WebSerial (COM7)'
-              });
-
-              // Forward to Render Cloud backend so remote mobile devices see the live data
-              if (this.backendUrl) {
-                fetch(`${this.backendUrl}/api/sensor-data`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    deviceId: 'ESP32-WEBSERIAL',
-                    farmId: 'FARM-001',
-                    zoneId: 'ZONE-A',
-                    airTemperature: kvBuffer.temperature,
-                    humidity: kvBuffer.humidity,
-                    soilMoisture: moist !== null ? moist : 45.0,
-                    lightIntensity: lightInt !== null ? lightInt : 720
-                  })
-                }).catch(() => {});
-              }
-            }
-
-            if (isDelimiter || hasAllReadings) kvBuffer = {};
-          }
+          this.parseAndIngestTelemetryLine(line, this.hardwareData.port || 'WebSerial (COM7)');
         }
       }
     } catch (err) {
-      console.warn('[WebSerial] Error reading stream:', err);
+      if (this.webSerialConnected) {
+        console.warn('[WebSerial] Stream terminated:', err);
+        this.handleHardwareDisconnected('Serial port closed or disconnected');
+      }
+    } finally {
+      this.webSerialReader = null;
     }
+  }
+
+  // =============================================================
+  // WEB BLUETOOTH LE (BLE) API
+  // =============================================================
+
+  isWebBluetoothSupported() {
+    return typeof navigator !== 'undefined' && 'bluetooth' in navigator;
+  }
+
+  async connectWebBluetooth() {
+    if (!this.isWebBluetoothSupported()) {
+      throw new Error('Web Bluetooth is not supported in this browser. Please use Google Chrome on Android, Windows (with Bluetooth LE), macOS, Linux, or ChromeOS. Note: iOS Safari does not support Web Bluetooth.');
+    }
+
+    if (this.bleConnected) {
+      await this.disconnectWebBluetooth();
+    }
+
+    try {
+      this.bleConnecting = true;
+      this.bleError = null;
+      this.notify();
+
+      // Standard Nordic UART Service (NUS) & Custom SmartFarm GATT Service
+      const NUS_SERVICE = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+      const SMARTFARM_SERVICE = '4fafc201-1fb5-459e-8fcc-c5c9c331914b';
+      const GENERIC_SERIAL_SERVICE = 0xFFE0;
+
+      const device = await navigator.bluetooth.requestDevice({
+        acceptAllDevices: true,
+        optionalServices: [
+          NUS_SERVICE,
+          SMARTFARM_SERVICE,
+          GENERIC_SERIAL_SERVICE,
+          'battery_service',
+          'environmental_sensing'
+        ]
+      });
+
+      this.bleDevice = device;
+
+      device.addEventListener('gattserverdisconnected', () => {
+        this.handleHardwareDisconnected(`Bluetooth LE device "${device.name || 'ESP32'}" disconnected.`);
+      });
+
+      const server = await device.gatt.connect();
+      this.bleServer = server;
+
+      let targetCharacteristic = null;
+
+      // 1. Try Nordic UART TX characteristic
+      try {
+        const nus = await server.getPrimaryService(NUS_SERVICE);
+        targetCharacteristic = await nus.getCharacteristic('6e400003-b5a3-f393-e0a9-e50e24dcca9e');
+      } catch {}
+
+      // 2. Try SmartFarm custom service characteristic
+      if (!targetCharacteristic) {
+        try {
+          const custom = await server.getPrimaryService(SMARTFARM_SERVICE);
+          targetCharacteristic = await custom.getCharacteristic('beb5483e-36e1-4688-b7f5-ea07361b26a8');
+        } catch {}
+      }
+
+      // 3. Fallback: inspect any notify characteristic
+      if (!targetCharacteristic) {
+        try {
+          const services = await server.getPrimaryServices();
+          for (const service of services) {
+            try {
+              const chars = await service.getCharacteristics();
+              const notifyChar = chars.find(c => c.properties.notify || c.properties.indicate);
+              if (notifyChar) {
+                targetCharacteristic = notifyChar;
+                break;
+              }
+            } catch {}
+          }
+        } catch {}
+      }
+
+      if (!targetCharacteristic) {
+        throw new Error(`Connected to "${device.name || 'ESP32'}", but could not find a BLE notification characteristic. Ensure your ESP32 sketch enables GATT notifications for Nordic UART (UUID 6e400001...) or SmartFarm Service.`);
+      }
+
+      this.bleCharacteristic = targetCharacteristic;
+      await targetCharacteristic.startNotifications();
+
+      let bleLineBuffer = '';
+      targetCharacteristic.addEventListener('characteristicvaluechanged', (event) => {
+        const value = event.target.value;
+        const text = new TextDecoder('utf-8').decode(value);
+        bleLineBuffer += text;
+        const lines = bleLineBuffer.split('\n');
+        bleLineBuffer = lines.pop();
+
+        for (const line of lines) {
+          this.parseAndIngestTelemetryLine(line, `BLE: ${device.name || 'ESP32'}`);
+        }
+      });
+
+      this.bleConnected = true;
+      this.bleConnecting = false;
+      this.operatingMode = 'live_hardware';
+      localStorage.setItem('smartfarm_operating_mode', 'live_hardware');
+      this.hardwareData.port = `BLE: ${device.name || 'ESP32'}`;
+      this.hardwareData.connectionStatus = 'connected';
+      this.hardwareData.isStale = false;
+      this.usbStatus = 'connected';
+      this.usbPort = `BLE: ${device.name || 'ESP32'}`;
+      this.notify();
+
+      return { success: true, deviceName: device.name || 'ESP32-BLE' };
+    } catch (err) {
+      this.bleConnecting = false;
+      this.bleConnected = false;
+      this.bleError = err.message || 'BLE Connection failed';
+      throw err;
+    }
+  }
+
+  async disconnectWebBluetooth() {
+    if (this.bleCharacteristic) {
+      try {
+        await this.bleCharacteristic.stopNotifications();
+      } catch {}
+      this.bleCharacteristic = null;
+    }
+
+    if (this.bleDevice && this.bleDevice.gatt && this.bleDevice.gatt.connected) {
+      try {
+        this.bleDevice.gatt.disconnect();
+      } catch {}
+    }
+
+    this.bleServer = null;
+    this.bleDevice = null;
+    this.bleConnected = false;
+    this.bleConnecting = false;
+    this.handleHardwareDisconnected('Bluetooth LE disconnected');
   }
 
   // =============================================================

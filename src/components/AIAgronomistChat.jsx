@@ -1,15 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useFarmData } from '../context/FarmContext';
-import { 
-  Send, 
-  Bot, 
-  User, 
-  Sparkles, 
-  Bell, 
-  RefreshCw, 
+import {
+  Send,
+  Bot,
+  User,
+  Sparkles,
+  Bell,
+  RefreshCw,
   ChevronRight,
-  Volume2, 
-  VolumeX, 
+  Volume2,
+  VolumeX,
   X,
   Settings,
   Key,
@@ -20,11 +20,11 @@ import {
   EyeOff,
   Zap
 } from 'lucide-react';
-import { 
-  executeAIChatQuery, 
-  getAIConfig, 
-  saveAIConfig, 
-  testAIConnection 
+import {
+  executeAIChatQuery,
+  getAIConfig,
+  saveAIConfig,
+  testAIConnection
 } from '../services/aiChatService';
 
 export default function AIAgronomistChat() {
@@ -267,7 +267,7 @@ export default function AIAgronomistChat() {
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200/90 shadow-md overflow-hidden flex flex-col h-[650px] animate-fadeIn relative">
-      
+
       {/* Top Copilot Header */}
       <div className="bg-gradient-to-r from-purple-900 via-indigo-900 to-slate-900 text-white px-5 py-4 flex items-center justify-between border-b border-indigo-950">
         <div className="flex items-center gap-3">
@@ -281,7 +281,7 @@ export default function AIAgronomistChat() {
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <h3 className="font-black text-sm tracking-tight">SmartFarm AI Agronomist Copilot</h3>
-              
+
               {/* Dynamic Engine Badge */}
               {aiConfig.provider === 'groq' && aiConfig.groqKey ? (
                 <span className="text-[10px] bg-amber-500/30 text-amber-200 border border-amber-400/30 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
@@ -394,24 +394,22 @@ export default function AIAgronomistChat() {
           const isAI = msg.sender === 'ai';
 
           return (
-            <div 
-              key={msg.id} 
+            <div
+              key={msg.id}
               className={`flex gap-3 max-w-[85%] ${isAI ? 'self-start' : 'self-end ml-auto flex-row-reverse'}`}
             >
               {/* Avatar */}
-              <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 text-white shadow-xs ${
-                isAI ? 'bg-purple-600' : 'bg-slate-800'
-              }`}>
+              <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 text-white shadow-xs ${isAI ? 'bg-purple-600' : 'bg-slate-800'
+                }`}>
                 {isAI ? <Bot className="w-4 h-4" /> : <User className="w-4 h-4" />}
               </div>
 
               {/* Message Bubble */}
               <div className="space-y-2">
-                <div className={`p-4 rounded-2xl text-xs leading-relaxed shadow-xs ${
-                  isAI 
-                    ? 'bg-white border border-slate-200/90 text-slate-800 rounded-tl-xs' 
+                <div className={`p-4 rounded-2xl text-xs leading-relaxed shadow-xs ${isAI
+                    ? 'bg-white border border-slate-200/90 text-slate-800 rounded-tl-xs'
                     : 'bg-emerald-600 text-white rounded-tr-xs'
-                }`}>
+                  }`}>
                   {/* Warning banner if fallback happened */}
                   {msg.warning && (
                     <div className="mb-2 p-2 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg text-[11px] font-medium flex items-center gap-1.5">
@@ -523,11 +521,11 @@ export default function AIAgronomistChat() {
           ))}
         </div>
 
-        <form 
+        <form
           onSubmit={(e) => {
             e.preventDefault();
             handleSendMessage();
-          }} 
+          }}
           className="flex items-center gap-2"
         >
           <input
@@ -550,8 +548,8 @@ export default function AIAgronomistChat() {
 
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-1 text-[10px] text-slate-400 font-medium px-1">
           <span>{isTe ? 'ఉచిత అంతర్నిర్మిత AI • Groq, Gemini & OpenAI కీలు కూడా మద్దతు పొందుతాయి' : 'Zero API key required for built-in AI • Groq, Gemini & OpenAI supported'}</span>
-          <button 
-            type="button" 
+          <button
+            type="button"
             onClick={() => setIsConfigModalOpen(true)}
             className="text-purple-600 hover:text-purple-800 font-semibold underline flex items-center gap-1 cursor-pointer"
           >
@@ -564,7 +562,7 @@ export default function AIAgronomistChat() {
       {isConfigModalOpen && (
         <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn">
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full p-6 space-y-4 animate-scaleUp max-h-[90vh] overflow-y-auto">
-            
+
             {/* Modal Header */}
             <div className="flex items-start justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2.5">
@@ -594,11 +592,10 @@ export default function AIAgronomistChat() {
               {/* 1. Built-in Farm AI */}
               <div
                 onClick={() => setTempProvider('builtin')}
-                className={`p-3 rounded-xl border-2 cursor-pointer transition-all flex items-start justify-between gap-3 ${
-                  tempProvider === 'builtin'
+                className={`p-3 rounded-xl border-2 cursor-pointer transition-all flex items-start justify-between gap-3 ${tempProvider === 'builtin'
                     ? 'border-purple-600 bg-purple-50/50 shadow-xs'
                     : 'border-slate-200 hover:border-slate-300'
-                }`}
+                  }`}
               >
                 <div className="flex items-start gap-2.5">
                   <div className="mt-0.5 w-4 h-4 rounded-full border-2 border-purple-600 flex items-center justify-center">
@@ -621,11 +618,10 @@ export default function AIAgronomistChat() {
               {/* 2. Groq Cloud */}
               <div
                 onClick={() => setTempProvider('groq')}
-                className={`p-3 rounded-xl border-2 cursor-pointer transition-all flex items-start justify-between gap-3 ${
-                  tempProvider === 'groq'
+                className={`p-3 rounded-xl border-2 cursor-pointer transition-all flex items-start justify-between gap-3 ${tempProvider === 'groq'
                     ? 'border-amber-500 bg-amber-50/50 shadow-xs'
                     : 'border-slate-200 hover:border-slate-300'
-                }`}
+                  }`}
               >
                 <div className="flex items-start gap-2.5">
                   <div className="mt-0.5 w-4 h-4 rounded-full border-2 border-amber-600 flex items-center justify-center">
@@ -651,11 +647,10 @@ export default function AIAgronomistChat() {
               {/* 3. Google Gemini */}
               <div
                 onClick={() => setTempProvider('gemini')}
-                className={`p-3 rounded-xl border-2 cursor-pointer transition-all flex items-start justify-between gap-3 ${
-                  tempProvider === 'gemini'
+                className={`p-3 rounded-xl border-2 cursor-pointer transition-all flex items-start justify-between gap-3 ${tempProvider === 'gemini'
                     ? 'border-blue-600 bg-blue-50/50 shadow-xs'
                     : 'border-slate-200 hover:border-slate-300'
-                }`}
+                  }`}
               >
                 <div className="flex items-start gap-2.5">
                   <div className="mt-0.5 w-4 h-4 rounded-full border-2 border-blue-600 flex items-center justify-center">
@@ -678,11 +673,10 @@ export default function AIAgronomistChat() {
               {/* 4. OpenAI */}
               <div
                 onClick={() => setTempProvider('openai')}
-                className={`p-3 rounded-xl border-2 cursor-pointer transition-all flex items-start justify-between gap-3 ${
-                  tempProvider === 'openai'
+                className={`p-3 rounded-xl border-2 cursor-pointer transition-all flex items-start justify-between gap-3 ${tempProvider === 'openai'
                     ? 'border-emerald-600 bg-emerald-50/50 shadow-xs'
                     : 'border-slate-200 hover:border-slate-300'
-                }`}
+                  }`}
               >
                 <div className="flex items-start gap-2.5">
                   <div className="mt-0.5 w-4 h-4 rounded-full border-2 border-emerald-600 flex items-center justify-center">
@@ -838,11 +832,10 @@ export default function AIAgronomistChat() {
 
             {/* Test Status Banner */}
             {testStatus && (
-              <div className={`p-3 rounded-xl text-xs font-medium border flex items-center gap-2 ${
-                testStatus.success 
-                  ? 'bg-emerald-50 border-emerald-200 text-emerald-800' 
+              <div className={`p-3 rounded-xl text-xs font-medium border flex items-center gap-2 ${testStatus.success
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
                   : 'bg-rose-50 border-rose-200 text-rose-800'
-              }`}>
+                }`}>
                 {testStatus.success ? (
                   <>
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />

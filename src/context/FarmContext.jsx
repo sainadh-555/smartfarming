@@ -142,6 +142,10 @@ export const FarmProvider = ({ children }) => {
     connectWebSerial: () => apiService.connectWebSerial(),
     disconnectWebSerial: () => apiService.disconnectWebSerial(),
     isWebSerialSupported: () => apiService.isWebSerialSupported(),
+    // Direct Web Bluetooth LE API (BLE GATT to ESP32)
+    connectWebBluetooth: () => apiService.connectWebBluetooth(),
+    disconnectWebBluetooth: () => apiService.disconnectWebBluetooth(),
+    isWebBluetoothSupported: () => apiService.isWebBluetoothSupported(),
     faoEt0,
     globalGap,
     downloadAuditCSV,

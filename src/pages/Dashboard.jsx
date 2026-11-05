@@ -32,6 +32,7 @@ import {
   FileSpreadsheet,
   Plus,
   Cable,
+  Bluetooth,
   ChevronDown,
   ChevronUp
 } from 'lucide-react';
@@ -84,7 +85,12 @@ export default function Dashboard() {
     language,
     t,
     connectWebSerial,
+    disconnectWebSerial,
     isWebSerialSupported,
+    connectWebBluetooth,
+    disconnectWebBluetooth,
+    isWebBluetoothSupported,
+    bleConnected,
     deleteZone,
     formatINR
   } = useFarmData();
@@ -99,6 +105,7 @@ export default function Dashboard() {
   const [locationFeedback, setLocationFeedback] = useState(null);
   const [showAddPlotModal, setShowAddPlotModal] = useState(false);
   const [serialConnecting, setSerialConnecting] = useState(false);
+  const [bleConnecting, setBleConnecting] = useState(false);
   const [showForecastDetails, setShowForecastDetails] = useState(false);
 
   const handleConnectWebSerial = async () => {
@@ -123,6 +130,46 @@ export default function Dashboard() {
       setTimeout(() => setLocationFeedback(null), 8000);
     } finally {
       setSerialConnecting(false);
+    }
+  };
+
+  const handleConnectWebBluetooth = async () => {
+    setBleConnecting(true);
+    setLocationFeedback(null);
+    try {
+      const res = await connectWebBluetooth();
+      setLocationFeedback({
+        type: 'success',
+        message: isTe 
+          ? `Bluetooth LE ESP32 (${res.deviceName}) కనెక్ట్ చేయబడింది! లైవ్ డేటా ప్రసారం ప్రారంభమైంది.`
+          : `Bluetooth LE ESP32 (${res.deviceName}) connected! Streaming live telemetry.`
+      });
+      setTimeout(() => setLocationFeedback(null), 6000);
+    } catch (err) {
+      setLocationFeedback({
+        type: 'error',
+        message: err.message || (isTe ? 'BLE కనెక్షన్ విఫలమైంది.' : 'Bluetooth LE connection failed.')
+      });
+      setTimeout(() => setLocationFeedback(null), 8000);
+    } finally {
+      setBleConnecting(false);
+    }
+  };
+
+  const handleDisconnectHardware = async () => {
+    try {
+      if (usbPort?.includes('BLE') || bleConnected) {
+        await disconnectWebBluetooth();
+      } else {
+        await disconnectWebSerial();
+      }
+      setLocationFeedback({
+        type: 'info',
+        message: isTe ? 'హార్డ్‌వేర్ డిస్‌కనెక్ట్ చేయబడింది. సెన్సార్ విలువలు N/A గా మారాయి.' : 'Hardware disconnected. Sensor readings reset to N/A.'
+      });
+      setTimeout(() => setLocationFeedback(null), 5000);
+    } catch (e) {
+      console.warn(e);
     }
   };
 
@@ -377,7 +424,12 @@ export default function Dashboard() {
                 {hasHardware ? (
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
                     <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                    {isTe ? 'హార్డ్‌వేర్ లైవ్ కనెక్ట్ అయింది' : 'Hardware Connected'} {usbPort ? `(${usbPort})` : ''}
+                    LIVE HARDWARE {usbPort ? `(${usbPort})` : ''}
+                    {hardwareData.lastUpdated && (
+                      <span className="text-[10px] text-emerald-600 font-mono opacity-80">
+                        • {hardwareData.lastUpdated}
+                      </span>
+                    )}
                   </span>
                 ) : (
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600 border border-slate-200">
@@ -397,7 +449,7 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Action Center: Connect ESP32 (Web Serial) & prominent SIMULATE DATA button */}
+          {/* Action Center: Connect ESP32 (Web Serial / BLE) & prominent SIMULATE DATA button */}
           <div className="flex items-center gap-2 shrink-0 flex-wrap w-full sm:w-auto pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100">
             {isLive && !hasHardware && isWebSerialSupported() && (
               <button
@@ -408,7 +460,32 @@ export default function Dashboard() {
                 title={isTe ? 'బ్రౌజర్ ద్వారా COM7 కి నేరుగా కనెక్ట్ చేయండి (Arduino IDE Serial Monitor మూసివేయండి)' : 'Connect directly to COM7 (Close Arduino IDE Serial Monitor first)'}
               >
                 <Cable className={`w-3.5 h-3.5 text-emerald-400 ${serialConnecting ? 'animate-pulse' : ''}`} />
-                <span>{serialConnecting ? (isTe ? 'కనెక్ట్...' : 'Connecting...') : (isTe ? 'ESP32 (COM7)' : 'Connect ESP32 (COM7)')}</span>
+                <span>{serialConnecting ? (isTe ? 'కనెక్ట్...' : 'Connecting...') : (isTe ? 'కనెక్ట్ USB (COM7)' : 'Connect USB (COM7)')}</span>
+              </button>
+            )}
+
+            {isLive && !hasHardware && isWebBluetoothSupported() && (
+              <button
+                type="button"
+                onClick={handleConnectWebBluetooth}
+                disabled={bleConnecting}
+                className="flex-1 min-[400px]:flex-initial px-3.5 py-2.5 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 transition-all flex items-center justify-center gap-1.5 active:scale-95 shadow-sm touch-target-min cursor-pointer"
+                title={isTe ? 'Bluetooth LE ద్వారా ESP32 కి కనెక్ట్ చేయండి' : 'Connect to ESP32 via Bluetooth LE (GATT)'}
+              >
+                <Bluetooth className={`w-3.5 h-3.5 text-blue-200 ${bleConnecting ? 'animate-pulse' : ''}`} />
+                <span>{bleConnecting ? (isTe ? 'కనెక్ట్...' : 'Connecting...') : (isTe ? 'కనెక్ట్ BLE' : 'Connect BLE')}</span>
+              </button>
+            )}
+
+            {isLive && hasHardware && (
+              <button
+                type="button"
+                onClick={handleDisconnectHardware}
+                className="px-3.5 py-2.5 text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 rounded-xl transition-all border border-rose-200 flex items-center justify-center gap-1.5 active:scale-95 touch-target-min cursor-pointer"
+                title="Disconnect hardware and verify sensor readings show N/A"
+              >
+                <X className="w-3.5 h-3.5 text-rose-500" />
+                <span>{isTe ? 'డిస్‌కనెక్ట్ చేయండి' : 'Disconnect'}</span>
               </button>
             )}
 
