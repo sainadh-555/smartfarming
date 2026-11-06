@@ -32,7 +32,7 @@ export default function AIInsights() {
   const { zones, history, language, operatingMode, hardwareData, simulationData } = useFarmData();
   const isTe = language === 'te';
 
-  const [activeView, setActiveView] = useState('predictions');
+  const [activeView, setActiveView] = useState('chat');
   const [selectedZoneId, setSelectedZoneId] = useState('ZONE-A');
 
   const activeZone = zones.find(z => z.zoneId === selectedZoneId) || zones[0] || {};
@@ -177,27 +177,27 @@ export default function AIInsights() {
         {/* View Switcher Pills */}
         <div className="w-full sm:w-auto grid grid-cols-2 sm:flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200">
           <button
+            onClick={() => setActiveView('chat')}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+              activeView === 'chat'
+                ? 'bg-emerald-600 text-white shadow-2xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <MessageSquare className="w-3.5 h-3.5" />
+            <span>{isTe ? 'Farm AI సహాయకుడు' : 'Farm AI Assistant'}</span>
+          </button>
+
+          <button
             onClick={() => setActiveView('predictions')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
               activeView === 'predictions'
                 ? 'bg-emerald-600 text-white shadow-2xs'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
             <Sparkles className="w-3.5 h-3.5" />
-            <span>{isTe ? 'సిఫార్సులు' : 'Recommendations'}</span>
-          </button>
-
-          <button
-            onClick={() => setActiveView('chat')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-              activeView === 'chat'
-                ? 'bg-purple-600 text-white shadow-2xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <MessageSquare className="w-3.5 h-3.5" />
-            <span>{isTe ? 'AI చాట్' : 'AI Copilot'}</span>
+            <span>{isTe ? 'అంచనాలు & సిఫార్సులు' : 'Agro Predictions'}</span>
           </button>
         </div>
       </div>

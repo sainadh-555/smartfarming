@@ -149,20 +149,23 @@ void loop() {
       delay(4);
     }
     int lightRaw = (int)(ldrSum / 5);
-    float lightPct = (float)(LDR_DARK_ADC - lightRaw) / (float)(LDR_DARK_ADC - LDR_BRIGHT_ADC) * 100.0;
-    float lightIntensity = constrain(lightPct, 0.0, 100.0);
+    float lightPct = 0.0f;
+    if (LDR_DARK_ADC != LDR_BRIGHT_ADC) {
+      lightPct = ((float)(lightRaw - LDR_DARK_ADC) / (float)(LDR_BRIGHT_ADC - LDR_DARK_ADC)) * 100.0f;
+    }
+    float lightIntensity = constrain(lightPct, 0.0f, 100.0f);
 
     // 4. Format Target JSON Line
     char jsonBuffer[256];
     if (dhtValid) {
       snprintf(jsonBuffer, sizeof(jsonBuffer),
-        "{\"temperature\":%.1f,\"humidity\":%.1f,\"soil_moisture\":%.1f,\"light_intensity\":%.1f}",
-        temperature, humidity, soilMoisture, lightIntensity);
+        "{\"temperature\":%.1f,\"humidity\":%.1f,\"soil_raw\":%d,\"light_raw\":%d,\"soil_moisture\":%.1f,\"light_intensity\":%.1f}",
+        temperature, humidity, soilRaw, lightRaw, soilMoisture, lightIntensity);
     } else {
       // DHT11 failed: emit null for temperature and humidity per requirements
       snprintf(jsonBuffer, sizeof(jsonBuffer),
-        "{\"temperature\":null,\"humidity\":null,\"soil_moisture\":%.1f,\"light_intensity\":%.1f}",
-        soilMoisture, lightIntensity);
+        "{\"temperature\":null,\"humidity\":null,\"soil_raw\":%d,\"light_raw\":%d,\"soil_moisture\":%.1f,\"light_intensity\":%.1f}",
+        soilRaw, lightRaw, soilMoisture, lightIntensity);
     }
 
     // Transmit over USB Serial (115200 baud)

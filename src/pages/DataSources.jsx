@@ -194,7 +194,10 @@ export default function DataSources() {
     setTestingCloud(false);
   };
 
-  const hasHardware = operatingMode === 'live_hardware' && hardwareData?.hasReadings && hardwareData?.connectionStatus === 'connected';
+  const isFresh = hardwareData?.lastUpdatedEpoch 
+    ? ((Date.now() - hardwareData.lastUpdatedEpoch) < 8500)
+    : false;
+  const hasHardware = operatingMode === 'live_hardware' && hardwareData?.hasReadings && hardwareData?.connectionStatus === 'connected' && !hardwareData?.isStale && isFresh;
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto pb-10">

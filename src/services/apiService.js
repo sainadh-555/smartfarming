@@ -172,6 +172,27 @@ class SmartFarmApiService {
     } else {
       this.startCloudPolling();
     }
+
+    // Freshness Watchdog (8 seconds threshold per Issue 2)
+    // If connected hardware stops transmitting for > 8s, mark disconnected and set values to null (N/A)
+    this.watchdogInterval = setInterval(() => {
+      if (this.operatingMode === 'live_hardware' && this.hardwareData.hasReadings) {
+        const secondsSinceLast = (Date.now() - (this.hardwareData.lastUpdatedEpoch || 0)) / 1000;
+        if (secondsSinceLast > 8.0 && this.hardwareData.connectionStatus === 'connected') {
+          this.hardwareData.isStale = true;
+          this.hardwareData.connectionStatus = 'disconnected';
+          this.hardwareData.temperature = null;
+          this.hardwareData.humidity = null;
+          this.hardwareData.soilMoisture = null;
+          this.hardwareData.lightIntensity = null;
+          this.hardwareData.soilRaw = null;
+          this.hardwareData.lightRaw = null;
+          this.usbStatus = 'disconnected';
+          this.usbError = 'Hardware telemetry timed out (> 8s without new packets)';
+          this.notify();
+        }
+      }
+    }, 2000);
   }
 
   subscribe(callback) {
@@ -755,9 +776,15 @@ class SmartFarmApiService {
         const temp = typeof r.temperature === 'number' ? r.temperature : null;
         const hum = typeof r.humidity === 'number' ? r.humidity : null;
         const moist = typeof r.soil_moisture === 'number' ? r.soil_moisture : null;
-        const light = typeof r.light_intensity === 'number' 
-          ? r.light_intensity 
-          : (typeof r.light_lux === 'number' ? Math.min(100, Math.round((r.light_lux / 1000) * 100)) : 65);
+        let light = null;
+        if (typeof r.light_intensity === 'number') {
+          light = r.light_intensity;
+        } else if (typeof r.lightIntensity === 'number') {
+          light = r.lightIntensity;
+        } else if (typeof r.light_raw === 'number') {
+          const calc = ((r.light_raw - 3900) / (300 - 3900)) * 100;
+          light = Math.max(0, Math.min(100, Math.round(calc * 10) / 10));
+        }
 
         this.ingestRealHardwareReading({
           temperature: temp,
@@ -878,14 +905,20 @@ class SmartFarmApiService {
         const live = data.zones['ZONE-A'];
         const lastUpdatedDate = live.lastUpdated ? new Date(live.lastUpdated) : null;
         const secondsOld = lastUpdatedDate ? (Date.now() - lastUpdatedDate.getTime()) / 1000 : 999999;
-        const isFresh = live.isLiveHardware || secondsOld < 180;
+        const isFresh = Boolean(live.isLiveHardware) && secondsOld <= 8.0;
 
-        if (isFresh && (typeof live.airTemperature === 'number' || typeof live.soilMoisture === 'number')) {
+        if (isFresh && (typeof live.airTemperature === 'number' || typeof live.soilMoisture === 'number' || typeof live.lightIntensity === 'number')) {
+          const cloudLight = typeof live.lightIntensity === 'number' 
+            ? live.lightIntensity 
+            : (typeof live.light_intensity === 'number' ? live.light_intensity : null);
+
           this.ingestRealHardwareReading({
             temperature: typeof live.airTemperature === 'number' ? live.airTemperature : null,
             humidity: typeof live.humidity === 'number' ? live.humidity : null,
             soilMoisture: typeof live.soilMoisture === 'number' ? live.soilMoisture : null,
-            lightIntensity: typeof live.lightIntensity === 'number' ? live.lightIntensity : null,
+            lightIntensity: cloudLight,
+            soilRaw: live.soil_raw,
+            lightRaw: live.light_raw,
             port: `Render Cloud (${live.deviceId || 'ESP32'})`,
             lastUpdated: live.lastUpdated
           });
@@ -897,9 +930,8 @@ class SmartFarmApiService {
           this.usbError = null;
         } else {
           this.cloudStatus = 'connected';
-          if (!this.hardwareData.hasReadings) {
-            this.hardwareData.connectionStatus = 'waiting_data';
-            this.usbStatus = 'waiting_data';
+          if (!isFallback || this.hardwareSource === 'cloud_backend') {
+            this.markHardwareStale(live.isLiveHardware ? 'Hardware telemetry stale (> 8s)' : 'Hardware disconnected');
           }
           this.notify();
         }
@@ -1067,13 +1099,58 @@ class SmartFarmApiService {
 
     const rawTemp = r.temperature !== undefined ? r.temperature : r.airTemperature;
     const rawHum = r.humidity;
+    
+    // Soil moisture resolution: accept calibrated percentage or calculate from raw ADC
     const rawMoist = r.soil_moisture !== undefined ? r.soil_moisture : r.soilMoisture;
-    const rawLight = r.light_intensity !== undefined ? r.light_intensity : (r.lightIntensity !== undefined ? r.lightIntensity : (typeof r.light_lux === 'number' ? Math.min(100, Math.round((r.light_lux / 1000) * 100)) : null));
+    let moist = null;
+    if (rawMoist !== null && rawMoist !== undefined && rawMoist !== '' && !isNaN(Number(rawMoist))) {
+      const num = Number(rawMoist);
+      if (num >= 0.0 && num <= 100.0) {
+        moist = Number(num.toFixed(1));
+      } else if (num > 100.0 && num <= 4095.0) {
+        // Raw ADC value passed; calibrate: 3500 dry -> 0%, 1300 wet -> 100%
+        const calc = ((3500 - num) / (3500 - 1300)) * 100;
+        moist = Number(Math.max(0, Math.min(100, calc)).toFixed(1));
+      }
+    } else if (typeof r.soil_raw === 'number' || typeof r.soilRaw === 'number') {
+      const sRaw = typeof r.soil_raw === 'number' ? r.soil_raw : r.soilRaw;
+      if (sRaw >= 0 && sRaw <= 4095) {
+        const calc = ((3500 - sRaw) / (3500 - 1300)) * 100;
+        moist = Number(Math.max(0, Math.min(100, calc)).toFixed(1));
+      }
+    }
+
+    // Light intensity resolution: accept calibrated percentage or calculate from raw ADC (0-4095)
+    // Formula: light_percentage = ((raw - dark_ref) / (bright_ref - dark_ref)) * 100
+    // Dark: 3900 ADC, Bright: 300 ADC (inverted response handled seamlessly)
+    const rawLight = (
+      r.light_intensity !== undefined 
+        ? r.light_intensity 
+        : (r.lightIntensity !== undefined 
+          ? r.lightIntensity 
+          : (r.light_percent !== undefined ? r.light_percent : null))
+    );
+
+    let light = null;
+    if (rawLight !== null && rawLight !== undefined && rawLight !== '' && !isNaN(Number(rawLight))) {
+      const num = Number(rawLight);
+      if (num >= 0.0 && num <= 100.0) {
+        light = Number(num.toFixed(1));
+      } else if (num > 100.0 && num <= 4095.0) {
+        // Raw ADC or lux sent as light; calibrate using standard dark/bright constants
+        const calc = ((num - 3900) / (300 - 3900)) * 100;
+        light = Number(Math.max(0, Math.min(100, calc)).toFixed(1));
+      }
+    } else if (typeof r.light_raw === 'number' || typeof r.lightRaw === 'number') {
+      const lRaw = typeof r.light_raw === 'number' ? r.light_raw : r.lightRaw;
+      if (lRaw >= 0 && lRaw <= 4095) {
+        const calc = ((lRaw - 3900) / (300 - 3900)) * 100;
+        light = Number(Math.max(0, Math.min(100, calc)).toFixed(1));
+      }
+    }
 
     const temp = sanitizeNum(rawTemp, -15.0, 70.0);
     const hum = sanitizeNum(rawHum, 0.0, 100.0);
-    const moist = sanitizeNum(rawMoist, 0.0, 100.0);
-    const light = sanitizeNum(rawLight, 0.0, 100.0);
 
     // If DHT11 failed (NaN, null, or out of range), keep null and flag dhtOk = false
     const dhtOk = (temp !== null && hum !== null);
@@ -1096,7 +1173,7 @@ class SmartFarmApiService {
     this.hardwareData.dhtOk = dhtOk;
 
     // Only record valid hardware readings in real history
-    if (temp !== null || moist !== null) {
+    if (temp !== null || moist !== null || light !== null) {
       this.history.push({
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
         temperature: this.hardwareData.temperature,
@@ -1119,7 +1196,7 @@ class SmartFarmApiService {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith('#')) return;
 
-    // 1. JSON Format: {"temperature":30.5,"humidity":74.8,"soil_moisture":42.0,"light_intensity":85.0}
+    // 1. JSON Format: {"temperature":30.5,"humidity":74.8,"soil_raw":2500,"light_raw":1033,"soil_moisture":35.7,"light_intensity":85.0}
     if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
       try {
         const data = JSON.parse(trimmed);
@@ -1130,9 +1207,9 @@ class SmartFarmApiService {
           });
 
           // Forward to Render Cloud backend so remote mobile devices see the live data
-          if (this.backendUrl && typeof data.temperature === 'number') {
-            const moist = typeof data.soil_moisture === 'number' ? data.soil_moisture : (typeof data.soilMoisture === 'number' ? data.soilMoisture : 45.0);
-            const light = typeof data.light_intensity === 'number' ? data.light_intensity : (typeof data.lightIntensity === 'number' ? data.lightIntensity : 720);
+          if (this.backendUrl && (typeof data.temperature === 'number' || typeof data.soil_moisture === 'number' || typeof data.light_intensity === 'number')) {
+            const moist = typeof data.soil_moisture === 'number' ? data.soil_moisture : (typeof data.soilMoisture === 'number' ? data.soilMoisture : null);
+            const light = typeof data.light_intensity === 'number' ? data.light_intensity : (typeof data.lightIntensity === 'number' ? data.lightIntensity : null);
             fetch(`${this.backendUrl}/api/sensor-data`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -1143,14 +1220,16 @@ class SmartFarmApiService {
                 airTemperature: data.temperature,
                 humidity: data.humidity,
                 soilMoisture: moist,
-                lightIntensity: light
+                lightIntensity: light,
+                soil_raw: data.soil_raw,
+                light_raw: data.light_raw
               })
             }).catch(() => {});
           }
           return;
         }
       } catch {
-        // Malformed JSON: gracefully ignore per Section 5
+        // Malformed JSON: gracefully ignore per Issue 4 Condition 7
         return;
       }
     }
@@ -1169,18 +1248,28 @@ class SmartFarmApiService {
     const humMatch = line.match(/humidity\s*[:=]\s*([0-9.]+)/i);
     if (humMatch) kv.humidity = parseFloat(humMatch[1]);
 
-    const soilMatch = line.match(/soil(?:\s+raw)?\s*[:=]\s*([0-9.]+)/i);
-    if (soilMatch) kv.soil_raw = parseInt(soilMatch[1], 10);
+    const soilRawMatch = line.match(/soil\s+raw\s*[:=]\s*([0-9.]+)/i);
+    if (soilRawMatch) {
+      kv.soil_raw = parseInt(soilRawMatch[1], 10);
+    } else {
+      const soilMatch = line.match(/soil(?:\s+moisture)?\s*[:=]\s*([0-9.]+)/i);
+      if (soilMatch) kv.soil_moisture = parseFloat(soilMatch[1]);
+    }
 
-    const lightMatch = line.match(/light(?:\s+raw)?\s*[:=]\s*([0-9.]+)/i);
-    if (lightMatch) kv.light_raw = parseInt(lightMatch[1], 10);
+    const lightRawMatch = line.match(/light\s+raw\s*[:=]\s*([0-9.]+)/i);
+    if (lightRawMatch) {
+      kv.light_raw = parseInt(lightRawMatch[1], 10);
+    } else {
+      const lightMatch = line.match(/light(?:\s+intensity|\s+percent|\s*%)?\s*[:=]\s*([0-9.]+)/i);
+      if (lightMatch) kv.light_intensity = parseFloat(lightMatch[1]);
+    }
 
     const isDelimiter = line.includes('---') || line.includes('===');
     const hasAll = (
       kv.temperature !== undefined &&
       kv.humidity !== undefined &&
       (kv.soil_raw !== undefined || kv.soil_moisture !== undefined) &&
-      (kv.light_raw !== undefined || kv.light_lux !== undefined)
+      (kv.light_raw !== undefined || kv.light_intensity !== undefined)
     );
 
     if (isDelimiter || hasAll) {
@@ -1188,42 +1277,44 @@ class SmartFarmApiService {
       if (typeof kv.soil_moisture === 'number') {
         moist = kv.soil_moisture;
       } else if (typeof kv.soil_raw === 'number') {
-        const calc = ((4095 - kv.soil_raw) / (4095 - 1400)) * 100;
+        const calc = ((3500 - kv.soil_raw) / (3500 - 1300)) * 100;
         moist = Math.max(0, Math.min(100, Math.round(calc * 10) / 10));
       }
+      
       let lightInt = null;
-      if (typeof kv.light_lux === 'number') {
-        lightInt = Math.max(0, Math.min(100, Math.round((kv.light_lux / 1000) * 100)));
+      if (typeof kv.light_intensity === 'number') {
+        lightInt = Math.max(0, Math.min(100, kv.light_intensity));
       } else if (typeof kv.light_raw === 'number') {
-        lightInt = Math.max(0, Math.min(100, Math.round((kv.light_raw / 4095) * 100)));
+        const calc = ((kv.light_raw - 3900) / (300 - 3900)) * 100;
+        lightInt = Math.max(0, Math.min(100, Math.round(calc * 10) / 10));
       }
 
-      if (kv.temperature !== undefined && kv.humidity !== undefined) {
-        this.ingestRealHardwareReading({
-          temperature: kv.temperature,
-          humidity: kv.humidity,
-          soilMoisture: moist,
-          soilRaw: kv.soil_raw,
-          lightIntensity: lightInt,
-          lightRaw: kv.light_raw,
-          port: portName
-        });
+      this.ingestRealHardwareReading({
+        temperature: kv.temperature,
+        humidity: kv.humidity,
+        soilMoisture: moist,
+        soilRaw: kv.soil_raw,
+        lightIntensity: lightInt,
+        lightRaw: kv.light_raw,
+        port: portName
+      });
 
-        if (this.backendUrl) {
-          fetch(`${this.backendUrl}/api/sensor-data`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              deviceId: portName.includes('BLE') ? 'ESP32-BLE' : 'ESP32-DEV-USB',
-              farmId: 'FARM-001',
-              zoneId: 'ZONE-A',
-              airTemperature: kv.temperature,
-              humidity: kv.humidity,
-              soilMoisture: moist !== null ? moist : 45.0,
-              lightIntensity: lightInt !== null ? lightInt : 720
-            })
-          }).catch(() => {});
-        }
+      if (this.backendUrl && (kv.temperature !== undefined || moist !== null || lightInt !== null)) {
+        fetch(`${this.backendUrl}/api/sensor-data`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            deviceId: portName.includes('BLE') ? 'ESP32-BLE' : 'ESP32-DEV-USB',
+            farmId: 'FARM-001',
+            zoneId: 'ZONE-A',
+            airTemperature: kv.temperature,
+            humidity: kv.humidity,
+            soilMoisture: moist,
+            lightIntensity: lightInt,
+            soil_raw: kv.soil_raw,
+            light_raw: kv.light_raw
+          })
+        }).catch(() => {});
       }
       this._kvBuffer = {};
     }

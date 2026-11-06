@@ -94,13 +94,14 @@ class CloudSyncWorker(threading.Thread):
             if moist is None and readings.get("soil_raw") is not None:
                 calc = (4095 - readings["soil_raw"]) / (4095 - 1400) * 100.0
                 moist = round(max(0.0, min(100.0, calc)), 1)
-            if moist is None:
-                moist = 45.0
 
-            light = readings.get("light_lux") or readings.get("light_raw") or 720
-            if readings.get("light_intensity") is not None:
+            light = readings.get("light_intensity")
+            if light is None and readings.get("light_raw") is not None:
                 try:
-                    light = int(readings["light_intensity"])
+                    raw_adc = int(readings["light_raw"])
+                    if 0 <= raw_adc <= 4095:
+                        calc = ((raw_adc - 3900) / (300 - 3900)) * 100.0
+                        light = round(max(0.0, min(100.0, calc)), 1)
                 except Exception:
                     pass
 
@@ -110,8 +111,12 @@ class CloudSyncWorker(threading.Thread):
                 "zoneId": "ZONE-A",
                 "airTemperature": float(temp),
                 "humidity": float(hum),
-                "soilMoisture": float(moist),
-                "lightIntensity": int(light)
+                "soilMoisture": float(moist) if moist is not None else 0.0,
+                "lightIntensity": float(light) if light is not None else None,
+                "soil_raw": readings.get("soil_raw"),
+                "light_raw": readings.get("light_raw"),
+                "soil_moisture": float(moist) if moist is not None else None,
+                "light_intensity": float(light) if light is not None else None
             }
 
             try:
@@ -131,7 +136,7 @@ class CloudSyncWorker(threading.Thread):
                         self.last_sync_time = time.time()
                         self.last_success_time = datetime.now(timezone.utc).isoformat()
                         self.last_error = None
-                        print(f"[CloudSync] -> {self.cloud_url}/api/sensor-data (T={temp}°C, H={hum}%, M={moist}%, L={light}) [OK #{self.sync_count}]")
+                        print(f"[CloudSync] -> {self.cloud_url}/api/sensor-data (T={temp}°C, H={hum}%, M={moist}%, Light={light}%) [OK #{self.sync_count}]")
             except Exception as err:
                 self.last_error = str(err)
                 print(f"[CloudSync] Sync note: {err}")
@@ -182,37 +187,98 @@ class SerialBridgeState:
             self.last_error = None
             self.stats["total_frames_received"] += 1
 
-            # Extract and validate fields
-            temperature = payload.get("temperature")
+            # Extract and validate fields with multi-key alias support
+            temperature = payload.get("temperature") if payload.get("temperature") is not None else payload.get("airTemperature")
             humidity = payload.get("humidity")
-            soil_raw = payload.get("soil_raw")
-            light_raw = payload.get("light_raw")
-            soil_moisture = payload.get("soil_moisture")
+            raw_soil = payload.get("soil_raw") if payload.get("soil_raw") is not None else payload.get("soilRaw")
+            raw_light = payload.get("light_raw") if payload.get("light_raw") is not None else payload.get("lightRaw")
+            soil_moisture = payload.get("soil_moisture") if payload.get("soil_moisture") is not None else payload.get("soilMoisture")
+            
+            raw_intensity = (
+                payload.get("light_intensity") 
+                if payload.get("light_intensity") is not None 
+                else (payload.get("lightIntensity") if payload.get("lightIntensity") is not None else payload.get("light_percent"))
+            )
             light_lux = payload.get("light_lux")
             dht_ok = payload.get("dht_ok", True if (temperature is not None and humidity is not None) else False)
             uptime_ms = payload.get("uptime_ms", 0)
 
-            # Preserve raw ADC; compute percentage if missing
+            # 1. Validate raw ADC readings strictly within 12-bit range 0-4095
+            soil_raw = None
+            if raw_soil is not None:
+                try:
+                    s_int = int(raw_soil)
+                    if 0 <= s_int <= 4095:
+                        soil_raw = s_int
+                    else:
+                        print(f"[BRIDGE WARNING] Invalid soil_raw ADC reading: {raw_soil} (out of 0-4095 range)")
+                except (ValueError, TypeError):
+                    soil_raw = None
+
+            light_raw = None
+            if raw_light is not None:
+                try:
+                    l_int = int(raw_light)
+                    if 0 <= l_int <= 4095:
+                        light_raw = l_int
+                    else:
+                        print(f"[BRIDGE WARNING] Invalid light_raw ADC reading: {raw_light} (out of 0-4095 range)")
+                except (ValueError, TypeError):
+                    light_raw = None
+
+            # 2. Calibrate Soil Moisture percentage (0.0% - 100.0%) if missing
             if soil_moisture is None and soil_raw is not None:
-                # 4095 dry in air, ~1400 wet in water
-                calc = (4095 - soil_raw) / (4095 - 1400) * 100.0
+                # 3500 dry in air -> 0%, 1300 wet in water -> 100%
+                calc = ((3500 - soil_raw) / (3500 - 1300)) * 100.0
                 soil_moisture = round(max(0.0, min(100.0, calc)), 1)
+            elif soil_moisture is not None:
+                try:
+                    soil_moisture = round(max(0.0, min(100.0, float(soil_moisture))), 1)
+                except (ValueError, TypeError):
+                    soil_moisture = None
 
-            if light_lux is None and light_raw is not None:
-                # 3900 dark -> 20 lux, 300 bright -> 1000 lux
-                calc_lux = int(20 + (3900 - light_raw) * (980 / 3600))
-                light_lux = max(0, min(1500, calc_lux))
+            # 3. Calibrate Light Intensity percentage (0.0% - 100.0%)
+            # Configurable calibration constants (dark: 3900 ADC, bright: 300 ADC)
+            LDR_DARK_REF = 3900
+            LDR_BRIGHT_REF = 300
 
+            light_intensity = None
+            if raw_intensity is not None:
+                try:
+                    val = float(raw_intensity)
+                    # If received value is already 0.0 - 100.0, use it
+                    if 0.0 <= val <= 100.0:
+                        light_intensity = round(val, 1)
+                    elif val > 100.0 and light_raw is None:
+                        # Value might be raw ADC or lux sent via light_intensity; calibrate from ADC
+                        if 0 <= val <= 4095:
+                            light_raw = int(val)
+                            calc_l = ((light_raw - LDR_DARK_REF) / (LDR_BRIGHT_REF - LDR_DARK_REF)) * 100.0
+                            light_intensity = round(max(0.0, min(100.0, calc_l)), 1)
+                except (ValueError, TypeError):
+                    light_intensity = None
+
+            if light_intensity is None and light_raw is not None:
+                calc_l = ((light_raw - LDR_DARK_REF) / (LDR_BRIGHT_REF - LDR_DARK_REF)) * 100.0
+                light_intensity = round(max(0.0, min(100.0, calc_l)), 1)
+
+            # Store sanitized snapshot; Never fabricate random numbers for missing sensors
             self.readings = {
                 "temperature": round(float(temperature), 1) if temperature is not None else None,
                 "humidity": round(float(humidity), 1) if humidity is not None else None,
-                "soil_raw": int(soil_raw) if soil_raw is not None else None,
-                "light_raw": int(light_raw) if light_raw is not None else None,
-                "soil_moisture": round(float(soil_moisture), 1) if soil_moisture is not None else None,
-                "light_lux": int(light_lux) if light_lux is not None else None,
+                "soil_raw": soil_raw,
+                "light_raw": light_raw,
+                "soil_moisture": soil_moisture,
+                "light_intensity": light_intensity,
+                "light_lux": int(light_lux) if light_lux is not None else (int(round(light_intensity * 10)) if light_intensity is not None else None),
                 "dht_ok": bool(dht_ok),
-                "uptime_ms": int(uptime_ms)
+                "uptime_ms": int(uptime_ms) if uptime_ms is not None else 0
             }
+
+            # Diagnostic logging per Issue 1
+            print(f"[BRIDGE DIAGNOSTIC] Raw LDR: {light_raw} | Calibrated Light: {light_intensity}% | "
+                  f"Soil Raw: {soil_raw} | Soil Moisture: {soil_moisture}% | "
+                  f"Temp: {self.readings['temperature']}°C | Hum: {self.readings['humidity']}%")
 
             # Forward to cloud sync worker
             if self.cloud_worker:
@@ -348,6 +414,7 @@ def serial_worker_loop(state, stop_event):
                     try:
                         data = json.loads(line_str)
                         if isinstance(data, dict):
+                            print(f"[SerialBridge] <- Serial JSON: {line_str}")
                             state.update_readings(data)
                             kv_buffer.clear()
                             continue
@@ -369,19 +436,33 @@ def serial_worker_loop(state, stop_event):
                     except ValueError:
                         pass
 
-                soil_match = re.search(r'soil(?:\s+raw)?\s*[:=]\s*([0-9.]+)', line_str, re.IGNORECASE)
-                if soil_match:
+                soil_raw_match = re.search(r'soil\s+raw\s*[:=]\s*([0-9.]+)', line_str, re.IGNORECASE)
+                if soil_raw_match:
                     try:
-                        kv_buffer["soil_raw"] = int(float(soil_match.group(1)))
+                        kv_buffer["soil_raw"] = int(float(soil_raw_match.group(1)))
                     except ValueError:
                         pass
+                else:
+                    soil_match = re.search(r'soil(?:\s+moisture)?\s*[:=]\s*([0-9.]+)', line_str, re.IGNORECASE)
+                    if soil_match:
+                        try:
+                            kv_buffer["soil_moisture"] = float(soil_match.group(1))
+                        except ValueError:
+                            pass
 
-                light_match = re.search(r'light(?:\s+raw)?\s*[:=]\s*([0-9.]+)', line_str, re.IGNORECASE)
-                if light_match:
+                light_raw_match = re.search(r'light\s+raw\s*[:=]\s*([0-9.]+)', line_str, re.IGNORECASE)
+                if light_raw_match:
                     try:
-                        kv_buffer["light_raw"] = int(float(light_match.group(1)))
+                        kv_buffer["light_raw"] = int(float(light_raw_match.group(1)))
                     except ValueError:
                         pass
+                else:
+                    light_int_match = re.search(r'light(?:\s+intensity|\s+percent|\s*%)?\s*[:=]\s*([0-9.]+)', line_str, re.IGNORECASE)
+                    if light_int_match:
+                        try:
+                            kv_buffer["light_intensity"] = float(light_int_match.group(1))
+                        except ValueError:
+                            pass
 
                 # Delimiter line (e.g. "-------------------") or complete batch of 4 metrics
                 is_delimiter = "---" in line_str or "===" in line_str
@@ -389,24 +470,11 @@ def serial_worker_loop(state, stop_event):
                     "temperature" in kv_buffer and 
                     "humidity" in kv_buffer and 
                     ("soil_raw" in kv_buffer or "soil_moisture" in kv_buffer) and 
-                    ("light_raw" in kv_buffer or "light_lux" in kv_buffer)
+                    ("light_raw" in kv_buffer or "light_intensity" in kv_buffer)
                 )
 
                 if (is_delimiter or has_all_readings) and kv_buffer:
-                    # Calibrate soil moisture percentage from raw 12-bit ADC
-                    soil_raw = kv_buffer.get("soil_raw")
-                    if soil_raw is not None:
-                        # 4095 is dry in air, ~1400 is wet in water
-                        calc_moist = (4095 - soil_raw) / (4095 - 1400) * 100.0
-                        kv_buffer["soil_moisture"] = round(max(0.0, min(100.0, calc_moist)), 1)
-                    
-                    light_raw = kv_buffer.get("light_raw")
-                    if light_raw is not None:
-                        # Light percentage approximation
-                        calc_light = (light_raw / 4095.0) * 100.0
-                        kv_buffer["light_lux"] = int(light_raw)
-                        kv_buffer["light_intensity"] = round(max(0.0, min(100.0, calc_light)), 1)
-
+                    print(f"[SerialBridge] <- KV Batch: {kv_buffer}")
                     state.update_readings(kv_buffer)
                     if is_delimiter:
                         kv_buffer.clear()

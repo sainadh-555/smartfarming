@@ -9,7 +9,7 @@
  * actionable current-condition agronomic guidance.
  */
 
-import { AGRONOMIC_THRESHOLDS } from './farmDecisionEngine';
+import { AGRONOMIC_THRESHOLDS } from './farmDecisionEngine.js';
 
 /**
  * Standard Crop Coefficients (Kc) by Growth Stage

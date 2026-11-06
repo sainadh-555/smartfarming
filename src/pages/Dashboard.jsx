@@ -184,7 +184,10 @@ export default function Dashboard() {
 
   const isLive = operatingMode === 'live_hardware';
   const isSimulated = operatingMode === 'simulation';
-  const hasHardware = isLive && hardwareData?.hasReadings && hardwareData?.connectionStatus === 'connected' && !hardwareData?.isStale;
+  const isFresh = hardwareData?.lastUpdatedEpoch 
+    ? ((Date.now() - hardwareData.lastUpdatedEpoch) < 8500)
+    : false;
+  const hasHardware = isLive && hardwareData?.hasReadings && hardwareData?.connectionStatus === 'connected' && !hardwareData?.isStale && isFresh;
 
   // Sensor Value Extraction (Strict N/A when hardware unavailable)
   let tempDisplay = 'N/A';
@@ -202,7 +205,11 @@ export default function Dashboard() {
       const tVal = hardwareData.temperature;
       const hVal = hardwareData.humidity;
       const mVal = hardwareData.soilMoisture;
-      const lVal = hardwareData.lightIntensity;
+      const lVal = (
+        hardwareData.lightIntensity !== undefined && hardwareData.lightIntensity !== null
+          ? hardwareData.lightIntensity
+          : (hardwareData.light_intensity !== undefined && hardwareData.light_intensity !== null ? hardwareData.light_intensity : null)
+      );
 
       tempDisplay = typeof tVal === 'number' ? `${tVal.toFixed(1)}°C` : 'N/A';
       humidityDisplay = typeof hVal === 'number' ? `${hVal.toFixed(1)}%` : 'N/A';
@@ -219,14 +226,18 @@ export default function Dashboard() {
         moistStatus = mVal >= 45 && mVal <= 70 ? (isTe ? 'తగినంత తేమ' : 'Optimal') : (mVal < 35 ? (isTe ? 'నీరు అవసరం' : 'Low') : (isTe ? 'ఎక్కువ తేమ' : 'Saturated'));
       }
       if (typeof lVal === 'number') {
-        lightStatus = lVal >= 40 ? (isTe ? 'సరిపడా వెలుతురు' : 'Adequate') : (isTe ? 'తక్కువ వెలుతురు' : 'Low Light');
+        lightStatus = lVal >= 70 ? (isTe ? 'ప్రకాశవంతమైన వెలుతురు' : 'Bright') : (lVal >= 35 ? (isTe ? 'సరిపడా వెలుతురు' : 'Adequate') : (isTe ? 'తక్కువ వెలుతురు' : 'Low Light'));
       }
     }
   } else if (isSimulated && simulationData) {
     const tVal = simulationData.temperature;
     const hVal = simulationData.humidity;
     const mVal = simulationData.soilMoisture;
-    const lVal = simulationData.lightIntensity;
+    const lVal = (
+      simulationData.lightIntensity !== undefined && simulationData.lightIntensity !== null
+        ? simulationData.lightIntensity
+        : (simulationData.light_intensity !== undefined && simulationData.light_intensity !== null ? simulationData.light_intensity : null)
+    );
 
     tempDisplay = typeof tVal === 'number' ? `${tVal.toFixed(1)}°C` : 'N/A';
     humidityDisplay = typeof hVal === 'number' ? `${hVal.toFixed(1)}%` : 'N/A';
