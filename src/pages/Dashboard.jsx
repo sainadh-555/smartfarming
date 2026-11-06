@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useFarmData } from '../context/FarmContext';
 import { generateFarmHealthScore } from '../ai/farmDecisionEngine';
 import { fetchLiveWeather, DEFAULT_FARM_LOCATION } from '../services/weatherService';
+import MobileHome from '../components/mobile/MobileHome';
 import { 
   Thermometer, 
   Droplets, 
@@ -299,12 +300,19 @@ export default function Dashboard() {
   const activeAlerts = (alerts || []).filter(a => !a.resolved);
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-8">
+    <>
+      {/* Dedicated Mobile Experience (< 1024px) */}
+      <div className="lg:hidden">
+        <MobileHome />
+      </div>
 
-      {/* ======================================================== */}
-      {/* 1. PROFESSIONAL SAAS HEADER                              */}
-      {/* ======================================================== */}
-      <header className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-5 md:p-6 transition-all">
+      {/* Dedicated Desktop SaaS Experience (>= 1024px) */}
+      <div className="hidden lg:block space-y-6 max-w-7xl mx-auto pb-8">
+
+        {/* ======================================================== */}
+        {/* 1. PROFESSIONAL SAAS HEADER                              */}
+        {/* ======================================================== */}
+        <header className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-5 md:p-6 transition-all">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           
           {/* Farm Name, Date/Time, Weather Summary */}
@@ -783,6 +791,7 @@ export default function Dashboard() {
 
       </section>
 
-    </div>
+      </div>
+    </>
   );
 }

@@ -18,6 +18,7 @@ import {
   Filter
 } from 'lucide-react';
 import { useFarmData } from '../context/FarmContext';
+import MobileInventory from '../components/mobile/MobileInventory';
 
 const INITIAL_INVENTORY = [
   // Seeds
@@ -360,9 +361,13 @@ export default function Inventory() {
   ];
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
-      
-      {/* Top Header */}
+    <>
+      <div className="lg:hidden">
+        <MobileInventory />
+      </div>
+
+      <div className="hidden lg:block space-y-6 max-w-7xl mx-auto">
+        {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-200 gap-4">
         <div>
           <div className="flex items-center gap-2">
@@ -757,5 +762,6 @@ export default function Inventory() {
       )}
 
     </div>
+    </>
   );
 }

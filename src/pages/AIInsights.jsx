@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import AIAgronomistChat from '../components/AIAgronomistChat';
 import ErrorBoundary from '../components/ErrorBoundary';
+import MobileFarmAI from '../components/mobile/MobileFarmAI';
 import { 
   predictSoilMoisture, 
   predictTemperatureStress, 
@@ -154,9 +155,16 @@ export default function AIInsights() {
   }, [acreage, language]);
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-10">
-      
-      {/* Header */}
+    <>
+      {/* Mobile-Native Conversational AI Chat (< 1024px) */}
+      <div className="lg:hidden">
+        <MobileFarmAI />
+      </div>
+
+      {/* Desktop AI Insights Hub (>= 1024px) */}
+      <div className="hidden lg:block space-y-6 max-w-7xl mx-auto pb-10">
+        
+        {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-200 gap-3">
         <div>
           <div className="flex items-center gap-2">
@@ -363,6 +371,7 @@ export default function AIInsights() {
         </ErrorBoundary>
       )}
 
-    </div>
+      </div>
+    </>
   );
 }

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useFarmData } from '../context/FarmContext';
+import MobileAlerts from '../components/mobile/MobileAlerts';
 import { 
   CheckCircle2, 
   AlertTriangle, 
@@ -43,9 +44,13 @@ export default function Alerts() {
   });
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto">
-      
-      {/* Page Header */}
+    <>
+      <div className="lg:hidden">
+        <MobileAlerts />
+      </div>
+
+      <div className="hidden lg:block space-y-6 max-w-5xl mx-auto">
+        {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-200 gap-4">
         <div>
           <div className="flex items-center gap-2">
@@ -155,5 +160,6 @@ export default function Alerts() {
       </div>
 
     </div>
+    </>
   );
 }

@@ -124,3 +124,4 @@ if (d5.lightDisplay !== 'N/A' || d5.tempDisplay !== 'N/A' || d5.moistureDisplay 
 }
 
 console.log("ALL FRONTEND INGESTION CHECKS PASSED!");
+

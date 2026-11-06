@@ -3,6 +3,7 @@ import { useFarmData } from '../context/FarmContext';
 import ZoneDetailModal from '../components/ZoneDetailModal';
 import AddPlotModal from '../components/AddPlotModal';
 import ErrorBoundary from '../components/ErrorBoundary';
+import MobileFarmMap from '../components/mobile/MobileFarmMap';
 import { 
   Layers, 
   Droplets, 
@@ -53,8 +54,15 @@ export default function FarmMap() {
   };
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto">
-      {/* Header and Partition Explainer */}
+    <>
+      {/* Mobile-Native Full-Screen Interactive Map (< 1024px) */}
+      <div className="lg:hidden">
+        <MobileFarmMap />
+      </div>
+
+      {/* Desktop Plot Overview (>= 1024px) */}
+      <div className="hidden lg:block space-y-6 max-w-6xl mx-auto">
+        {/* Header and Partition Explainer */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 text-emerald-600 font-bold text-xs uppercase tracking-wider mb-1">
@@ -247,6 +255,7 @@ export default function FarmMap() {
           />
         </ErrorBoundary>
       )}
-    </div>
+      </div>
+    </>
   );
 }
