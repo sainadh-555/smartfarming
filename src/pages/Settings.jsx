@@ -61,7 +61,7 @@ export default function Settings() {
   const initialAI = getAIConfig();
   const [aiProvider, setAiProvider] = useState(initialAI.provider);
   const [groqKey, setGroqKey] = useState(initialAI.groqKey || '');
-  const [groqModel, setGroqModel] = useState(initialAI.groqModel || 'qwen/qwen3.8-27b');
+  const [groqModel, setGroqModel] = useState(initialAI.groqModel || 'llama-3.3-70b-versatile');
   const [geminiKey, setGeminiKey] = useState(initialAI.geminiKey);
   const [openaiKey, setOpenaiKey] = useState(initialAI.openaiKey);
   const [geminiModel, setGeminiModel] = useState(initialAI.model || 'gemini-1.5-flash');
@@ -457,11 +457,10 @@ export default function Settings() {
                 onChange={(e) => setGroqModel(e.target.value)}
                 className="bg-white border border-slate-300 rounded-lg px-2.5 py-1 text-xs font-medium"
               >
+                <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile (Flagship Llama 70B - Recommended)</option>
+                <option value="llama-3.1-8b-instant">llama-3.1-8b-instant (Ultra Fast 8B)</option>
+                <option value="qwen/qwen3.8-27b">qwen/qwen3.8-27b (Multimodal Vision & Fast Text 27B)</option>
                 <option value="llama-3.2-11b-vision-preview">llama-3.2-11b-vision-preview (Multimodal Vision 11B)</option>
-                <option value="qwen/qwen3.8-27b">qwen/qwen3.8-27b (Fast & Recommended)</option>
-                <option value="openai/gpt-oss-120b">openai/gpt-oss-120b (Flagship 120B)</option>
-                <option value="openai/gpt-oss-20b">openai/gpt-oss-20b (Lightweight 20B)</option>
-                <option value="allam-2-7b">allam-2-7b (Multilingual 7B)</option>
               </select>
             </div>
           </div>

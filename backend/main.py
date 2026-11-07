@@ -1356,10 +1356,33 @@ def chat_with_farm_ai(payload: ChatPayload, request: Request):
         req_headers.get("x-openai-key") or
         req_headers.get("x-vision-key")
     )
+    if client_key:
+        client_key = client_key.strip()
 
-    gemini_key = os.environ.get("GEMINI_API_KEY") or (client_key if client_key and client_key.startswith("AIza") else None)
-    groq_key = os.environ.get("GROQ_API_KEY") or (client_key if client_key and client_key.startswith("gsk_") else None)
-    openai_key = os.environ.get("OPENAI_API_KEY") or (client_key if client_key and client_key.startswith("sk-") else None)
+    ai_vision_key = os.environ.get("AI_VISION_API_KEY", "").strip()
+    ai_vision_prov = os.environ.get("AI_VISION_PROVIDER", "").strip().lower()
+
+    # Bulletproof resolution across environment variables and client keys
+    groq_key = (
+        os.environ.get("GROQ_API_KEY", "").strip() or
+        os.environ.get("GROQ_KEY", "").strip() or
+        (ai_vision_key if ai_vision_key.startswith("gsk_") or ai_vision_prov == "groq" else "") or
+        (client_key if client_key and client_key.startswith("gsk_") else "")
+    ) or None
+
+    gemini_key = (
+        os.environ.get("GEMINI_API_KEY", "").strip() or
+        os.environ.get("GEMINI_KEY", "").strip() or
+        (ai_vision_key if ai_vision_key.startswith("AIza") or ai_vision_prov == "gemini" else "") or
+        (client_key if client_key and client_key.startswith("AIza") else "")
+    ) or None
+
+    openai_key = (
+        os.environ.get("OPENAI_API_KEY", "").strip() or
+        os.environ.get("OPENAI_KEY", "").strip() or
+        (ai_vision_key if ai_vision_key.startswith("sk-") or ai_vision_prov == "openai" else "") or
+        (client_key if client_key and client_key.startswith("sk-") else "")
+    ) or None
 
     # Resolve active context
     ctx = payload.context or {}
@@ -1421,7 +1444,7 @@ CRITICAL RULES:
    4. Recommendation
    5. Why this recommendation?
    6. What to monitor next?
-4. For factual or conversational questions, provide direct, practical answers without forcing all 6 headers.
+4. For general, conversational, cultural, or non-agricultural questions (e.g. greetings, cinema personalities like Prabhas, general knowledge), answer warmly, accurately, and conversationally in the chosen language, while remaining ready to assist with precision agriculture.
 5. In Telugu, maintain natural agricultural terms (e.g. మట్టి తేమ, ఉష్ణోగ్రత, బిందు సేద్యం, తెగుళ్లు) while preserving numerical units (°C, %, mm, L).
 6. Motor control: NEVER activate the pump automatically; explain that physical motor operation requires user confirmation and safety interlocks."""
 
@@ -1432,83 +1455,116 @@ CRITICAL RULES:
         llm_messages.append({"role": role, "content": msg.get("text") or msg.get("content", "")})
     llm_messages.append({"role": "user", "content": query})
 
-    # Provider 1: Google Gemini (gemini-1.5-flash)
-    if gemini_key:
-        try:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gemini_key}"
-            gemini_contents = []
-            for m in llm_messages[1:]:  # skip system in contents
-                gemini_contents.append({
-                    "role": "model" if m["role"] == "assistant" else "user",
-                    "parts": [{"text": m["content"]}]
-                })
-            payload_gemini = {
-                "systemInstruction": {"parts": [{"text": system_prompt}]},
-                "contents": gemini_contents,
-                "generationConfig": {"temperature": 0.5, "maxOutputTokens": 1500}
-            }
-            res = requests.post(url, json=payload_gemini, timeout=15)
-            if res.status_code == 200:
-                answer = res.json()["candidates"][0]["content"]["parts"][0]["text"]
-                return {
-                    "text": answer,
-                    "source": "backend_gemini",
-                    "model": "gemini-1.5-flash",
-                    "timestamp": datetime.utcnow().strftime("%I:%M %p")
-                }
-        except Exception as e:
-            print(f"[Farm AI Backend] Gemini call failed: {e}")
-
-    # Provider 2: Groq Cloud (llama-3.3-70b-versatile or qwen/qwen3.8-27b)
+    # Provider Dispatch Priority: Groq -> Gemini -> OpenAI
+    # If client preferred a specific provider and its key exists, try that first
+    preferred = (payload.provider or "").lower()
+    provider_plan = []
+    if preferred == "gemini" and gemini_key:
+        provider_plan.append(("gemini", gemini_key))
     if groq_key:
-        try:
-            target_model = payload.model or "llama-3.3-70b-versatile"
-            res = requests.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
-                json={
-                    "model": target_model,
-                    "messages": llm_messages,
-                    "temperature": 0.5,
-                    "max_tokens": 1500
-                },
-                timeout=15
-            )
-            if res.status_code == 200:
-                answer = res.json()["choices"][0]["message"]["content"]
-                return {
-                    "text": answer,
-                    "source": "backend_groq",
-                    "model": target_model,
-                    "timestamp": datetime.utcnow().strftime("%I:%M %p")
-                }
-        except Exception as e:
-            print(f"[Farm AI Backend] Groq call failed: {e}")
-
-    # Provider 3: OpenAI (gpt-4o-mini)
+        provider_plan.append(("groq", groq_key))
+    if gemini_key and ("gemini", gemini_key) not in provider_plan:
+        provider_plan.append(("gemini", gemini_key))
     if openai_key:
-        try:
-            res = requests.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers={"Authorization": f"Bearer {openai_key}", "Content-Type": "application/json"},
-                json={
-                    "model": "gpt-4o-mini",
-                    "messages": llm_messages,
-                    "temperature": 0.5,
-                    "max_tokens": 1500
-                },
-                timeout=15
-            )
-            if res.status_code == 200:
-                answer = res.json()["choices"][0]["message"]["content"]
-                return {
-                    "text": answer,
-                    "source": "backend_openai",
-                    "model": "gpt-4o-mini",
-                    "timestamp": datetime.utcnow().strftime("%I:%M %p")
+        provider_plan.append(("openai", openai_key))
+
+    for prov_name, prov_key in provider_plan:
+        if prov_name == "groq":
+            requested_model = (payload.model or "").strip()
+            groq_candidates = []
+            if requested_model and any(requested_model.lower().startswith(p) for p in ("llama", "qwen", "mixtral", "gemma", "deepseek")):
+                groq_candidates.append(requested_model)
+            for std_m in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "qwen/qwen3.8-27b"]:
+                if std_m not in groq_candidates:
+                    groq_candidates.append(std_m)
+
+            for attempt_model in groq_candidates:
+                try:
+                    res = requests.post(
+                        "https://api.groq.com/openai/v1/chat/completions",
+                        headers={"Authorization": f"Bearer {prov_key}", "Content-Type": "application/json"},
+                        json={
+                            "model": attempt_model,
+                            "messages": llm_messages,
+                            "temperature": 0.5,
+                            "max_tokens": 1500
+                        },
+                        timeout=20
+                    )
+                    if res.status_code == 200:
+                        answer = res.json()["choices"][0]["message"]["content"]
+                        if "<think>" in answer and "</think>" in answer:
+                            answer = answer.split("</think>", 1)[1].strip()
+                        return {
+                            "text": answer,
+                            "source": "backend_groq",
+                            "model": attempt_model,
+                            "timestamp": datetime.utcnow().strftime("%I:%M %p")
+                        }
+                    else:
+                        print(f"[Farm AI Backend] Groq ({attempt_model}) returned HTTP {res.status_code}: {res.text}")
+                except Exception as e:
+                    print(f"[Farm AI Backend] Groq call failed on {attempt_model}: {e}")
+
+        elif prov_name == "gemini":
+            try:
+                target_gemini = "gemini-1.5-flash"
+                if payload.model and "gemini" in payload.model.lower():
+                    target_gemini = payload.model
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_gemini}:generateContent?key={prov_key}"
+                gemini_contents = []
+                for m in llm_messages[1:]:  # skip system in contents
+                    gemini_contents.append({
+                        "role": "model" if m["role"] == "assistant" else "user",
+                        "parts": [{"text": m["content"]}]
+                    })
+                payload_gemini = {
+                    "systemInstruction": {"parts": [{"text": system_prompt}]},
+                    "contents": gemini_contents,
+                    "generationConfig": {"temperature": 0.5, "maxOutputTokens": 1500}
                 }
-        except Exception as e:
-            print(f"[Farm AI Backend] OpenAI call failed: {e}")
+                res = requests.post(url, json=payload_gemini, timeout=15)
+                if res.status_code == 200:
+                    answer = res.json()["candidates"][0]["content"]["parts"][0]["text"]
+                    return {
+                        "text": answer,
+                        "source": "backend_gemini",
+                        "model": target_gemini,
+                        "timestamp": datetime.utcnow().strftime("%I:%M %p")
+                    }
+                else:
+                    print(f"[Farm AI Backend] Gemini HTTP {res.status_code}: {res.text}")
+            except Exception as e:
+                print(f"[Farm AI Backend] Gemini call failed: {e}")
+
+        elif prov_name == "openai":
+            try:
+                target_openai = "gpt-4o-mini"
+                if payload.model and ("gpt" in payload.model.lower() or "o1" in payload.model.lower()):
+                    target_openai = payload.model
+                res = requests.post(
+                    "https://api.openai.com/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {prov_key}", "Content-Type": "application/json"},
+                    json={
+                        "model": target_openai,
+                        "messages": llm_messages,
+                        "temperature": 0.5,
+                        "max_tokens": 1500
+                    },
+                    timeout=15
+                )
+                if res.status_code == 200:
+                    answer = res.json()["choices"][0]["message"]["content"]
+                    return {
+                        "text": answer,
+                        "source": "backend_openai",
+                        "model": target_openai,
+                        "timestamp": datetime.utcnow().strftime("%I:%M %p")
+                    }
+                else:
+                    print(f"[Farm AI Backend] OpenAI HTTP {res.status_code}: {res.text}")
+            except Exception as e:
+                print(f"[Farm AI Backend] OpenAI call failed: {e}")
 
     # Fallback: Deterministic Agronomy Engine grounded in real tool data & multi-turn memory
     answer_text = generate_agronomy_response(
@@ -1865,22 +1921,31 @@ def generate_agronomy_response(
     # 10. General Conversational Fallback
     m_val = moisture if moisture is not None else "N/A"
     t_val = temp if temp is not None else "N/A"
+
+    # Friendly recognition of non-agricultural cultural queries if LLM provider is momentarily busy
+    if any(k in q for k in ["prabhas", "actor", "hero", "cinema", "movie", "సినిమా", "ప్రభాస్"]):
+        if is_te:
+            return (
+                "🎬 **ప్రభాస్ (Prabhas):**\n\n"
+                "ప్రభాస్ (ఉప్పలపాటి వెంకట సూర్యనారాయణ ప్రభాస్ రాజు) భారతీయ మరియు తెలుగు సినిమా అగ్ర కథానాయకుడు. *బాహుబలి*, *సలార్*, *కల్కి 2898 AD* వంటి అంతర్జాతీయ ఖ్యాతి గడించిన చిత్రాలతో పాన్-ఇండియా స్టార్‌గా నిలిచారు.\n\n"
+                "🌾 **SmartFarm AI అసిస్టెంట్:** మీ క్షేత్రంలోని టమోటా, మిర్చి, వరి, వేరుశనగ పంటల సంరక్షణ, నీటి పారుదల మరియు లైవ్ సెన్సార్ డేటా విశ్లేషణకు కూడా నేను ఎల్లప్పుడూ సిద్ధంగా ఉన్నాను!"
+            )
+        return (
+            "🎬 **Prabhas:**\n\n"
+            "Prabhas (Uppalapati Venkata Suryanarayana Prabhas Raju) is an internationally acclaimed Indian actor, primarily in Telugu cinema, celebrated for iconic blockbusters including the *Baahubali* franchise, *Salaar*, and *Kalki 2898 AD*.\n\n"
+            "🌾 **SmartFarm AI Copilot:** I am also your 24/7 precision farming copilot, ready to optimize irrigation, evaluate sensor telemetry, and detect plant diseases across your farm plots!"
+        )
+
     if is_te:
         return (
-            f"నమస్కారం! నేను మీ **Farm AI** సహాయకుడిని.\n\n"
+            f"నమస్కారం! నేను మీ **Farm AI** వ్యవసాయ నిపుణుడిని.\n\n"
             f"మీ ప్రశ్న: *\"{query}\"*\n\n"
-            f"• **మట్టి తేమ:** {m_val}%\n"
-            f"• **ఉష్ణోగ్రత:** {t_val}°C\n"
-            f"• **వాతావరణం:** {weather.get('outdoorTemperature', '28')}°C ({weather.get('weatherCondition', 'సాధారణం')})\n\n"
-            "నీటి పారుదల, ఎరువుల ప్రణాళిక, వాతావరణం లేదా పంట వ్యాధుల గురించి ఏవైనా ప్రశ్నలుంటే నన్ను అడగండి."
+            f"నేను మీ క్షేత్రంలోని సెన్సార్ డేటా, డ్రిప్ ఇరిగేషన్, వాతావరణ హెచ్చరికలు మరియు మొక్కల తెగుళ్ల విశ్లేషణపై ఖచ్చితమైన సమాచారాన్ని అందించగలను. దయచేసి వ్యవసాయ సంబంధిత ప్రశ్నలను అడగండి."
         )
     return (
-        f"Hello! I am **Farm AI**, your intelligent precision agricultural assistant.\n\n"
+        f"Hello! I am **Farm AI**, your intelligent precision agricultural copilot.\n\n"
         f"Regarding: *\"{query}\"*\n\n"
-        f"• **Current Soil Moisture:** {m_val}%\n"
-        f"• **Field Temperature:** {t_val}°C\n"
-        f"• **Regional Weather:** {weather.get('outdoorTemperature', '28')}°C ({weather.get('weatherCondition', 'Clear')})\n\n"
-        "How can I assist you further? You can ask me to evaluate irrigation, analyze sensor trends, check weather risks, or explain your crop condition."
+        "I provide agronomic consultation grounded in your live IoT telemetry, drip irrigation requirements, weather forecasts, and crop disease diagnosis. Feel free to ask about your soil moisture, irrigation schedule, or crop health!"
     )
 
 

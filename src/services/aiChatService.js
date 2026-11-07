@@ -37,16 +37,19 @@ export const getAIConfig = () => {
     ? storedGroq.trim() 
     : (envGroqKey ? envGroqKey.trim() : '');
 
-  const savedProvider = localStorage.getItem('smartfarm_ai_provider') || 'farm_ai';
+  const savedProvider = localStorage.getItem('smartfarm_ai_provider') || 'groq';
+  const groqModel = localStorage.getItem('smartfarm_groq_model') || 'llama-3.3-70b-versatile';
+  const geminiModel = localStorage.getItem('smartfarm_gemini_model') || 'gemini-1.5-flash';
+  const activeModel = savedProvider === 'gemini' ? geminiModel : groqModel;
 
   return {
-    provider: savedProvider, // 'farm_ai' | 'backend' | 'groq' | 'gemini' | 'openai'
+    provider: savedProvider, // 'groq' | 'farm_ai' | 'backend' | 'gemini' | 'openai'
     groqKey: groqKey,
-    groqModel: localStorage.getItem('smartfarm_groq_model') || 'qwen/qwen3.8-27b',
+    groqModel: groqModel,
     geminiKey: localStorage.getItem('smartfarm_gemini_key') || envGeminiKey,
-    geminiModel: localStorage.getItem('smartfarm_gemini_model') || 'gemini-1.5-flash',
+    geminiModel: geminiModel,
     openaiKey: localStorage.getItem('smartfarm_openai_key') || envOpenAIKey,
-    model: localStorage.getItem('smartfarm_gemini_model') || 'gemini-1.5-flash'
+    model: activeModel
   };
 };
 
@@ -779,8 +782,8 @@ export const executeAIChatQuery = async (firstArg, secondArg, thirdArg) => {
           conversationHistory: (conversationHistory || []).slice(-10),
           context: structuredContext,
           apiKey: activeApiKey,
-          provider: config.provider,
-          model: config.model
+          provider: config.provider || 'groq',
+          model: (config.provider === 'gemini') ? (config.geminiModel || 'gemini-1.5-flash') : (config.groqModel || 'llama-3.3-70b-versatile')
         }),
         signal: AbortSignal.timeout(15000)
       });
