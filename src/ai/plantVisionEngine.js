@@ -128,42 +128,53 @@ export async function analyzePlantVision({
   signal = null
 }) {
   const isTe = language === 'te';
+  const aiConfig = getAIConfig();
+  const clientVisionKey = aiConfig.geminiKey || aiConfig.groqKey || aiConfig.openaiKey || '';
 
   // Attempt Tier 1: Dedicated Backend Endpoint
   const cleanBackendUrl = backendUrl ? backendUrl.trim().replace(/\/+$/, '') : 'https://smartfarming-e3b2.onrender.com';
 
   try {
     let res;
+    const headers = {};
+    if (clientVisionKey) {
+      headers['X-Vision-Key'] = clientVisionKey.trim();
+    }
+
     if (file) {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('language', language);
+      if (clientVisionKey) formData.append('apiKey', clientVisionKey.trim());
+      
       res = await fetch(`${cleanBackendUrl}/api/plant/analyze`, {
         method: 'POST',
+        headers,
         body: formData,
         signal: signal || AbortSignal.timeout(18000)
       });
     } else if (dataUrl) {
+      headers['Content-Type'] = 'application/json';
       res = await fetch(`${cleanBackendUrl}/api/plant/analyze`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: dataUrl, language }),
+        headers,
+        body: JSON.stringify({ image: dataUrl, language, apiKey: clientVisionKey }),
         signal: signal || AbortSignal.timeout(18000)
       });
     }
 
     if (res && res.ok) {
       const data = await res.json();
-      if (data && data.validation_status) {
+      // If backend returned a definitive validation result (not MODEL_UNAVAILABLE)
+      if (data && data.validation_status && data.validation_status !== VALIDATION_STATUSES.MODEL_UNAVAILABLE) {
         return formatDiagnosticResult(data, isTe);
       }
     }
   } catch (err) {
-    console.warn('[PlantVisionEngine] Backend analysis unavailable:', err.message);
+    console.warn('[PlantVisionEngine] Backend analysis unavailable or sleeping:', err.message);
   }
 
   // Attempt Tier 2: Direct Client-Side Multimodal AI Vision if user configured an API key in Settings
-  const aiConfig = getAIConfig();
   if (dataUrl && (aiConfig.geminiKey || aiConfig.groqKey || aiConfig.openaiKey)) {
     try {
       const clientVisionResult = await callClientVisionModel({
@@ -173,7 +184,7 @@ export async function analyzePlantVision({
         isTe,
         signal
       });
-      if (clientVisionResult) {
+      if (clientVisionResult && clientVisionResult.validation_status) {
         return formatDiagnosticResult(clientVisionResult, isTe);
       }
     } catch (clientErr) {
@@ -187,18 +198,21 @@ export async function analyzePlantVision({
     validation_status: VALIDATION_STATUSES.MODEL_UNAVAILABLE,
     is_plant: null,
     detected_crop: null,
+    scientific_name: null,
     condition: null,
     is_healthy: null,
+    severity: null,
+    surface_lesion_impact: null,
     model_score: null,
     symptoms: [],
     recommendations: isTe
-      ? ['దయచేసి బ్యాకెండ్ సర్వర్‌ను ప్రారంభించండి లేదా సెట్టింగ్స్‌లో చెల్లుబాటు అయ్యే AI విజన్ కీని కాన్ఫిగర్ చేయండి.']
-      : ['Plant analysis requires an active backend server or a configured AI Vision API key in Settings.'],
+      ? ['దయచేసి బ్యాకెండ్ సర్వర్‌లో లేదా సెట్టింగ్స్‌లో చెల్లుబాటు అయ్యే AI విజన్ కీని (Gemini లేదా Groq) కాన్ఫిగర్ చేయండి.']
+      : ['To enable real vision inference, configure an AI Vision key (Gemini, Groq, or OpenAI) in the Settings page or on your backend server.'],
     message: isTe
       ? 'మొక్కల విశ్లేషణ తాత్కాలికంగా అందుబాటులో లేదు.'
       : 'Plant analysis is temporarily unavailable.',
     model_info: 'Real Computer Vision Pipeline',
-    limitations: 'Inference model is currently offline or unreachable. Fabricated results are strictly forbidden.'
+    limitations: 'Inference model is currently offline or unconfigured. Fabricated results are strictly forbidden.'
   };
 }
 
@@ -217,8 +231,11 @@ Follow this 4-step decision hierarchy strictly:
      "validation_status": "NO_PLANT_DETECTED",
      "is_plant": false,
      "detected_crop": "Non-plant",
+     "scientific_name": null,
      "condition": null,
      "is_healthy": null,
+     "severity": null,
+     "surface_lesion_impact": null,
      "message": "${isTe ? 'మొక్క లేదా ఆకు గుర్తించబడలేదు. దయచేసి స్పష్టమైన పంట లేదా ఆకు ఫోటోను అప్‌లోడ్ చేయండి.' : 'No plant detected. Please upload a clear photo of a crop or leaf.'}"
 
 2. CLARITY CHECK:
@@ -228,23 +245,29 @@ Follow this 4-step decision hierarchy strictly:
      "validation_status": "UNCLEAR_IMAGE",
      "is_plant": false,
      "detected_crop": "Unknown",
+     "scientific_name": null,
      "condition": null,
      "is_healthy": null,
+     "severity": null,
+     "surface_lesion_impact": null,
      "message": "${isTe ? 'ఫోటో అస్పష్టంగా ఉంది. దయచేసి దగ్గరగా, మంచి వెలుతురులో తీసిన ఫోటోను అప్‌లోడ్ చేయండి.' : 'The image is unclear. Please upload a closer, well-lit photo.'}"
 
 3. CROP IDENTIFICATION:
    Identify the plant species. Supported crops are ONLY:
-   - Tomato
-   - Chili
-   - Paddy
-   - Groundnut
+   - Tomato (Solanum lycopersicum)
+   - Chili (Capsicum annuum)
+   - Paddy / Rice (Oryza sativa)
+   - Groundnut / Peanut (Arachis hypogaea)
    - If the image is a plant or leaf, but NOT one of these 4 crops (e.g. Apple, Wheat, Corn, Cotton, Mango, Rose, Houseplant, Weed):
      Return:
      "validation_status": "UNSUPPORTED_CROP",
      "is_plant": true,
      "detected_crop": "<Common name of the detected plant>",
+     "scientific_name": "<Botanical binomial if identifiable, else null>",
      "condition": null,
      "is_healthy": null,
+     "severity": null,
+     "surface_lesion_impact": null,
      "message": "${isTe ? 'ఈ పంట ప్రస్తుతం మద్దతు ఇవ్వబడలేదు. ప్రస్తుతం టమోటా, మిర్చి, వరి, మరియు వేరుశనగ పంటలకు మాత్రమే మద్దతు ఉంది.' : 'This crop is not currently supported.'}"
 
 4. CONDITION & HEALTH DIAGNOSIS (Only for Tomato, Chili, Paddy, Groundnut):
@@ -253,14 +276,18 @@ Follow this 4-step decision hierarchy strictly:
      "is_plant": true,
      "condition": "Healthy",
      "is_healthy": true,
+     "severity": "None (Healthy)",
+     "surface_lesion_impact": "None (Healthy tissue)",
      "model_score": 0.95,
      "symptoms": [],
-     "recommendations": ["Maintain regular irrigation schedule.", "Inspect foliage weekly for early signs of stress."]
+     "recommendations": ["Maintain regular drip irrigation schedule.", "Inspect foliage weekly for early signs of fungal stress."]
    - If diseased or stressed:
      "validation_status": "VALID_SUPPORTED_CROP",
      "is_plant": true,
      "condition": "<Precise condition name, e.g. Tomato Early Blight, Chili Leaf Curl, Paddy Blast, Groundnut Tikka Spot>",
      "is_healthy": false,
+     "severity": "Mild" | "Moderate" | "Severe",
+     "surface_lesion_impact": "Not measurable from 2D classification (Visual observation indicates localized spread)",
      "model_score": 0.90,
      "symptoms": ["Visible concentric brown leaf lesions", "Chlorosis on margin"],
      "recommendations": ["Remove heavily affected lower leaves.", "Avoid overhead irrigation to keep canopy dry.", "Consult local agricultural extension for recommended treatment."]
@@ -270,15 +297,18 @@ Respond strictly with valid JSON conforming to this schema:
   "validation_status": "VALID_SUPPORTED_CROP" | "NO_PLANT_DETECTED" | "UNSUPPORTED_CROP" | "UNCLEAR_IMAGE",
   "is_plant": true | false,
   "detected_crop": string,
+  "scientific_name": string | null,
   "condition": string | null,
   "is_healthy": true | false | null,
+  "severity": string | null,
+  "surface_lesion_impact": string | null,
   "model_score": number | null,
   "symptoms": string[],
   "recommendations": string[],
   "message": string
 }`;
 
-  // 1. Google Gemini
+  // 1. Google Gemini Vision
   if (aiConfig.geminiKey) {
     const cleanKey = aiConfig.geminiKey.trim();
     const model = aiConfig.geminiModel || 'gemini-1.5-flash';
@@ -323,7 +353,7 @@ Respond strictly with valid JSON conforming to this schema:
     }
   }
 
-  // 2. Groq Vision
+  // 2. Groq Multimodal Vision (Requires llama-3.2-11b-vision-preview)
   if (aiConfig.groqKey) {
     const cleanKey = aiConfig.groqKey.trim();
     const url = 'https://api.groq.com/openai/v1/chat/completions';
@@ -438,8 +468,11 @@ function formatDiagnosticResult(data, isTe) {
     validation_status: status,
     is_plant: data.is_plant ?? null,
     detected_crop: data.detected_crop || (status === VALIDATION_STATUSES.VALID_SUPPORTED_CROP ? 'Supported Crop' : 'Unknown'),
+    scientific_name: data.scientific_name || null,
     condition: data.condition || null,
     is_healthy: data.is_healthy ?? null,
+    severity: data.severity || (data.is_healthy ? 'None (Healthy)' : 'Moderate'),
+    surface_lesion_impact: data.surface_lesion_impact || (data.is_healthy ? 'None' : 'Not measurable from 2D classification'),
     model_score: typeof data.model_score === 'number' ? data.model_score : null,
     symptoms: Array.isArray(data.symptoms) ? data.symptoms : [],
     recommendations: Array.isArray(data.recommendations) ? data.recommendations : [],

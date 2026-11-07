@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import { useFarmData } from '../context/FarmContext';
 import { 
   Camera, 
@@ -11,7 +12,8 @@ import {
   Info, 
   RefreshCw, 
   Thermometer, 
-  X
+  X,
+  ArrowRight
 } from 'lucide-react';
 import { 
   validateImageFile, 
@@ -427,6 +429,7 @@ export default function PlantVision() {
             {/* OUTCOME A: Valid Supported Crop */}
             {analysisResult.validation_status === VALIDATION_STATUSES.VALID_SUPPORTED_CROP && (
               <div className="space-y-5">
+                {/* 1. Pathological Classification & Crop identification */}
                 <div className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
                   analysisResult.is_healthy 
                     ? 'bg-emerald-50/70 border-emerald-200 text-emerald-900' 
@@ -434,10 +437,15 @@ export default function PlantVision() {
                 }`}>
                   <div>
                     <span className="text-[10px] font-bold uppercase tracking-wider block opacity-75">
-                      {isTe ? 'గుర్తించబడిన పంట & పరిస్థితి' : 'Detected Crop & Pathology'}
+                      {isTe ? 'గుర్తించబడిన పంట & వర్గీకరణ' : 'Botanical Identification & Pathology'}
                     </span>
-                    <h3 className="text-lg font-black mt-0.5">
-                      {analysisResult.detected_crop} — {analysisResult.condition}
+                    <h3 className="text-lg font-black mt-0.5 flex flex-wrap items-center gap-2">
+                      <span>{analysisResult.detected_crop}</span>
+                      {analysisResult.scientific_name && (
+                        <span className="text-xs font-normal italic opacity-80">({analysisResult.scientific_name})</span>
+                      )}
+                      <span className="opacity-40">—</span>
+                      <span>{analysisResult.condition}</span>
                     </h3>
                     <p className="text-xs mt-1 opacity-90">
                       {analysisResult.is_healthy 
@@ -458,6 +466,40 @@ export default function PlantVision() {
                   )}
                 </div>
 
+                {/* Key Metrics: Severity Rating & Surface Lesion Impact */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
+                      {isTe ? 'తీవ్రత స్థాయి (Severity Rating)' : 'Severity Rating'}
+                    </span>
+                    <div className="flex items-center gap-2 pt-0.5">
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                        (analysisResult.severity === 'None' || analysisResult.is_healthy)
+                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                          : analysisResult.severity === 'Mild'
+                          ? 'bg-yellow-100 text-yellow-800 border border-yellow-300'
+                          : analysisResult.severity === 'Moderate'
+                          ? 'bg-orange-100 text-orange-800 border border-orange-300'
+                          : 'bg-rose-100 text-rose-800 border border-rose-300'
+                      }`}>
+                        {analysisResult.severity || (analysisResult.is_healthy ? 'None (Healthy)' : 'Moderate')}
+                      </span>
+                      <span className="text-[11px] text-slate-500">
+                        {analysisResult.is_healthy ? 'No active lesions' : 'Pathological impact assessment'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
+                      {isTe ? 'క్షతి విస్తరణ (Surface Lesion Impact)' : 'Surface Lesion Impact'}
+                    </span>
+                    <p className="text-xs font-semibold text-slate-800 pt-0.5 font-mono">
+                      {analysisResult.surface_lesion_impact || 'Not measurable from 2D classification (Visual observation only)'}
+                    </p>
+                  </div>
+                </div>
+
                 {/* Visible Symptoms */}
                 {analysisResult.symptoms && analysisResult.symptoms.length > 0 && (
                   <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
@@ -471,6 +513,44 @@ export default function PlantVision() {
                     </ul>
                   </div>
                 )}
+
+                {/* ESP32 IoT Correlation Card */}
+                <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                    <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-slate-700">
+                      <Thermometer className="w-3.5 h-3.5 text-blue-600" />
+                      <span>{isTe ? 'ESP32 IoT నోడ్ పర్యావరణ అనుసంధానం' : 'ESP32 IoT Node Correlation'}</span>
+                    </span>
+                    <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${
+                      isHwConnected ? 'bg-emerald-100 text-emerald-800 font-bold' : 'bg-slate-200 text-slate-600'
+                    }`}>
+                      {isHwConnected ? 'Live Sensor Feed' : 'Hardware Disconnected'}
+                    </span>
+                  </div>
+
+                  {isHwConnected ? (
+                    <div className="grid grid-cols-3 gap-2 pt-1 font-mono text-xs text-slate-800">
+                      <div className="p-2 bg-white rounded-lg border border-slate-200">
+                        <span className="text-[10px] text-slate-500 block">Ambient Temp</span>
+                        <span className="font-bold">{tempReading || 'N/A'}</span>
+                      </div>
+                      <div className="p-2 bg-white rounded-lg border border-slate-200">
+                        <span className="text-[10px] text-slate-500 block">Relative Humidity</span>
+                        <span className="font-bold">{humReading || 'N/A'}</span>
+                      </div>
+                      <div className="p-2 bg-white rounded-lg border border-slate-200">
+                        <span className="text-[10px] text-slate-500 block">Soil Moisture</span>
+                        <span className="font-bold">{moistReading || 'N/A'}</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-slate-500 italic">
+                      {isTe 
+                        ? 'హార్డ్‌వేర్ డిస్‌కనెక్ట్ అయింది. చిత్ర నిర్ధారణ మాత్రమే వర్తిస్తుంది.'
+                        : 'Physical hardware disconnected. Visual diagnosis operates independently without live environmental telemetry correlation.'}
+                    </p>
+                  )}
+                </div>
 
                 {/* Bounding Box Clarification / Model Limitation */}
                 <div className="p-3 bg-slate-100 rounded-xl border border-slate-200 text-[11px] text-slate-600 flex items-start gap-2">
@@ -556,7 +636,7 @@ export default function PlantVision() {
 
             {/* OUTCOME E: Model Unavailable */}
             {analysisResult.validation_status === VALIDATION_STATUSES.MODEL_UNAVAILABLE && (
-              <div className="p-5 bg-slate-100 border border-slate-200 rounded-xl text-slate-800 space-y-2">
+              <div className="p-5 bg-slate-100 border border-slate-200 rounded-xl text-slate-800 space-y-3">
                 <div className="flex items-center gap-2">
                   <Info className="w-5 h-5 text-slate-600 shrink-0" />
                   <h3 className="font-extrabold text-sm sm:text-base">
@@ -571,8 +651,17 @@ export default function PlantVision() {
                 <p className="text-[11px] text-slate-500 pt-1">
                   {isTe 
                     ? 'వాస్తవ విశ్లేషణ కోసం దయచేసి మీ పైథాన్ బ్యాకెండ్‌ను ప్రారంభించండి లేదా సెట్టింగ్స్ పేజీలో AI విజన్ API కీని నమోదు చేయండి.' 
-                    : 'To enable real inference, start your backend server or configure an AI Vision key in Settings. Hardcoded mock results are strictly disabled.'}
+                    : 'To enable real inference, start your backend server with an AI key or configure an AI Vision key in Settings. Hardcoded mock results are strictly disabled.'}
                 </p>
+                <div className="pt-1">
+                  <Link
+                    to="/settings"
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs"
+                  >
+                    <span>{isTe ? 'సెట్టింగ్స్‌లో AI విజన్ కాన్ఫిగర్ చేయండి' : 'Configure AI Vision in Settings'}</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </Link>
+                </div>
               </div>
             )}
 

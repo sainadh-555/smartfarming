@@ -34,3 +34,4 @@ console.log(' - Invalid TXT:', validateImageFile(invalidTxt).error);
 console.log(' - Oversized 15MB:', validateImageFile(oversized).error);
 
 console.log('\n--- ALL FRONTEND FILE TESTS PASSED ---');
+

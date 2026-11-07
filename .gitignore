@@ -1,4 +1,10 @@
-# Logs
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
 logs
 *.log
 npm-debug.log*

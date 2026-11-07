@@ -18,6 +18,12 @@ import base64
 import json
 
 try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
+
+try:
     from database import (
         init_db, SessionLocal, SensorReadingModel, SimulationRecordModel, WeatherRecordModel, FarmAlertModel
     )
@@ -180,11 +186,37 @@ def root():
 
 @app.get("/api/health")
 def health_check():
+    gemini_key = os.environ.get("GEMINI_API_KEY")
+    groq_key = os.environ.get("GROQ_API_KEY")
+    openai_key = os.environ.get("OPENAI_API_KEY")
+
+    active_provider = None
+    active_model = None
+    if gemini_key:
+        active_provider = "gemini"
+        active_model = "gemini-1.5-flash"
+    elif groq_key:
+        active_provider = "groq"
+        active_model = "llama-3.2-11b-vision-preview"
+    elif openai_key:
+        active_provider = "openai"
+        active_model = "gpt-4o-mini"
+
     return {
         "status": "healthy",
+        "backend": "online",
+        "version": "2.1.0",
         "zonesCount": len(zones_state),
         "historyCount": len(telemetry_history),
-        "pumpCommand": active_pump_command
+        "pumpCommand": active_pump_command,
+        "vision": {
+            "configured": active_provider is not None,
+            "provider": active_provider,
+            "model": active_model,
+            "inferenceReady": active_provider is not None,
+            "providersSupported": ["gemini", "groq", "openai"],
+            "supportedCrops": ["Tomato", "Chili", "Paddy", "Groundnut"]
+        }
     }
 
 @app.post("/api/sensor-data")
@@ -527,10 +559,25 @@ async def analyze_plant_image(
     # 6. Encode image to base64 for API transmission
     base64_image = base64.b64encode(raw_bytes).decode("utf-8")
 
-    # 7. Check for configured Vision AI Keys
+    # 7. Check for configured Vision AI Keys (Backend Environment OR Client-Provided Key)
     gemini_api_key = os.environ.get("GEMINI_API_KEY")
     groq_api_key = os.environ.get("GROQ_API_KEY")
     openai_api_key = os.environ.get("OPENAI_API_KEY")
+
+    # Client-provided key fallback (passed via header or body from Settings)
+    client_vision_key = (
+        request.headers.get("X-Vision-Key") or
+        request.headers.get("x-vision-key") or
+        (request.headers.get("Authorization", "").replace("Bearer ", "").strip() if request.headers.get("Authorization") else None)
+    )
+    if client_vision_key:
+        clean_client_key = client_vision_key.strip()
+        if clean_client_key.startswith("AIzaSy"):
+            gemini_api_key = gemini_api_key or clean_client_key
+        elif clean_client_key.startswith("gsk_"):
+            groq_api_key = groq_api_key or clean_client_key
+        elif clean_client_key.startswith("sk-"):
+            openai_api_key = openai_api_key or clean_client_key
 
     system_instruction = f"""You are an expert botanical validator and precision crop pathologist for SmartFarm AI.
 Analyze the provided image with clinical accuracy. Language for text/recommendations: {"Telugu" if is_te else "English"}.
@@ -544,8 +591,11 @@ Follow this 4-step decision hierarchy strictly:
      "validation_status": "NO_PLANT_DETECTED",
      "is_plant": false,
      "detected_crop": "Non-plant",
+     "scientific_name": null,
      "condition": null,
      "is_healthy": null,
+     "severity": null,
+     "surface_lesion_impact": null,
      "message": "{"మొక్క లేదా ఆకు గుర్తించబడలేదు. దయచేసి స్పష్టమైన పంట లేదా ఆకు ఫోటోను అప్‌లోడ్ చేయండి." if is_te else "No plant detected. Please upload a clear photo of a crop or leaf."}"
 
 2. CLARITY CHECK:
@@ -555,24 +605,30 @@ Follow this 4-step decision hierarchy strictly:
      "validation_status": "UNCLEAR_IMAGE",
      "is_plant": false,
      "detected_crop": "Unknown",
+     "scientific_name": null,
      "condition": null,
      "is_healthy": null,
+     "severity": null,
+     "surface_lesion_impact": null,
      "message": "{"ఫోటో అస్పష్టంగా ఉంది. దయచేసి దగ్గరగా, మంచి వెలుతురులో తీసిన ఫోటోను అప్‌లోడ్ చేయండి." if is_te else "The image is unclear. Please upload a closer, well-lit photo."}"
 
 3. CROP IDENTIFICATION:
    Identify the plant species.
    Supported crops are ONLY:
-   - Tomato
-   - Chili (Pepper)
-   - Paddy (Rice)
-   - Groundnut (Peanut)
+   - Tomato (Solanum lycopersicum)
+   - Chili (Capsicum annuum)
+   - Paddy / Rice (Oryza sativa)
+   - Groundnut / Peanut (Arachis hypogaea)
    - If the image is a plant or leaf, but NOT one of these 4 crops (e.g. Apple, Wheat, Corn, Cotton, Mango, Rose, Houseplant, Weed):
      Return:
      "validation_status": "UNSUPPORTED_CROP",
      "is_plant": true,
      "detected_crop": "<Common name of the detected plant>",
+     "scientific_name": "<Botanical binomial if identifiable, else null>",
      "condition": null,
      "is_healthy": null,
+     "severity": null,
+     "surface_lesion_impact": null,
      "message": "{"ఈ పంట ప్రస్తుతం మద్దతు ఇవ్వబడలేదు. ప్రస్తుతం టమోటా, మిర్చి, వరి, మరియు వేరుశనగ పంటలకు మాత్రమే మద్దతు ఉంది." if is_te else "This crop is not currently supported."}"
 
 4. CONDITION & HEALTH DIAGNOSIS (Only for Tomato, Chili, Paddy, Groundnut):
@@ -582,6 +638,8 @@ Follow this 4-step decision hierarchy strictly:
      "is_plant": true,
      "condition": "Healthy",
      "is_healthy": true,
+     "severity": "None (Healthy)",
+     "surface_lesion_impact": "None (Healthy tissue)",
      "model_score": 0.95,
      "symptoms": [],
      "recommendations": ["Maintain regular irrigation schedule.", "Inspect foliage weekly for early signs of stress."]
@@ -590,6 +648,8 @@ Follow this 4-step decision hierarchy strictly:
      "is_plant": true,
      "condition": "<Precise condition name, e.g. Tomato Early Blight, Chili Leaf Curl, Paddy Blast, Groundnut Tikka Spot>",
      "is_healthy": false,
+     "severity": "Mild" or "Moderate" or "Severe",
+     "surface_lesion_impact": "Not measurable from 2D classification (Visual observation indicates localized spread)",
      "model_score": 0.90,
      "symptoms": ["Visible concentric brown leaf lesions", "Chlorosis on margin"],
      "recommendations": ["Remove heavily affected lower leaves.", "Avoid overhead irrigation to keep canopy dry.", "Consult local agricultural extension for recommended treatment."]
@@ -599,8 +659,11 @@ Respond strictly with valid JSON conforming to this schema:
   "validation_status": "VALID_SUPPORTED_CROP" | "NO_PLANT_DETECTED" | "UNSUPPORTED_CROP" | "UNCLEAR_IMAGE",
   "is_plant": true | false,
   "detected_crop": string,
+  "scientific_name": string | null,
   "condition": string | null,
   "is_healthy": true | false | null,
+  "severity": string | null,
+  "surface_lesion_impact": string | null,
   "model_score": number | null,
   "symptoms": string[],
   "recommendations": string[],
@@ -699,8 +762,11 @@ Respond strictly with valid JSON conforming to this schema:
         "validation_status": "MODEL_UNAVAILABLE",
         "is_plant": None,
         "detected_crop": None,
+        "scientific_name": None,
         "condition": None,
         "is_healthy": None,
+        "severity": None,
+        "surface_lesion_impact": None,
         "model_score": None,
         "symptoms": [],
         "recommendations": (

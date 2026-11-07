@@ -868,23 +868,33 @@ class SmartFarmApiService {
     }
   }
 
-  async analyzePlantImage(imageFileOrBase64, language = 'en') {
+  async analyzePlantImage(imageFileOrBase64, language = 'en', clientApiKey = '') {
     const target = this.backendUrl || 'https://smartfarming-e3b2.onrender.com';
     try {
       let response;
+      const headers = {};
+      if (clientApiKey) {
+        headers['X-Vision-Key'] = clientApiKey.trim();
+      }
+
       if (typeof imageFileOrBase64 === 'string') {
+        headers['Content-Type'] = 'application/json';
         response = await fetch(`${target}/api/plant/analyze`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ image: imageFileOrBase64, language }),
+          headers,
+          body: JSON.stringify({ image: imageFileOrBase64, language, apiKey: clientApiKey }),
           signal: AbortSignal.timeout(20000)
         });
       } else if (imageFileOrBase64 instanceof File || imageFileOrBase64 instanceof Blob) {
         const formData = new FormData();
         formData.append('file', imageFileOrBase64);
         formData.append('language', language);
+        if (clientApiKey) {
+          formData.append('apiKey', clientApiKey.trim());
+        }
         response = await fetch(`${target}/api/plant/analyze`, {
           method: 'POST',
+          headers,
           body: formData,
           signal: AbortSignal.timeout(20000)
         });
