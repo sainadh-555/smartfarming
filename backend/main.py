@@ -882,26 +882,31 @@ Respond strictly with valid JSON conforming to this schema:
                     parsed["limitations"] = "Multimodal classification inference. Does not provide localized bounding box coordinates."
                     record_plant_vision_analysis(parsed)
                     return parsed
-                elif res.status_code in (401, 403):
+                else:
+                    err_msg = res.text
+                    try:
+                        err_json = res.json()
+                        err_msg = err_json.get("error", {}).get("message", res.text)
+                    except:
+                        pass
                     return {
                         "validation_status": "MODEL_UNAVAILABLE",
                         "is_plant": None,
                         "detected_crop": None,
-                        "message": "Groq Cloud API key rejected. Please verify GROQ_API_KEY / AI_VISION_API_KEY.",
-                        "model_info": "Groq Authentication Error",
-                        "limitations": f"HTTP {res.status_code} Unauthorized from Groq."
-                    }
-                elif res.status_code == 429:
-                    return {
-                        "validation_status": "MODEL_UNAVAILABLE",
-                        "is_plant": None,
-                        "detected_crop": None,
-                        "message": "Groq Cloud rate limit exceeded. Please wait a moment or configure Gemini.",
-                        "model_info": "Groq Rate Limited",
-                        "limitations": "HTTP 429 Quota Exceeded."
+                        "message": f"Groq API Error (HTTP {res.status_code}): {err_msg}",
+                        "model_info": f"Groq Error (HTTP {res.status_code})",
+                        "limitations": f"Model: {model_name}. Detail: {err_msg}"
                     }
             except Exception as e:
                 print(f"[Plant Vision Backend] Groq call failed: {e}")
+                return {
+                    "validation_status": "MODEL_UNAVAILABLE",
+                    "is_plant": None,
+                    "detected_crop": None,
+                    "message": f"Groq Connection Exception: {str(e)}",
+                    "model_info": "Groq Connection Failed",
+                    "limitations": str(e)
+                }
 
         # C. OpenAI GPT-4o-mini Vision
         elif active_provider == "openai":
