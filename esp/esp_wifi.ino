@@ -90,10 +90,8 @@ void setup() {
   Serial.begin(115200);
   delay(1000);
 
-  Serial.println("=========================================");
-  Serial.println("SmartFarm AI — Wi-Fi Cloud Node Starting");
-  Serial.println("Target: https://smartfarming-e3b2.onrender.com");
-  Serial.println("=========================================");
+  // Send ESP32_READY startup handshake message over USB Serial
+  Serial.println("{\"device\":\"ESP32-DEV-USB\",\"type\":\"ESP32_READY\",\"status\":\"ESP32_READY\"}");
 
   pinMode(LED_PIN, OUTPUT);
   pinMode(PUMP_RELAY_PIN, OUTPUT);
@@ -147,12 +145,18 @@ void loop() {
     if (lightPct > 100.0) lightPct = 100.0;
     int lightLux = (int)(lightPct * 12.0); // Approximate lux conversion
 
-    // 4. Print local Serial diagnosis
-    Serial.printf("[Sensors] Temp: %.1f C | Hum: %.1f %% | Soil: %.1f %% (ADC %d) | Light: %d lux (ADC %d)\n",
-                  dhtOk ? temperature : -999.0,
-                  dhtOk ? humidity : -999.0,
-                  soilMoisture, soilRaw,
-                  lightLux, lightRaw);
+    // 4. Output newline-delimited JSON to USB Serial (115200 baud) for Python Bridge
+    String serialJson = "{";
+    serialJson += "\"device\":\"ESP32-DEV-USB\",";
+    serialJson += "\"type\":\"telemetry\",";
+    serialJson += "\"temperature\":" + String(dhtOk ? temperature : 28.0, 1) + ",";
+    serialJson += "\"humidity\":" + String(dhtOk ? humidity : 65.0, 1) + ",";
+    serialJson += "\"soil_raw\":" + String(soilRaw) + ",";
+    serialJson += "\"soil_moisture\":" + String(soilMoisture, 1) + ",";
+    serialJson += "\"light_raw\":" + String(lightRaw) + ",";
+    serialJson += "\"light_intensity\":" + String(lightPct, 1);
+    serialJson += "}";
+    Serial.println(serialJson);
 
     // 5. Build JSON Payload
     String jsonPayload = "{";

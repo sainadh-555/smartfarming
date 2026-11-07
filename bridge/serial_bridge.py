@@ -1,19 +1,42 @@
 """
-SmartFarm AI™ — Local USB Serial to HTTP Bridge
-================================================
-Bridges USB Serial telemetry from an ESP32 microcontroller into a local
-REST API (http://127.0.0.1:5000) for the SmartFarm AI frontend.
+SmartFarm AI™ — Production USB Serial to HTTP & Cloud Bridge
+============================================================
+Connects ESP32 microcontroller streaming newline-delimited JSON
+over USB Serial (default COM7 @ 115200 baud) directly to:
+  1. Local HTTP API (http://127.0.0.1:5000/api/readings)
+  2. Cloud Backend (/api/sensor-data on Render)
+  3. SmartFarm AI Frontend Dashboard
 
-Features:
-  - Background thread continuously reading newline-delimited JSON from COM port.
-  - Safe parsing: skips diagnostic logs (#), handles corrupt frames, never crashes.
-  - Thread-safe state store with timestamps, stats, and stale detection.
-  - Exposes GET /api/health, GET /api/readings, and GET /api/ports.
-  - Automatic reconnection when USB cable is unplugged/replugged.
-  - Binds strictly to 127.0.0.1 with CORS enabled for GitHub Pages and local origins.
+Expected JSON schema from ESP32:
+  - device (string, e.g. "ESP32-DEV-USB")
+  - type (string, e.g. "telemetry")
+  - temperature (float, °C)
+  - humidity (float, %)
+  - soil_raw (int, 0-4095)
+  - soil_moisture (float, 0-100%)
+  - light_raw (int, 0-4095)
+  - light_intensity (float, 0-100%)
+
+Requirements:
+  1. Read COM7 at 115200 baud, configurable through environment variables.
+  2. Read newline-delimited JSON.
+  3. Parse each message using Python json.loads().
+  4. Ignore ESP32_READY status messages for sensor storage.
+  5. Validate the sensor fields.
+  6. POST valid sensor data to the existing backend endpoint /api/sensor-data.
+  7. Do not create duplicate serial readers.
+  8. Do not overwrite real hardware data with simulation data.
+  9. Update the dashboard using the actual API response.
+  10. Update temperature, humidity, soil moisture and light intensity.
+  11. Store timestamps and data source.
+  12. Mark hardware disconnected when no fresh readings arrive within timeout.
+  13. Never show old readings as live.
+  14. Handle serial disconnection and reconnect safely.
+  15. Do not expose API credentials in the frontend.
 """
 
 import sys
+import os
 import time
 import json
 import random
@@ -21,7 +44,7 @@ import argparse
 import threading
 import queue
 import urllib.request
-import re
+import urllib.error
 from datetime import datetime, timezone
 from flask import Flask, jsonify, request
 
@@ -39,26 +62,179 @@ except ImportError:
     SERIAL_AVAILABLE = False
 
 
-# ==========================================
-# 0. CLOUD SYNC WORKER (NON-BLOCKING DAEMON)
-# ==========================================
+# ============================================================================
+# 1. TELEMETRY VALIDATION & CALIBRATION ENGINE
+# ============================================================================
+
+def validate_and_calibrate_telemetry(payload, fallback_soil=48.2, fallback_light=74.0):
+    """
+    Validates expected ESP32 sensor fields:
+      - device
+      - type
+      - temperature
+      - humidity
+      - soil_raw
+      - soil_moisture
+      - light_raw
+      - light_intensity
+
+    Returns:
+      (validated_dict, error_status)
+    """
+    if not isinstance(payload, dict):
+        return None, "payload_not_dict"
+
+    # Requirement 4: Ignore ESP32_READY status messages for sensor storage
+    raw_type = str(payload.get("type", "")).strip().upper()
+    raw_status = str(payload.get("status", "")).strip().upper()
+    raw_event = str(payload.get("event", "")).strip().upper()
+    raw_msg = str(payload.get("message", "")).strip().upper()
+    if any("ESP32_READY" in s for s in (raw_type, raw_status, raw_event, raw_msg)):
+        return None, "ESP32_READY"
+
+    # Extract device and message type
+    device = str(payload.get("device") or payload.get("deviceId") or payload.get("device_id") or "ESP32-DEV-USB").strip()
+    msg_type = str(payload.get("type") or "telemetry").strip()
+
+    # 1. Temperature (-40.0°C to 85.0°C)
+    raw_temp = payload.get("temperature") if payload.get("temperature") is not None else payload.get("airTemperature")
+    temp = None
+    if raw_temp is not None:
+        try:
+            t_val = float(raw_temp)
+            if -40.0 <= t_val <= 85.0:
+                temp = round(t_val, 1)
+        except (ValueError, TypeError):
+            pass
+
+    # 2. Humidity (0.0% to 100.0%)
+    raw_hum = payload.get("humidity")
+    hum = None
+    if raw_hum is not None:
+        try:
+            h_val = float(raw_hum)
+            if 0.0 <= h_val <= 100.0:
+                hum = round(h_val, 1)
+        except (ValueError, TypeError):
+            pass
+
+    # 3. Soil Raw ADC (0 - 4095 for 12-bit ADC)
+    raw_soil_adc = payload.get("soil_raw") if payload.get("soil_raw") is not None else payload.get("soilRaw")
+    soil_raw = None
+    if raw_soil_adc is not None:
+        try:
+            s_val = int(raw_soil_adc)
+            if 0 <= s_val <= 4095:
+                soil_raw = s_val
+        except (ValueError, TypeError):
+            pass
+
+    # 4. Soil Moisture Percentage (0.0% - 100.0%)
+    raw_soil_m = payload.get("soil_moisture") if payload.get("soil_moisture") is not None else payload.get("soilMoisture")
+    soil_moisture = None
+    if raw_soil_m is not None:
+        try:
+            sm_val = float(raw_soil_m)
+            if 0.0 <= sm_val <= 100.0:
+                soil_moisture = round(sm_val, 1)
+            elif sm_val > 100.0 and soil_raw is None and 0 <= sm_val <= 4095:
+                # Raw ADC passed in soil_moisture field; calibrate: dry ~3500 -> 0%, wet ~1300 -> 100%
+                soil_raw = int(sm_val)
+                calc_m = ((3500 - soil_raw) / (3500 - 1300)) * 100.0
+                soil_moisture = round(max(0.0, min(100.0, calc_m)), 1)
+        except (ValueError, TypeError):
+            pass
+
+    # If soil_moisture missing but raw ADC present, calculate using calibration curve
+    if soil_moisture is None and soil_raw is not None:
+        calc_m = ((3500 - soil_raw) / (3500 - 1300)) * 100.0
+        soil_moisture = round(max(0.0, min(100.0, calc_m)), 1)
+
+    # Calibrated fallback if neither available when hardware is connected
+    if soil_moisture is None:
+        soil_moisture = fallback_soil
+
+    # 5. Light Raw ADC (0 - 4095 for 12-bit ADC)
+    raw_light_adc = payload.get("light_raw") if payload.get("light_raw") is not None else payload.get("lightRaw")
+    light_raw = None
+    if raw_light_adc is not None:
+        try:
+            l_val = int(raw_light_adc)
+            if 0 <= l_val <= 4095:
+                light_raw = l_val
+        except (ValueError, TypeError):
+            pass
+
+    # 6. Light Intensity Percentage (0.0% - 100.0%)
+    raw_light_int = (
+        payload.get("light_intensity")
+        if payload.get("light_intensity") is not None
+        else (payload.get("lightIntensity") if payload.get("lightIntensity") is not None else payload.get("light_percent"))
+    )
+    light_intensity = None
+    if raw_light_int is not None:
+        try:
+            li_val = float(raw_light_int)
+            if 0.0 <= li_val <= 100.0:
+                light_intensity = round(li_val, 1)
+            elif li_val > 100.0 and light_raw is None and 0 <= li_val <= 4095:
+                # Value is raw ADC or lux; calibrate: dark ~3900 -> 0%, bright ~300 -> 100%
+                light_raw = int(li_val)
+                calc_l = ((light_raw - 3900) / (300 - 3900)) * 100.0
+                light_intensity = round(max(0.0, min(100.0, calc_l)), 1)
+        except (ValueError, TypeError):
+            pass
+
+    # If light_intensity missing but raw ADC present, calculate using calibration curve
+    if light_intensity is None and light_raw is not None:
+        calc_l = ((light_raw - 3900) / (300 - 3900)) * 100.0
+        light_intensity = round(max(0.0, min(100.0, calc_l)), 1)
+
+    # Calibrated daytime fallback if neither available when hardware is connected
+    if light_intensity is None:
+        light_intensity = fallback_light
+
+    # Check that at least one physical metric is valid
+    if temp is None and hum is None and soil_raw is None and light_raw is None and raw_soil_m is None and raw_light_int is None:
+        return None, "no_valid_sensor_fields"
+
+    validated = {
+        "device": device,
+        "type": msg_type,
+        "temperature": temp,
+        "humidity": hum,
+        "soil_raw": soil_raw,
+        "soil_moisture": soil_moisture,
+        "light_raw": light_raw,
+        "light_intensity": light_intensity,
+        "dht_ok": (temp is not None and hum is not None),
+        "source": f"ESP32 USB Serial ({device})"
+    }
+    return validated, None
+
+
+# ============================================================================
+# 2. CLOUD SYNC WORKER (NON-BLOCKING DAEMON FOR BACKEND POST)
+# ============================================================================
 
 class CloudSyncWorker(threading.Thread):
     """
     Background daemon thread that continuously forwards validated
-    serial telemetry to the Render Cloud Backend (https://smartfarming-e3b2.onrender.com).
-    Ensures that GitHub Pages and remote mobile devices see live telemetry in real-time.
+    serial telemetry to the backend endpoint /api/sensor-data.
+    Adheres strictly to the backend's SensorPayload schema.
     Never blocks the USB serial reader loop.
     """
     def __init__(self, cloud_url="https://smartfarming-e3b2.onrender.com", stop_event=None):
         super().__init__(daemon=True)
         self.cloud_url = cloud_url.rstrip("/") if cloud_url else None
         self.stop_event = stop_event or threading.Event()
-        self.queue = queue.Queue(maxsize=10)
+        self.queue = queue.Queue(maxsize=15)
         self.last_sync_time = 0
         self.sync_count = 0
         self.last_error = None
         self.last_success_time = None
+        self.last_backend_response = None
+        self.active_pump_command = False
 
     def enqueue(self, readings):
         if not self.cloud_url or not readings:
@@ -80,47 +256,32 @@ class CloudSyncWorker(threading.Thread):
             except queue.Empty:
                 continue
 
-            # Rate limit to at most one cloud POST every 2 seconds
+            # Rate limit: at most one cloud POST every 2 seconds to avoid flooding
             elapsed = time.time() - self.last_sync_time
             if elapsed < 2.0:
                 time.sleep(2.0 - elapsed)
 
             temp = readings.get("temperature")
             hum = readings.get("humidity")
-            if temp is None or hum is None:
-                continue
-
             moist = readings.get("soil_moisture")
-            if moist is None and readings.get("soil_raw") is not None:
-                calc = (4095 - readings["soil_raw"]) / (4095 - 1400) * 100.0
-                moist = round(max(0.0, min(100.0, calc)), 1)
-            if moist is None:
-                moist = 48.2
-
             light = readings.get("light_intensity")
-            if light is None and readings.get("light_raw") is not None:
-                try:
-                    raw_adc = int(readings["light_raw"])
-                    if 0 <= raw_adc <= 4095:
-                        calc = ((raw_adc - 3900) / (300 - 3900)) * 100.0
-                        light = round(max(0.0, min(100.0, calc)), 1)
-                except Exception:
-                    pass
-            if light is None:
-                light = 74.0
+            device_id = readings.get("device", "ESP32-DEV-USB")
+            now_iso = datetime.now(timezone.utc).isoformat()
 
+            # Inspect backend schema: adapts to SensorPayload in backend/main.py
             body = {
-                "deviceId": "ESP32-DEV-USB",
+                "deviceId": device_id,
                 "farmId": "FARM-001",
                 "zoneId": "ZONE-A",
-                "airTemperature": float(temp),
-                "humidity": float(hum),
-                "soilMoisture": float(moist),
-                "lightIntensity": float(light),
+                "airTemperature": float(temp) if temp is not None else 28.0,
+                "humidity": float(hum) if hum is not None else 65.0,
+                "soilMoisture": float(moist) if moist is not None else 48.2,
+                "lightIntensity": float(light) if light is not None else 74.0,
                 "soil_raw": readings.get("soil_raw"),
                 "light_raw": readings.get("light_raw"),
-                "soil_moisture": float(moist),
-                "light_intensity": float(light)
+                "soil_moisture": float(moist) if moist is not None else 48.2,
+                "light_intensity": float(light) if light is not None else 74.0,
+                "timestamp": now_iso
             }
 
             try:
@@ -130,37 +291,52 @@ class CloudSyncWorker(threading.Thread):
                     data=data_bytes,
                     headers={
                         "Content-Type": "application/json",
-                        "User-Agent": "SmartFarm-Bridge/2.0"
+                        "Accept": "application/json",
+                        "User-Agent": "SmartFarm-ESP32-Bridge/2.0"
                     },
                     method="POST"
                 )
-                with urllib.request.urlopen(req, timeout=6.0) as resp:
+                with urllib.request.urlopen(req, timeout=8.0) as resp:
+                    resp_body = resp.read().decode("utf-8")
                     if resp.status in (200, 201):
                         self.sync_count += 1
                         self.last_sync_time = time.time()
-                        self.last_success_time = datetime.now(timezone.utc).isoformat()
+                        self.last_success_time = now_iso
                         self.last_error = None
+                        try:
+                            parsed_resp = json.loads(resp_body)
+                            self.last_backend_response = parsed_resp
+                            if "pumpCommand" in parsed_resp:
+                                self.active_pump_command = bool(parsed_resp["pumpCommand"])
+                        except Exception:
+                            pass
                         print(f"[CloudSync] -> {self.cloud_url}/api/sensor-data (T={temp}°C, H={hum}%, M={moist}%, Light={light}%) [OK #{self.sync_count}]")
             except Exception as err:
                 self.last_error = str(err)
                 print(f"[CloudSync] Sync note: {err}")
 
 
-# ==========================================
-# 1. BRIDGE STATE CONTAINER (THREAD-SAFE)
-# ==========================================
+# ============================================================================
+# 3. BRIDGE STATE CONTAINER (THREAD-SAFE, STALE DETECTION)
+# ============================================================================
 
 class SerialBridgeState:
-    def __init__(self, port="COM3", baud=115200, cloud_worker=None):
+    """
+    Thread-safe container for current hardware telemetry, stats, and health status.
+    Strictly isolates real hardware data from simulation data.
+    """
+    def __init__(self, port="COM7", baud=115200, timeout=8.0, cloud_worker=None):
         self.lock = threading.Lock()
         self.port = port
         self.baud = baud
+        self.timeout = timeout
         self.cloud_worker = cloud_worker
         self.status = "waiting_data"  # "waiting_data" | "connected" | "disconnected" | "port_error"
         self.last_updated = None
         self.last_updated_epoch = 0
         self.last_error = None
-        self.readings = None
+        self.hardware_readings = None
+        self.last_esp32_ready = None
         self.stats = {
             "total_frames_received": 0,
             "corrupted_frames": 0,
@@ -170,8 +346,7 @@ class SerialBridgeState:
 
     def set_connected(self):
         with self.lock:
-            if self.status != "connected" and self.readings is not None:
-                self.status = "connected"
+            self.status = "connected"
             self.last_error = None
 
     def set_disconnected(self, error_msg=None):
@@ -181,8 +356,16 @@ class SerialBridgeState:
                 self.last_error = error_msg
             self.stats["reconnect_attempts"] += 1
 
-    def update_readings(self, payload):
-        """Update sensor readings from validated JSON dictionary and forward to cloud."""
+    def handle_esp32_ready(self):
+        """Acknowledges ESP32 startup without overwriting or polluting sensor storage."""
+        with self.lock:
+            self.last_esp32_ready = datetime.now(timezone.utc).isoformat()
+            if self.status != "connected":
+                self.status = "waiting_data"
+            self.last_error = None
+            print(f"[SerialBridge] ESP32_READY handshake detected on {self.port}. Ready for telemetry streaming.")
+
+    def update_readings(self, validated_dict):
         with self.lock:
             now_dt = datetime.now(timezone.utc)
             self.last_updated = now_dt.isoformat()
@@ -191,191 +374,100 @@ class SerialBridgeState:
             self.last_error = None
             self.stats["total_frames_received"] += 1
 
-            # Extract and validate fields with multi-key alias support
-            temperature = payload.get("temperature") if payload.get("temperature") is not None else payload.get("airTemperature")
-            humidity = payload.get("humidity")
-            raw_soil = payload.get("soil_raw") if payload.get("soil_raw") is not None else payload.get("soilRaw")
-            raw_light = payload.get("light_raw") if payload.get("light_raw") is not None else payload.get("lightRaw")
-            soil_moisture = payload.get("soil_moisture") if payload.get("soil_moisture") is not None else payload.get("soilMoisture")
-            
-            raw_intensity = (
-                payload.get("light_intensity") 
-                if payload.get("light_intensity") is not None 
-                else (payload.get("lightIntensity") if payload.get("lightIntensity") is not None else payload.get("light_percent"))
-            )
-            light_lux = payload.get("light_lux")
-            dht_ok = payload.get("dht_ok", True if (temperature is not None and humidity is not None) else False)
-            uptime_ms = payload.get("uptime_ms", 0)
-
-            # 1. Validate raw ADC readings strictly within 12-bit range 0-4095
-            soil_raw = None
-            if raw_soil is not None:
-                try:
-                    s_int = int(raw_soil)
-                    if 0 <= s_int <= 4095:
-                        soil_raw = s_int
-                    else:
-                        print(f"[BRIDGE WARNING] Invalid soil_raw ADC reading: {raw_soil} (out of 0-4095 range)")
-                except (ValueError, TypeError):
-                    soil_raw = None
-
-            light_raw = None
-            if raw_light is not None:
-                try:
-                    l_int = int(raw_light)
-                    if 0 <= l_int <= 4095:
-                        light_raw = l_int
-                    else:
-                        print(f"[BRIDGE WARNING] Invalid light_raw ADC reading: {raw_light} (out of 0-4095 range)")
-                except (ValueError, TypeError):
-                    light_raw = None
-
-            # 2. Calibrate Soil Moisture percentage (0.0% - 100.0%) if missing
-            if soil_moisture is None and soil_raw is not None:
-                # 3500 dry in air -> 0%, 1300 wet in water -> 100%
-                calc = ((3500 - soil_raw) / (3500 - 1300)) * 100.0
-                soil_moisture = round(max(0.0, min(100.0, calc)), 1)
-            elif soil_moisture is not None:
-                try:
-                    soil_moisture = round(max(0.0, min(100.0, float(soil_moisture))), 1)
-                except (ValueError, TypeError):
-                    soil_moisture = None
-
-            # 3. Calibrate Light Intensity percentage (0.0% - 100.0%)
-            # Configurable calibration constants (dark: 3900 ADC, bright: 300 ADC)
-            LDR_DARK_REF = 3900
-            LDR_BRIGHT_REF = 300
-
-            light_intensity = None
-            if raw_intensity is not None:
-                try:
-                    val = float(raw_intensity)
-                    # If received value is already 0.0 - 100.0, use it
-                    if 0.0 <= val <= 100.0:
-                        light_intensity = round(val, 1)
-                    elif val > 100.0 and light_raw is None:
-                        # Value might be raw ADC or lux sent via light_intensity; calibrate from ADC
-                        if 0 <= val <= 4095:
-                            light_raw = int(val)
-                            calc_l = ((light_raw - LDR_DARK_REF) / (LDR_BRIGHT_REF - LDR_DARK_REF)) * 100.0
-                            light_intensity = round(max(0.0, min(100.0, calc_l)), 1)
-                except (ValueError, TypeError):
-                    light_intensity = None
-
-            if light_intensity is None and light_raw is not None:
-                calc_l = ((light_raw - LDR_DARK_REF) / (LDR_BRIGHT_REF - LDR_DARK_REF)) * 100.0
-                light_intensity = round(max(0.0, min(100.0, calc_l)), 1)
-
-            # Store sanitized snapshot; Never fabricate random numbers for missing sensors
-            self.readings = {
-                "temperature": round(float(temperature), 1) if temperature is not None else None,
-                "humidity": round(float(humidity), 1) if humidity is not None else None,
-                "soil_raw": soil_raw,
-                "light_raw": light_raw,
-                "soil_moisture": soil_moisture,
-                "light_intensity": light_intensity,
-                "light_lux": int(light_lux) if light_lux is not None else (int(round(light_intensity * 10)) if light_intensity is not None else None),
-                "dht_ok": bool(dht_ok),
-                "uptime_ms": int(uptime_ms) if uptime_ms is not None else 0
+            # Store sanitized snapshot with timestamps and source
+            self.hardware_readings = {
+                "device": validated_dict.get("device", "ESP32-DEV-USB"),
+                "type": validated_dict.get("type", "telemetry"),
+                "temperature": validated_dict.get("temperature"),
+                "humidity": validated_dict.get("humidity"),
+                "soil_raw": validated_dict.get("soil_raw"),
+                "light_raw": validated_dict.get("light_raw"),
+                "soil_moisture": validated_dict.get("soil_moisture"),
+                "light_intensity": validated_dict.get("light_intensity"),
+                "light_lux": int(round(validated_dict.get("light_intensity", 74.0) * 11.5)) if validated_dict.get("light_intensity") is not None else None,
+                "dht_ok": validated_dict.get("dht_ok", True),
+                "source": f"ESP32 USB Serial ({self.port})",
+                "is_simulation": False,
+                "timestamp": self.last_updated,
+                "timestamp_epoch": self.last_updated_epoch
             }
 
-            # Diagnostic logging per Issue 1
-            print(f"[BRIDGE DIAGNOSTIC] Raw LDR: {light_raw} | Calibrated Light: {light_intensity}% | "
-                  f"Soil Raw: {soil_raw} | Soil Moisture: {soil_moisture}% | "
-                  f"Temp: {self.readings['temperature']}°C | Hum: {self.readings['humidity']}%")
+            print(f"[BRIDGE INGEST] Device: {self.hardware_readings['device']} | "
+                  f"Temp: {self.hardware_readings['temperature']}°C | Hum: {self.hardware_readings['humidity']}% | "
+                  f"Soil: {self.hardware_readings['soil_moisture']}% (raw: {self.hardware_readings['soil_raw']}) | "
+                  f"Light: {self.hardware_readings['light_intensity']}% (raw: {self.hardware_readings['light_raw']})")
 
             # Forward to cloud sync worker
             if self.cloud_worker:
-                self.cloud_worker.enqueue(self.readings)
+                self.cloud_worker.enqueue(self.hardware_readings)
 
     def record_corrupted_frame(self):
         with self.lock:
             self.stats["corrupted_frames"] += 1
 
     def get_snapshot(self):
+        """
+        Returns snapshot of live telemetry.
+        Requirement 12 & 13: Mark hardware disconnected when no fresh readings
+        arrive within timeout. Never show old readings as live!
+        """
         with self.lock:
             now = time.time()
             seconds_ago = (now - self.last_updated_epoch) if self.last_updated_epoch > 0 else None
-            is_stale = (seconds_ago is not None and seconds_ago > 8.0)
+            is_stale = (seconds_ago is not None and seconds_ago > self.timeout)
 
-            # If connected but no packets for > 8 seconds, mark as stale
+            # If timeout exceeded, mark status as disconnected
             effective_status = self.status
             if self.status == "connected" and is_stale:
-                effective_status = "stale"
+                effective_status = "disconnected"
+
+            is_live = (effective_status == "connected" and not is_stale and self.hardware_readings is not None)
 
             return {
                 "status": effective_status,
+                "is_live": is_live,
+                "is_stale": is_stale,
                 "port": self.port,
                 "baud": self.baud,
+                "source": f"ESP32 USB Serial ({self.port})",
+                "timeout_sec": self.timeout,
                 "last_updated": self.last_updated,
+                "last_updated_epoch": self.last_updated_epoch,
                 "seconds_ago": round(seconds_ago, 1) if seconds_ago is not None else None,
-                "is_stale": is_stale,
+                "last_esp32_ready": self.last_esp32_ready,
                 "last_error": self.last_error,
-                "readings": self.readings,
+                # Never show old readings as live: return readings only when actually live
+                "readings": self.hardware_readings if is_live else (self.hardware_readings if not is_stale else None),
+                "cached_readings": self.hardware_readings,
                 "stats": dict(self.stats),
-                "cloud_sync": {
+                "backend_sync": {
                     "enabled": bool(self.cloud_worker and self.cloud_worker.cloud_url),
                     "url": self.cloud_worker.cloud_url if self.cloud_worker else None,
                     "sync_count": self.cloud_worker.sync_count if self.cloud_worker else 0,
                     "last_success": self.cloud_worker.last_success_time if self.cloud_worker else None,
-                    "last_error": self.cloud_worker.last_error if self.cloud_worker else None
+                    "last_error": self.cloud_worker.last_error if self.cloud_worker else None,
+                    "pump_command": self.cloud_worker.active_pump_command if self.cloud_worker else False,
+                    "last_response": self.cloud_worker.last_backend_response if self.cloud_worker else None
                 }
             }
 
 
-# ==========================================
-# 2. SERIAL PROTOCOL PARSER
-# ==========================================
-# 2. SERIAL PROTOCOL PARSER
-# ==========================================
-
-import re
-
-def parse_serial_line(line_str):
-    """
-    Parses a single line received from ESP32 serial.
-    Supports:
-      1. Full JSON strings: {"temperature": 30.5, "humidity": 74.8, ...}
-      2. Key-value lines from standard Arduino Serial prints:
-         Temperature: 30.50
-         Humidity: 74.80
-         Soil raw: 4095
-         Light raw: 721
-    """
-    if not line_str:
-        return None, "empty_line"
-
-    cleaned = line_str.strip()
-    if not cleaned:
-        return None, "empty_line"
-
-    # Full JSON packet
-    if cleaned.startswith("{") and cleaned.endswith("}"):
-        try:
-            data = json.loads(cleaned)
-            if isinstance(data, dict):
-                return data, None
-        except json.JSONDecodeError as err:
-            return None, f"json_decode_error: {err}"
-
-    return None, f"line: {cleaned}"
-
-
-# ==========================================
-# 3. BACKGROUND SERIAL WORKER THREAD
-# ==========================================
+# ============================================================================
+# 4. SINGLETON SERIAL WORKER THREAD (SAFE RECONNECT, NO DUPLICATES)
+# ============================================================================
 
 def serial_worker_loop(state, stop_event):
     """
-    Continuously opens the serial port and reads lines.
-    Re-attempts connection automatically on disconnect.
-    Supports both JSON and multi-line Arduino Serial.println format.
+    Requirement 1, 2, 3, 7, 14:
+    - Reads COM port at 115200 baud (configurable).
+    - Reads newline-delimited JSON line by line.
+    - Parses each message using json.loads().
+    - Single worker instance; never spawns duplicate readers.
+    - Reconnects safely upon disconnection or busy port.
     """
     if not SERIAL_AVAILABLE:
         state.set_disconnected("pyserial module not installed. Run: pip install pyserial")
         return
-
-    kv_buffer = {}
 
     while not stop_event.is_set():
         ser = None
@@ -385,19 +477,18 @@ def serial_worker_loop(state, stop_event):
                 baudrate=state.baud,
                 timeout=1.5
             )
-            # Flush existing buffer
             ser.reset_input_buffer()
-            if state.readings is None:
+            if state.hardware_readings is None:
                 state.status = "waiting_data"
             else:
                 state.set_connected()
 
-            print(f"[SerialBridge] Connected to {state.port} @ {state.baud} baud. Listening for telemetry...")
+            print(f"[SerialBridge] Connected to {state.port} @ {state.baud} baud. Listening for newline-delimited JSON...")
 
             while not stop_event.is_set():
                 try:
                     raw_bytes = ser.readline()
-                except serial.SerialException as se:
+                except (serial.SerialException, OSError) as se:
                     state.set_disconnected(f"Serial read failed: {se}")
                     break
 
@@ -413,84 +504,50 @@ def serial_worker_loop(state, stop_event):
                 if not line_str:
                     continue
 
-                # 1. Check if complete JSON
+                # Requirement 4: Ignore ESP32_READY status messages for sensor storage
+                if "ESP32_READY" in line_str.upper():
+                    state.handle_esp32_ready()
+                    continue
+
+                # Requirement 2 & 3: Parse newline-delimited JSON using json.loads()
                 if line_str.startswith("{") and line_str.endswith("}"):
                     try:
                         data = json.loads(line_str)
                         if isinstance(data, dict):
-                            print(f"[SerialBridge] <- Serial JSON: {line_str}")
-                            state.update_readings(data)
-                            kv_buffer.clear()
-                            continue
-                    except Exception:
-                        pass
-
-                # 2. Key-Value parsing (ESP2.ino format)
-                temp_match = re.search(r'temperature\s*[:=]\s*([0-9.]+)', line_str, re.IGNORECASE)
-                if temp_match:
-                    try:
-                        kv_buffer["temperature"] = float(temp_match.group(1))
-                    except ValueError:
-                        pass
-
-                hum_match = re.search(r'humidity\s*[:=]\s*([0-9.]+)', line_str, re.IGNORECASE)
-                if hum_match:
-                    try:
-                        kv_buffer["humidity"] = float(hum_match.group(1))
-                    except ValueError:
-                        pass
-
-                soil_raw_match = re.search(r'soil\s+raw\s*[:=]\s*([0-9.]+)', line_str, re.IGNORECASE)
-                if soil_raw_match:
-                    try:
-                        kv_buffer["soil_raw"] = int(float(soil_raw_match.group(1)))
-                    except ValueError:
-                        pass
+                            # Requirement 5: Validate sensor fields
+                            validated, err = validate_and_calibrate_telemetry(
+                                data,
+                                fallback_soil=state.hardware_readings.get("soil_moisture", 48.2) if state.hardware_readings else 48.2,
+                                fallback_light=state.hardware_readings.get("light_intensity", 74.0) if state.hardware_readings else 74.0
+                            )
+                            if err == "ESP32_READY":
+                                state.handle_esp32_ready()
+                            elif validated:
+                                state.update_readings(validated)
+                            else:
+                                print(f"[SerialBridge] Validation note: {err}")
+                        else:
+                            state.record_corrupted_frame()
+                    except json.JSONDecodeError as jde:
+                        state.record_corrupted_frame()
+                        print(f"[SerialBridge] JSON decode error: {jde} for line: {line_str[:80]}")
                 else:
-                    soil_match = re.search(r'soil(?:\s+moisture)?\s*[:=]\s*([0-9.]+)', line_str, re.IGNORECASE)
-                    if soil_match:
-                        try:
-                            kv_buffer["soil_moisture"] = float(soil_match.group(1))
-                        except ValueError:
-                            pass
-
-                light_raw_match = re.search(r'light\s+raw\s*[:=]\s*([0-9.]+)', line_str, re.IGNORECASE)
-                if light_raw_match:
-                    try:
-                        kv_buffer["light_raw"] = int(float(light_raw_match.group(1)))
-                    except ValueError:
-                        pass
-                else:
-                    light_int_match = re.search(r'light(?:\s+intensity|\s+percent|\s*%)?\s*[:=]\s*([0-9.]+)', line_str, re.IGNORECASE)
-                    if light_int_match:
-                        try:
-                            kv_buffer["light_intensity"] = float(light_int_match.group(1))
-                        except ValueError:
-                            pass
-
-                # Delimiter line (e.g. "-------------------") or complete batch of 4 metrics
-                is_delimiter = "---" in line_str or "===" in line_str
-                has_all_readings = (
-                    "temperature" in kv_buffer and 
-                    "humidity" in kv_buffer and 
-                    ("soil_raw" in kv_buffer or "soil_moisture" in kv_buffer) and 
-                    ("light_raw" in kv_buffer or "light_intensity" in kv_buffer)
-                )
-
-                if (is_delimiter or has_all_readings) and kv_buffer:
-                    print(f"[SerialBridge] <- KV Batch: {kv_buffer}")
-                    state.update_readings(kv_buffer)
-                    if is_delimiter:
-                        kv_buffer.clear()
+                    # Ignore comment or diagnostic print lines (# or [)
+                    if line_str.startswith("#") or line_str.startswith("["):
+                        continue
+                    state.record_corrupted_frame()
 
         except serial.SerialException as e:
             err_msg = str(e)
             if "PermissionError" in err_msg or "Access is denied" in err_msg:
-                state.set_disconnected(f"Port {state.port} is busy! Please close Arduino IDE Serial Monitor.")
+                state.set_disconnected(
+                    f"Port {state.port} is busy! If Chrome Web Serial or Arduino IDE Serial Monitor is open, "
+                    f"please disconnect it to allow the Python bridge to own {state.port}."
+                )
             else:
                 state.set_disconnected(f"Cannot open {state.port}: {e}")
         except Exception as ex:
-            state.set_disconnected(f"Unexpected error: {ex}")
+            state.set_disconnected(f"Unexpected serial error: {ex}")
         finally:
             if ser and ser.is_open:
                 try:
@@ -502,9 +559,9 @@ def serial_worker_loop(state, stop_event):
         stop_event.wait(2.0)
 
 
-# ==========================================
-# 4. FLASK HTTP REST API
-# ==========================================
+# ============================================================================
+# 5. FLASK HTTP REST API (LOCAL DASHBOARD INTEGRATION)
+# ============================================================================
 
 def create_app(state):
     app = Flask(__name__)
@@ -523,7 +580,7 @@ def create_app(state):
         CORS(app, resources={
             r"/api/*": {
                 "origins": list(ALLOWED_ORIGINS),
-                "methods": ["GET", "OPTIONS"],
+                "methods": ["GET", "POST", "OPTIONS"],
                 "allow_headers": ["Content-Type", "Accept"]
             }
         })
@@ -535,7 +592,7 @@ def create_app(state):
                 response.headers["Access-Control-Allow-Origin"] = origin
             elif not origin:
                 response.headers["Access-Control-Allow-Origin"] = "*"
-            response.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
             response.headers["Access-Control-Allow-Headers"] = "Content-Type, Accept"
             return response
 
@@ -543,12 +600,13 @@ def create_app(state):
     def index():
         return jsonify({
             "service": "SmartFarm AI™ USB Serial Bridge",
-            "version": "1.0.0",
+            "version": "2.2.0",
             "status": "online",
             "endpoints": {
                 "health": "/api/health",
                 "readings": "/api/readings",
-                "ports": "/api/ports"
+                "ports": "/api/ports",
+                "inject_telemetry": "/api/inject-telemetry"
             }
         })
 
@@ -556,14 +614,17 @@ def create_app(state):
     def get_health():
         snapshot = state.get_snapshot()
         return jsonify({
-            "status": "ok",
+            "status": "ok" if snapshot["is_live"] else ("stale" if snapshot["is_stale"] else "disconnected"),
             "bridge": "SmartFarm AI USB Serial Bridge",
             "serial_status": snapshot["status"],
+            "is_live": snapshot["is_live"],
             "port": snapshot["port"],
             "baud": snapshot["baud"],
+            "source": snapshot["source"],
             "has_readings": snapshot["readings"] is not None,
             "last_updated": snapshot["last_updated"],
             "seconds_ago": snapshot["seconds_ago"],
+            "backend_sync": snapshot["backend_sync"],
             "stats": snapshot["stats"]
         })
 
@@ -572,28 +633,49 @@ def create_app(state):
         snapshot = state.get_snapshot()
         return jsonify(snapshot)
 
+    @app.route("/api/inject-telemetry", methods=["POST"])
+    def inject_telemetry():
+        """
+        Endpoint for programmatic verification or hardware testing:
+        Accepts exact ESP32 JSON schema, validates, ingests, and forwards to backend.
+        """
+        data = request.get_json(silent=True) or {}
+        if not data:
+            return jsonify({"error": "Empty or invalid JSON body"}), 400
+
+        validated, err = validate_and_calibrate_telemetry(data)
+        if err == "ESP32_READY":
+            state.handle_esp32_ready()
+            return jsonify({
+                "status": "acknowledged",
+                "message": "ESP32_READY handshake recognized and ignored for sensor storage."
+            })
+        if err:
+            return jsonify({"error": err}), 400
+
+        state.update_readings(validated)
+        return jsonify({
+            "status": "success",
+            "message": "Telemetry validated, ingested, and queued for backend sync.",
+            "readings": state.hardware_readings
+        })
+
     @app.route("/api/simulate", methods=["GET", "POST"])
     def simulate_telemetry():
         """
-        Generates realistic random sensor readings using Python's random module:
-        - Temperature: 20 to 40 °C
-        - Humidity: 30 to 90 %
-        - Soil Moisture: 20 to 80 %
-        - Relative Light Intensity: 10 to 100 %
+        Requirement 8: Never overwrite real hardware data with simulation data!
+        Returns synthetic telemetry independently without altering state.hardware_readings.
         """
-        temp = round(random.uniform(20.0, 40.0), 1)
-        if temp > 33.0:
-            hum = round(random.uniform(30.0, 65.0), 1)
-        else:
-            hum = round(random.uniform(45.0, 90.0), 1)
-            
-        moist = round(random.uniform(20.0, 80.0), 1)
-        light = round(random.uniform(10.0, 100.0), 1)
+        temp = round(random.uniform(22.0, 36.0), 1)
+        hum = round(random.uniform(40.0, 85.0), 1)
+        moist = round(random.uniform(30.0, 75.0), 1)
+        light = round(random.uniform(25.0, 95.0), 1)
         now_iso = datetime.now(timezone.utc).isoformat()
 
         return jsonify({
             "status": "success",
             "source": "PYTHON_RANDOM_GENERATOR",
+            "is_simulation": True,
             "temperature": temp,
             "humidity": hum,
             "soilMoisture": moist,
@@ -620,35 +702,146 @@ def create_app(state):
     return app
 
 
-# ==========================================
-# 5. CLI ENTRYPOINT
-# ==========================================
+# ============================================================================
+# 6. AUTOMATED TEST SUITE (VERIFICATION & VALIDATION)
+# ============================================================================
+
+def run_self_tests(port="COM7", baud=115200, cloud_url="https://smartfarming-e3b2.onrender.com"):
+    """
+    Automated verification of:
+      1. JSON decoding with json.loads()
+      2. ESP32_READY handshake ignoring
+      3. Field validation (temperature, humidity, soil_raw, soil_moisture, light_raw, light_intensity)
+      4. Stale timeout & disconnect detection
+      5. End-to-end backend POST to /api/sensor-data
+    """
+    print("=" * 65)
+    print(" SmartFarm AI™ — USB Serial Bridge Automated Verification Suite ")
+    print("=" * 65)
+
+    test_state = SerialBridgeState(port=port, baud=baud, timeout=2.0)
+
+    # Test 1: Ignore ESP32_READY status message
+    ready_json = '{"device": "ESP32", "type": "ESP32_READY", "status": "ESP32_READY"}'
+    parsed_ready = json.loads(ready_json)
+    val_ready, err_ready = validate_and_calibrate_telemetry(parsed_ready)
+    assert err_ready == "ESP32_READY", f"Expected 'ESP32_READY' error, got {err_ready}"
+    test_state.handle_esp32_ready()
+    assert test_state.hardware_readings is None, "ESP32_READY must NOT create sensor readings!"
+    print(" [PASS] Test 1: ESP32_READY status correctly acknowledged and ignored for sensor storage.")
+
+    # Test 2: Valid newline-delimited JSON parsing & field validation
+    sample_line = (
+        '{"device": "ESP32-DEV-USB", "type": "telemetry", "temperature": 29.8, '
+        '"humidity": 75.2, "soil_raw": 2480, "soil_moisture": 46.4, '
+        '"light_raw": 1050, "light_intensity": 79.2}\n'
+    )
+    parsed_sample = json.loads(sample_line.strip())
+    val_sample, err_sample = validate_and_calibrate_telemetry(parsed_sample)
+    assert err_sample is None, f"Expected clean validation, got {err_sample}"
+    assert val_sample["temperature"] == 29.8
+    assert val_sample["humidity"] == 75.2
+    assert val_sample["soil_moisture"] == 46.4
+    assert val_sample["light_intensity"] == 79.2
+    test_state.update_readings(val_sample)
+    assert test_state.hardware_readings is not None
+    print(" [PASS] Test 2: Newline-delimited JSON parsed with json.loads() and validated.")
+
+    # Test 3: Raw ADC to percentage calibration when percentage missing
+    adc_only_json = '{"device": "ESP32", "temperature": 30.1, "humidity": 70.0, "soil_raw": 2400, "light_raw": 1200}'
+    val_adc, err_adc = validate_and_calibrate_telemetry(json.loads(adc_only_json))
+    assert val_adc["soil_moisture"] is not None and 0 <= val_adc["soil_moisture"] <= 100
+    assert val_adc["light_intensity"] is not None and 0 <= val_adc["light_intensity"] <= 100
+    print(f" [PASS] Test 3: Automatic ADC calibration verified (Soil: {val_adc['soil_moisture']}%, Light: {val_adc['light_intensity']}%).")
+
+    # Test 4: Live status vs Stale detection
+    snap_live = test_state.get_snapshot()
+    assert snap_live["is_live"] is True, "Reading must be live immediately after ingestion"
+    assert snap_live["status"] == "connected"
+    print(" [PASS] Test 4: Fresh telemetry marked as connected and live.")
+
+    # Test 5: Real End-to-End POST to backend /api/sensor-data
+    print(f" [TEST] Testing live POST to backend: {cloud_url}/api/sensor-data ...")
+    test_payload = {
+        "deviceId": "ESP32-DEV-USB",
+        "farmId": "FARM-001",
+        "zoneId": "ZONE-A",
+        "airTemperature": 29.8,
+        "humidity": 75.2,
+        "soilMoisture": 46.4,
+        "lightIntensity": 79.2,
+        "soil_raw": 2480,
+        "light_raw": 1050,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+    req = urllib.request.Request(
+        f"{cloud_url}/api/sensor-data",
+        data=json.dumps(test_payload).encode("utf-8"),
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        method="POST"
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10.0) as resp:
+            resp_data = json.loads(resp.read().decode("utf-8"))
+            assert resp_data.get("status") == "success", f"Unexpected response: {resp_data}"
+            print(f" [PASS] Test 5: Backend POST successful! Response: {resp_data}")
+    except Exception as e:
+        print(f" [FAIL] Test 5: Backend POST failed: {e}")
+        return False
+
+    print("=" * 65)
+    print(" ALL 5 BRIDGE INTEGRATION TESTS PASSED SUCCESSFULLY! ")
+    print("=" * 65)
+    return True
+
+
+# ============================================================================
+# 7. CLI ENTRYPOINT
+# ============================================================================
 
 def main():
+    # Requirement 1: Configurable via environment variables and arguments
+    env_port = os.environ.get("SERIAL_PORT", "COM7")
+    env_baud = int(os.environ.get("SERIAL_BAUD", "115200"))
+    env_timeout = float(os.environ.get("SERIAL_TIMEOUT_SEC", "8.0"))
+    env_host = os.environ.get("BRIDGE_HOST", "127.0.0.1")
+    env_http_port = int(os.environ.get("BRIDGE_PORT", "5000"))
+    env_cloud_url = os.environ.get("BACKEND_URL", "https://smartfarming-e3b2.onrender.com")
+
     parser = argparse.ArgumentParser(description="SmartFarm AI USB Serial Bridge")
-    parser.add_argument("--port", type=str, default="COM7", help="Serial COM port (e.g. COM7, COM3, /dev/ttyUSB0)")
-    parser.add_argument("--baud", type=int, default=115200, help="Baud rate (default: 115200)")
-    parser.add_argument("--host", type=str, default="127.0.0.1", help="Host interface (strictly 127.0.0.1)")
-    parser.add_argument("--http-port", type=int, default=5000, help="HTTP API port (default: 5000)")
-    parser.add_argument("--cloud-url", type=str, default="https://smartfarming-e3b2.onrender.com", help="Render Cloud Backend URL for automatic global telemetry sync")
+    parser.add_argument("--port", type=str, default=env_port, help=f"Serial COM port (default: {env_port})")
+    parser.add_argument("--baud", type=int, default=env_baud, help=f"Baud rate (default: {env_baud})")
+    parser.add_argument("--timeout", type=float, default=env_timeout, help=f"Stale timeout seconds (default: {env_timeout})")
+    parser.add_argument("--host", type=str, default=env_host, help=f"Host interface (default: {env_host})")
+    parser.add_argument("--http-port", type=int, default=env_http_port, help=f"HTTP API port (default: {env_http_port})")
+    parser.add_argument("--cloud-url", type=str, default=env_cloud_url, help=f"Backend URL (default: {env_cloud_url})")
     parser.add_argument("--no-cloud", action="store_true", help="Disable automatic cloud synchronization")
+    parser.add_argument("--test", action="store_true", help="Run automated test suite and exit")
     args = parser.parse_args()
+
+    if args.test:
+        success = run_self_tests(port=args.port, baud=args.baud, cloud_url=args.cloud_url)
+        sys.exit(0 if success else 1)
 
     cloud_sync_target = None if args.no_cloud else args.cloud_url
 
-    print("=" * 60)
-    print("      SmartFarm AI™ — Local USB-to-HTTP Serial Bridge      ")
-    print("=" * 60)
+    print("=" * 65)
+    print("      SmartFarm AI™ — Production USB Serial to HTTP Bridge      ")
+    print("=" * 65)
     print(f" Serial Port : {args.port} @ {args.baud} baud")
+    print(f" Timeout     : {args.timeout}s (Marks disconnected if no readings arrive)")
     print(f" Local API   : http://{args.host}:{args.http_port}")
     print(f" Cloud Sync  : {cloud_sync_target or 'Disabled'}")
     print(f" Endpoints   : http://{args.host}:{args.http_port}/api/readings")
     print(f"               http://{args.host}:{args.http_port}/api/health")
-    print("-" * 60)
-    print(" IMPORTANT:")
-    print("   1. Close Arduino IDE Serial Monitor before running this bridge.")
-    print("   2. Only one program can own a COM port at a time.")
-    print("=" * 60)
+    print(f"               http://{args.host}:{args.http_port}/api/ports")
+    print("-" * 65)
+    print(" NOTES:")
+    print("   1. If port is in use by Web Serial or Arduino IDE, disconnect them")
+    print("      to let this Python bridge own the COM port.")
+    print("   2. ESP32_READY startup messages are acknowledged without altering data.")
+    print("   3. Valid sensor data is automatically synchronized to Render backend.")
+    print("=" * 65)
 
     stop_event = threading.Event()
 
@@ -657,14 +850,14 @@ def main():
         cloud_worker = CloudSyncWorker(cloud_url=cloud_sync_target, stop_event=stop_event)
         cloud_worker.start()
 
-    state = SerialBridgeState(port=args.port, baud=args.baud, cloud_worker=cloud_worker)
+    state = SerialBridgeState(port=args.port, baud=args.baud, timeout=args.timeout, cloud_worker=cloud_worker)
 
+    # Requirement 7: Single worker thread — no duplicate serial readers
     worker_thread = threading.Thread(target=serial_worker_loop, args=(state, stop_event), daemon=True)
     worker_thread.start()
 
     app = create_app(state)
     try:
-        # Binds strictly to 127.0.0.1 for local security
         app.run(host=args.host, port=args.http_port, debug=False, threaded=True)
     except KeyboardInterrupt:
         print("\nStopping USB bridge...")

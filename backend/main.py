@@ -67,6 +67,7 @@ app.add_middleware(
 
 class SensorPayload(BaseModel):
     deviceId: Optional[str] = Field(default="ESP32-DEV-USB", alias="device_id")
+    device: Optional[str] = None
     farmId: Optional[str] = Field(default="FARM-001", alias="farm_id")
     zoneId: Optional[str] = Field(default="ZONE-A", alias="zone_id")
     timestamp: Optional[Union[str, int, float]] = None
@@ -373,7 +374,7 @@ def receive_sensor_data(payload: SensorPayload):
 
     # Update real-time state with live physical sensor measurements
     target = zones_state[zone_id]
-    target["deviceId"] = payload.deviceId
+    target["deviceId"] = payload.device or payload.deviceId or "ESP32-DEV-USB"
     
     # Soil moisture resolution: calibrate from raw ADC or maintain realistic calibrated baseline (48.2%)
     soil_val = payload.soilMoisture
