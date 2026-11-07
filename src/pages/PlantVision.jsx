@@ -37,7 +37,14 @@ export default function PlantVision() {
   const [imagePreview, setImagePreview] = useState(null);
   const [imageMeta, setImageMeta] = useState(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analysisResult, setAnalysisResult] = useState(null);
+  const [analysisResult, setAnalysisResult] = useState(() => {
+    try {
+      const saved = localStorage.getItem('smartfarm_latest_plant_vision');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
   const [errorMessage, setErrorMessage] = useState(null);
   const [isDragOver, setIsDragOver] = useState(false);
 
@@ -162,6 +169,14 @@ export default function PlantVision() {
       // Step C: Verify request is still fresh
       if (currentRequestId === requestIdRef.current) {
         setAnalysisResult(result);
+        if (result && result.validation_status) {
+          try {
+            localStorage.setItem('smartfarm_latest_plant_vision', JSON.stringify({
+              ...result,
+              analyzedAt: new Date().toISOString()
+            }));
+          } catch {}
+        }
       }
     } catch (err) {
       if (err.name !== 'AbortError' && currentRequestId === requestIdRef.current) {
@@ -185,6 +200,9 @@ export default function PlantVision() {
     setImagePreview(null);
     setImageMeta(null);
     setAnalysisResult(null);
+    try {
+      localStorage.removeItem('smartfarm_latest_plant_vision');
+    } catch {}
     setErrorMessage(null);
     setIsAnalyzing(false);
     if (fileInputRef.current) {

@@ -36,17 +36,21 @@ export default function MobileFarmAI() {
   const suggestedPrompts = useMemo(() => {
     if (isTe) {
       return [
-        'ఈ రోజు టమాటా పంటకు నీరు పెట్టాలా?',
-        'మట్టి తేమ శాతం ప్రకారం సిఫార్సు ఏమిటి?',
-        'ప్రస్తుత ఉష్ణోగ్రతకు తెగుళ్ల ముప్పు ఉందా?',
-        'మిరప పంటకు ఎరువుల మోతాదు ఎంత?'
+        'నా పూర్తి పొలం పరిస్థితిని విశ్లేషించండి',
+        'ఈ రోజు నీరు పెట్టాలా?',
+        'తాజా సెన్సార్ రీడింగ్‌లను వివరించండి',
+        'మట్టి తేమ ధోరణిని విశ్లేషించండి',
+        'తాజా మొక్కల వ్యాధి నిర్ధారణను వివరించండి',
+        'నీటిని ఎలా ఆదా చేయవచ్చు?'
       ];
     }
     return [
-      'Should I irrigate Zone A today?',
-      'Analyze current soil moisture and light',
-      'Are current temperatures causing crop stress?',
-      'Fertilizer plan for active crops'
+      'Analyze my complete farm condition.',
+      'Should I irrigate today?',
+      'Explain my latest sensor readings.',
+      'Analyze my soil moisture trends.',
+      'Explain my latest plant diagnosis.',
+      'How can I save water?'
     ];
   }, [isTe]);
 
@@ -101,24 +105,25 @@ export default function MobileFarmAI() {
     setIsSending(true);
 
     try {
-      const liveContext = {
+      const response = await executeAIChatQuery({
+        query,
         zones,
         alerts,
         hardwareData,
         simulationData,
         operatingMode,
         history,
-        language
-      };
-
-      const response = await executeAIChatQuery(query, liveContext, backendUrl);
+        language: isTe ? 'te' : 'en',
+        backendUrl,
+        conversationHistory: messages
+      });
       
       const aiMsg = {
         id: `ai-${Date.now()}`,
         sender: 'ai',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         text: response.text,
-        model: response.model || 'Agricultural AI'
+        model: response.model || 'Farm AI Engine'
       };
 
       setMessages(prev => [...prev, aiMsg]);
@@ -126,14 +131,22 @@ export default function MobileFarmAI() {
       const errorMsg = {
         id: `err-${Date.now()}`,
         sender: 'ai',
+        isError: true,
+        retryQuery: query,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         text: isTe 
-          ? 'క్షమించండి, సమాధానం రూపొందించడంలో సమస్య ఎదురైంది. దయచేసి మళ్ళీ ప్రయత్నించండి.' 
-          : 'Sorry, I encountered an error answering your question. Please try again.'
+          ? `లోపం ఏర్పడింది (${err.message || 'సర్వీస్ అందుబాటులో లేదు'}). దయచేసి మళ్ళీ ప్రయత్నించండి.` 
+          : `I encountered an error answering your question (${err.message || 'Service unavailable'}). Please try again.`
       };
       setMessages(prev => [...prev, errorMsg]);
     } finally {
       setIsSending(false);
+    }
+  };
+
+  const handleRetry = (queryToRetry) => {
+    if (queryToRetry) {
+      handleSendMessage(queryToRetry);
     }
   };
 
@@ -235,11 +248,33 @@ export default function MobileFarmAI() {
                   {msg.text}
                 </div>
 
+                {/* Retry action for failed requests */}
+                {msg.isError && msg.retryQuery && (
+                  <div className="pt-1.5">
+                    <button
+                      type="button"
+                      onClick={() => handleRetry(msg.retryQuery)}
+                      disabled={isSending}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-[10px] font-bold transition-all cursor-pointer"
+                    >
+                      <RefreshCw className="w-2.5 h-2.5" />
+                      <span>{isTe ? 'మళ్లీ ప్రయత్నించండి' : 'Retry'}</span>
+                    </button>
+                  </div>
+                )}
+
                 {/* Footer: timestamp + copy */}
                 <div className={`mt-1.5 flex items-center justify-between gap-2 text-[9px] ${
                   isUser ? 'text-emerald-100' : 'text-slate-400'
                 }`}>
-                  <span>{msg.timestamp}</span>
+                  <span className="flex items-center gap-1.5">
+                    <span>{msg.timestamp}</span>
+                    {msg.model && (
+                      <span className="text-[8px] font-mono text-emerald-800 bg-emerald-50 px-1 py-0.2 rounded">
+                        {msg.model}
+                      </span>
+                    )}
+                  </span>
                   {!isUser && (
                     <button
                       onClick={() => handleCopy(msg.id, msg.text)}

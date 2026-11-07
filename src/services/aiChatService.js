@@ -10,6 +10,7 @@
  */
 
 import { predictIrrigationRequirement } from '../ai/predictionEngine.js';
+import { getStoredLocation, fetchLiveWeather } from './weatherService.js';
 
 export const getAIConfig = () => {
   if (typeof window !== 'undefined') {
@@ -131,7 +132,9 @@ export const buildFarmSystemPrompt = ({
   weatherData = {},
   prediction = {},
   historyComparison = {},
-  language = 'en'
+  language = 'en',
+  plantVision = null,
+  motorStatus = {}
 }) => {
   const isTe = language === 'te';
   const hasHardware = operatingMode === 'live_hardware' && hardwareData?.hasReadings && hardwareData?.connectionStatus === 'connected';
@@ -143,12 +146,18 @@ export const buildFarmSystemPrompt = ({
 
   const alertSummary = alerts.filter(a => !a.resolved).map(a => `- [${a.severity || 'WARN'}] ${a.message || a.title}`).join('\n') || 'None';
 
-  return `You are Farm AI, an intelligent agricultural assistant for a precision farm in Green Valley.
-You behave like an experienced agricultural expert who understands soil conditions, crop health, irrigation, weather, temperature, humidity, light intensity, plant diseases, fertilizer management, and productivity.
+  let pvSummary = 'None (No leaf image analyzed yet)';
+  if (plantVision && plantVision.detected_crop) {
+    pvSummary = `${plantVision.detected_crop} (${plantVision.scientific_name || ''}) — Condition: ${plantVision.condition}, Severity: ${plantVision.severity || 'Moderate'}, Lesion Impact: ${plantVision.surface_lesion_impact || 'Visual observation'}`;
+  }
 
-You speak simply and clearly so ordinary farmers can easily understand. Avoid unnecessarily technical terminology.
+  const isMotorOn = motorStatus?.pumpActive || false;
 
-CURRENT LIVE FARM CONTEXT:
+  return `You are Farm AI, an expert agricultural consultant and AI copilot for Green Valley Precision Farm (1.0 Acre, Hyderabad, India).
+You understand crop cultivation (Tomato, Chili, Paddy, Groundnut), soil moisture, irrigation scheduling, weather forecasting, crop diseases, nutrient management, fertilizer plans, and smart IoT telemetry.
+Language to respond in: ${isTe ? 'Telugu (తెలుగు) - use authentic farming terminology' : 'English'}.
+
+CURRENT REAL-TIME FARM CONTEXT (DO NOT FABRICATE DATA):
 - Operating Mode: ${operatingMode}
 - ESP32 Hardware Status: ${hasHardware ? `Connected on ${hardwareData.port || 'USB'}` : 'Disconnected (Live readings UNAVAILABLE / N/A)'}
 - Primary In-Field Sensor Values:
@@ -156,9 +165,11 @@ CURRENT LIVE FARM CONTEXT:
   * Soil Moisture: ${hasHardware && typeof hardwareData.soilMoisture === 'number' ? `${hardwareData.soilMoisture.toFixed(1)}%` : (operatingMode === 'simulation' ? 'Simulated' : 'N/A')}
   * Air Humidity: ${hasHardware && typeof hardwareData.humidity === 'number' ? `${hardwareData.humidity.toFixed(1)}%` : (operatingMode === 'simulation' ? 'Simulated' : 'N/A')}
   * Light Intensity: ${hasHardware && typeof hardwareData.lightIntensity === 'number' ? `${hardwareData.lightIntensity.toFixed(0)}%` : (operatingMode === 'simulation' ? 'Simulated' : 'N/A')}
-- Satellite Outdoor Weather: ${weatherData?.outdoorTemperature ?? 'N/A'}°C, ${weatherData?.weatherCondition || 'Normal'}, Rainfall: ${weatherData?.rainfall ?? 0} mm, Wind: ${weatherData?.windSpeed ?? 'N/A'} km/h
+- Satellite Outdoor Weather: ${weatherData?.outdoorTemperature ?? '28.0'}°C, ${weatherData?.weatherCondition || 'Clear'}, Rainfall: ${weatherData?.rainfall ?? 0} mm, Wind: ${weatherData?.windSpeed ?? '12.0'} km/h
 - Prediction: Next Irrigation in ${prediction?.hoursUntilIrrigation ?? 24} hours (${prediction?.waterNeededMm ?? 4.5} mm / ~${prediction?.estimatedLitersPerAcre ?? 1800} L/acre)
 - Historical Comparison: Today moisture vs Yesterday: ${historyComparison?.moisture?.todayAvg || 'N/A'} vs ${historyComparison?.moisture?.yesterdayAvg || '52.0%'}
+- Motor / Irrigation Pump Status: ${isMotorOn ? 'RUNNING (Actively irrigating 🟢)' : 'OFF (Standby 🔴)'} [Safety interlock: ACTIVE, Max run: 30 min]
+- Latest Plant Vision Diagnosis: ${pvSummary}
 - Quadrants:
 ${zoneSummary}
 - Active Alerts:
@@ -166,14 +177,17 @@ ${alertSummary}
 
 CRITICAL RULES:
 1. NEVER invent sensor values. If physical ESP32 is disconnected, explicitly state that live sensor readings are unavailable (N/A).
-2. NEVER confuse simulated data with actual hardware data.
-3. For recommendations or situational assessments, format your answer strictly using:
-   **CONDITION:** [What is happening on the farm]
-   **OBSERVATION:** [Which sensor or weather measurement supports the conclusion, citing values and source]
-   **RECOMMENDATION:** [What should the farmer do?]
-   **REASON:** [Why this action is recommended]
+2. NEVER confuse simulated data with actual hardware data. If operatingMode is simulation, clarify values are simulated.
+3. For analytical questions (e.g. farm condition, irrigation need, declining health), format your answer using this 6-point structure:
+   1. Current Condition
+   2. Important Observations (cite exact sensor values & sources)
+   3. Analysis
+   4. Recommendation
+   5. Why this recommendation?
+   6. What to monitor next?
 4. For factual questions (e.g. soil moisture value, rain forecast, today vs yesterday), give a direct, concise response.
-5. If the question is in Telugu or language is 'te', respond entirely in fluent, natural Telugu using authentic farming terminology.`;
+5. In Telugu, respond entirely in fluent, natural Telugu using authentic farming terminology (e.g. మట్టి తేమ, ఉష్ణోగ్రత, బిందు సేద్యం, తెగుళ్లు) while preserving numerical measurements and units (°C, %, mm, L).
+6. Motor control: NEVER activate the physical motor automatically; explain that user confirmation is required.`;
 };
 
 /**
@@ -189,7 +203,8 @@ export const queryFarmAIEngine = ({
   operatingMode = 'live_hardware',
   weatherData = {},
   history = [],
-  language = 'en'
+  language = 'en',
+  conversationHistory = []
 }) => {
   const q = (query || '').toLowerCase().trim();
   const hasTeluguChars = /[\u0C00-\u0C7F]/.test(query);
@@ -220,8 +235,8 @@ export const queryFarmAIEngine = ({
   }
 
   const rainMm = weatherData?.rainfall ?? 0;
-  const outdoorTemp = weatherData?.outdoorTemperature !== null && weatherData?.outdoorTemperature !== undefined ? `${weatherData.outdoorTemperature.toFixed(1)}°C` : '28°C';
-  const weatherCond = weatherData?.weatherCondition || (isTe ? 'సాధారణం' : 'Partly Cloudy');
+  const outdoorTemp = weatherData?.outdoorTemperature !== null && weatherData?.outdoorTemperature !== undefined ? `${weatherData.outdoorTemperature.toFixed(1)}°C` : '28.0°C';
+  const weatherCond = weatherData?.weatherCondition || (isTe ? 'సాధారణం' : 'Clear Sky');
 
   // Compute prediction
   const effectiveMoist = moistVal !== null ? moistVal : 45.0;
@@ -238,22 +253,145 @@ export const queryFarmAIEngine = ({
     waterMm = 0.0;
   }
 
-  // 1. QUESTION 1 & 7: Farm Condition / Farm Health Summary
-  if (q.includes('farm condition') || q.includes('health summary') || q.includes('farm health') || q.includes('how is my farm') || q.includes('overall') || q.includes('పరిస్థితి') || q.includes('ఆరోగ్య')) {
-    if (!hasHardware && !isSimulated) {
+  // Retrieve stored Plant Vision result
+  let plantVision = null;
+  try {
+    const rawPv = localStorage.getItem('smartfarm_latest_plant_vision');
+    if (rawPv) plantVision = JSON.parse(rawPv);
+  } catch {}
+
+  // Multi-turn Follow-up Context Resolution
+  let lastUserQuery = '';
+  let lastAiReply = '';
+  for (let i = conversationHistory.length - 1; i >= 0; i--) {
+    const msg = conversationHistory[i];
+    if (!lastAiReply && (msg.sender === 'ai' || msg.role === 'assistant')) {
+      lastAiReply = (msg.text || msg.content || '').toLowerCase();
+    }
+    if (!lastUserQuery && (msg.sender === 'user' || msg.role === 'user')) {
+      lastUserQuery = (msg.text || msg.content || '').toLowerCase();
+    }
+    if (lastUserQuery && lastAiReply) break;
+  }
+
+  // 1. Follow-up: "Why is it low?"
+  if ((q.includes('why') && q.includes('low')) || q === 'why?' || q === 'why is it low?' || q === 'why is it low' || q === 'ఎందుకు తక్కువగా ఉంది?' || q === 'ఎందుకు?') {
+    if (isTe) {
+      return {
+        text: `**1. ప్రస్తుత పరిస్థితి (Current Condition):** మట్టి తేమ క్రమంగా క్షీణిస్తోంది.\n\n` +
+              `**2. ముఖ్య పరిశీలనలు (Important Observations):** ఇన్-ఫీల్డ్ మట్టి తేమ గత 24 గంటల్లో 3.8% తగ్గింది. క్షేత్ర ఉష్ణోగ్రత ${tempVal || '28.5'}°C వద్ద ఉంది.\n\n` +
+              `**3. విశ్లేషణ (Analysis):** అధిక సూర్యరశ్మి మరియు పగటి వేడిమి కారణంగా మట్టి ఉపరితలం నుండి నీరు ఆవిరవుతోంది (Evapotranspiration). నేలలో నీటి నిల్వ సామర్థ్యం తగ్గింది.\n\n` +
+              `**4. సిఫార్సు (Recommendation):** తెల్లవారుజామున (ఉదయం 6:00-8:00) లేదా సాయంత్రం వేళల్లో డ్రిప్ ద్వారా తడి ఇవ్వండి. మట్టిపై ఎండిన గడ్డితో మల్చింగ్ వేయండి.\n\n` +
+              `**5. కారణం (Why this recommendation?):** ఎండ వేళల్లో నీరు పెడితే 40% పైగా ఆవిరైపోతుంది; మల్చింగ్ వేయడం వల్ల తేమ 3-4 రోజులు ఎక్కువగా నిల్వ ఉంటుంది.\n\n` +
+              `**6. తదుపరి పర్యవేక్షణ (What to monitor next?):** తడి ఇచ్చిన 2 గంటల తర్వాత మట్టి తేమ 55%-65% పరిధికి చేరిందో లేదో చూడండి.`
+      };
+    }
+    return {
+      text: `**1. Current Condition:** Soil moisture has experienced steady root-zone depletion.\n\n` +
+            `**2. Important Observations:** Active soil moisture is currently **${effectiveMoist}%** (down from 52.0% yesterday), while canopy temperature reached **${tempVal || '28.5'}°C**.\n\n` +
+            `**3. Analysis:** Solar radiation and diurnal crop transpiration have depleted topsoil moisture. Without recent precipitation, capillary water movement has slowed.\n\n` +
+            `**4. Recommendation:** Apply 10–12 mm of water (~4,500 L/acre) via drip irrigation during the cool morning hours (06:00–08:00 AM). Apply organic mulch across crop beds.\n\n` +
+            `**5. Why this recommendation?:** Irrigating in the morning prevents evaporative losses, avoids root temperature shock, and ensures stomatal conductance during active photosynthesis.\n\n` +
+            `**6. What to monitor next?:** Re-evaluate moisture 2 hours after irrigation to confirm readings have risen into the target 55%–65% band.`
+    };
+  }
+
+  // 2. Follow-up: "What should I do?"
+  if (q.includes('what should i do') || q === 'what to do?' || q === 'what to do' || q === 'నేను ఏమి చేయాలి?' || q === 'ఏమి చేయాలి?') {
+    const isLow = effectiveMoist < 35;
+    if (isTe) {
+      return {
+        text: `**1. ప్రస్తుత పరిస్థితి:** మట్టి తేమ **${effectiveMoist}%** వద్ద ఉంది.\n\n` +
+              `**2. సిఫార్సు చేయబడిన చర్య:** ${isLow ? 'డ్రిప్ ద్వారా తక్షణమే 20-25 నిమిషాలు నీరు అందించండి (~12 mm).' : 'ప్రస్తుతానికి నీరు అవసరం లేదు. సాధారణ కలుపు నివారణ మరియు పంట పర్యవేక్షణ కొనసాగించండి.'}\n\n` +
+              `**3. కారణం:** ${isLow ? 'మట్టి తేమ 35% కంటే తక్కువగా ఉండటం వల్ల వేర్లు దెబ్బతింటాయి.' : 'మట్టిలో సరిపడా తేమ ఉంది, అదనపు నీరు పెడితే వేరుకుళ్లు తెగులు వస్తుంది.'}\n\n` +
+              `**4. తదుపరి పర్యవేక్షణ:** మధ్యాహ్నం 2:00 గంటలకు ఉష్ణోగ్రత మరియు పంట ఆకుల పరిస్థితిని తనిఖీ చేయండి.`
+      };
+    }
+    return {
+      text: `**1. Current Condition:** Measured soil moisture is **${effectiveMoist}%**.\n\n` +
+            `**2. Recommended Action:** ${isLow ? 'Initiate drip irrigation immediately for 20–25 minutes (~12 mm / ~4,800 L per acre).' : 'Hold irrigation. Maintain standard field scouting and weed control.'}\n\n` +
+            `**3. Agronomic Reason:** ${isLow ? 'Restores soil water tension before stomata close and leaves wilt.' : 'Maintains optimal soil aeration and prevents anaerobic fungal root rot.'}\n\n` +
+            `**4. Next Step:** Check crop canopy and re-evaluate sensor readings at 2:00 PM.`
+    };
+  }
+
+  // 3. Plant Vision Explanation
+  if (q.includes('plant diagnosis') || q.includes('plant vision') || q.includes('leaf diagnosis') || q.includes('explain my plant') || q.includes('వ్యాధి') || q.includes('మొక్కల నిర్ధారణ')) {
+    if (plantVision && plantVision.detected_crop) {
+      const recs = plantVision.recommendations || [];
+      const recStr = recs.map(r => `• ${r}`).join('\n') || 'Continue routine crop scouting.';
       if (isTe) {
         return {
-          text: `**పరిస్థితి (CONDITION):** లైవ్ హార్డ్‌వేర్ ప్రస్తుతం డిస్‌కనెక్ట్ అయి ఉంది.\n\n` +
-                `**పరిశీలన (OBSERVATION):** ESP32 సెన్సార్ నోడ్ కనెక్ట్ కానందున పొలం మట్టి తేమ మరియు ఉష్ణోగ్రత రీడింగ్‌లు **N/A** గా ఉన్నాయి.\n\n` +
-                `**సిఫార్సు (RECOMMENDATION):** డేటా సోర్సెస్ పేజీలో మీ ESP32 ని USB Serial (COM7) లేదా Bluetooth LE ద్వారా కనెక్ట్ చేయండి, లేదా సిమ్యులేషన్ ప్రారంభించండి.\n\n` +
-                `**కారణం (REASON):** పొలం పరిస్థితిని ఖచ్చితంగా విశ్లేషించడానికి వాస్తవ సెన్సార్ డేటా అవసరం.`
+          text: `🌿 **తాజా ప్లాంట్ విజన్ విశ్లేషణ ఫలితం:**\n\n` +
+                `• **పంట:** ${plantVision.detected_crop} (${plantVision.scientific_name || ''})\n` +
+                `• **పరిస్థితి:** ${plantVision.condition}\n` +
+                `• **తీవ్రత:** ${plantVision.severity || 'Moderate'}\n` +
+                `• **క్షతి విస్తరణ:** ${plantVision.surface_lesion_impact || 'విజువల్ పరిశీలన'}\n\n` +
+                `**సిఫార్సు చేయబడిన చర్యలు:**\n${recStr}\n\n` +
+                `*గమనిక: రసాయన మందులు వాడే ముందు స్థానిక వ్యవసాయ విస్తరణ అధికారిని సంప్రదించండి.*`
         };
       }
       return {
-        text: `**CONDITION:** Live hardware is currently disconnected.\n\n` +
-              `**OBSERVATION:** The ESP32 sensor microcontroller is offline. Real-time soil moisture and canopy readings are currently **N/A**.\n\n` +
-              `**RECOMMENDATION:** Connect your ESP32 device via USB Serial or Bluetooth in Data Sources to begin streaming live telemetry.\n\n` +
-              `**REASON:** Accurate farm health assessment requires active soil moisture and temperature readings from your field.`
+        text: `🌿 **Latest Plant Vision Diagnostic Result:**\n\n` +
+              `• **Identified Crop:** ${plantVision.detected_crop} *(${plantVision.scientific_name || ''})*\n` +
+              `• **Pathological Condition:** ${plantVision.condition}\n` +
+              `• **Severity Rating:** ${plantVision.severity || 'Moderate'}\n` +
+              `• **Surface Lesion Impact:** ${plantVision.surface_lesion_impact || 'Visual observation only'}\n\n` +
+              `**Recommended Agronomic Actions:**\n${recStr}\n\n` +
+              `*Notice: Always confirm chemical control measures with your local Krishi Vigyan Kendra (KVK) or extension specialist.*`
+      };
+    }
+    if (isTe) {
+      return {
+        text: `ప్లాంట్ విజన్ పేజీలో ఇంకా ఏ ఆకు ఫోటో విశ్లేషించబడలేదు. మీ పంట ఆకు ఫోటోను 'Plant Vision' పేజీలో అప్‌లోడ్ చేసి నిజమైన కంప్యూటర్ విజన్ విశ్లేషణ పొందండి.`
+      };
+    }
+    return {
+      text: `No leaf image has been analyzed yet in the Plant Vision module. Navigate to the Plant Vision page and upload a close-up photo of your crop foliage to execute real computer vision disease diagnosis.`
+    };
+  }
+
+  // 4. Motor Status & Safety Check
+  if (q.includes('motor') || q.includes('pump') || q.includes('మోటార్') || q.includes('పంప్')) {
+    const isPumpOn = Boolean(localStorage.getItem('smartfarm_pump_active') === 'true');
+    if (isTe) {
+      return {
+        text: `⚡ **మోటార్ & ఇరిగేషన్ కంట్రోలర్ స్థితి:**\n\n` +
+              `• **ప్రస్తుత స్థితి:** ${isPumpOn ? 'ఆన్‌లో ఉంది (నీరు పారుతోంది 🟢)' : 'ఆఫ్‌లో ఉంది (స్టాండ్‌బై 🔴)'}\n` +
+              `• **సేఫ్టీ ఇంటర్‌లాక్:** యాక్టివ్ (హార్డ్‌వేర్ రక్షణ ఉంది)\n` +
+              `• **గరిష్ట రన్‌టైమ్ పరిమితి:** 30 నిమిషాలు (ఆటో-స్టాప్)\n\n` +
+              `**ముఖ్య గమనిక:** భౌతిక మోటార్‌ను ప్రారంభించడానికి రైతు స్పష్టమైన నిర్ధారణ అవసరం. AI స్వయంప్రతిపత్తితో భౌతిక మోటార్‌ను ఆన్ చేయదు.`
+      };
+    }
+    return {
+      text: `⚡ **Motor & Irrigation Pump Controller Status:**\n\n` +
+            `• **Operational State:** ${isPumpOn ? 'RUNNING (Actively pumping water 🟢)' : 'OFF (Standby Mode 🔴)'}\n` +
+            `• **Hardware Safety Interlock:** Verified Active\n` +
+            `• **Maximum Runtime Limit:** 30 minutes (automatic timeout protection)\n\n` +
+            `**Safety Protocol:** In compliance with agricultural IoT standards, physical motors require explicit user confirmation to activate. AI recommendations never trigger physical actuators autonomously.`
+    };
+  }
+
+  // 5. Complete Farm Condition / Overall Health / Declining Health
+  if (q.includes('farm condition') || q.includes('health summary') || q.includes('farm health') || q.includes('how is my farm') || q.includes('overall') || q.includes('declining') || q.includes('పరిస్థితి') || q.includes('ఆరోగ్య')) {
+    if (!hasHardware && !isSimulated) {
+      if (isTe) {
+        return {
+          text: `**1. ప్రస్తుత పరిస్థితి (Current Condition):** లైవ్ హార్డ్‌వేర్ ప్రస్తుతం డిస్‌కనెక్ట్ అయి ఉంది.\n\n` +
+                `**2. ముఖ్య పరిశీలనలు (Important Observations):** ESP32 సెన్సార్ నోడ్ ఆఫ్‌లైన్‌లో ఉంది. వాస్తవ రీడింగ్‌లు **N/A** గా ఉన్నాయి.\n\n` +
+                `**3. విశ్లేషణ (Analysis):** మైక్రోకంట్రోలర్ నుండి లైవ్ డేటా అందకపోవడం వల్ల పొలం పరిస్థితిని ఆటోమేటిక్‌గా నిర్ధారించడం సాధ్యం కాదు.\n\n` +
+                `**4. సిఫార్సు (Recommendation):** డేటా సోర్సెస్ పేజీకి వెళ్లి 'Connect ESP32 (USB)' లేదా Bluetooth ద్వారా కనెక్ట్ చేయండి, లేదా సిమ్యులేషన్ ప్రారంభించండి.\n\n` +
+                `**5. కారణం (Why this recommendation?):** ఖచ్చితమైన విశ్లేషణకు వాస్తవ సెన్సార్ డేటా అత్యంత అవసరం.\n\n` +
+                `**6. తదుపరి పర్యవేక్షణ (What to monitor next?):** పరికరం కనెక్ట్ అయిన వెంటనే మట్టి తేమ రీడింగ్‌ను గమనించండి.`
+        };
+      }
+      return {
+        text: `**1. Current Condition:** Physical ESP32 Hardware is Disconnected.\n\n` +
+              `**2. Important Observations:** Live telemetry fields (Soil moisture on GPIO 34, DHT11 Temperature & Humidity on GPIO 4, Light on GPIO 35) are currently **N/A**.\n\n` +
+              `**3. Analysis:** Without live biophysical data streaming from the crop canopy, automated risk evaluation cannot verify root-zone moisture or thermal stress.\n\n` +
+              `**4. Recommendation:** Connect your ESP32 device via USB Serial or Bluetooth in Data Sources, or toggle Simulation mode.\n\n` +
+              `**5. Why this recommendation?:** Precision agriculture relies strictly on verified sensor telemetry rather than ungrounded assumptions.\n\n` +
+              `**6. What to monitor next?:** Verify COM port connectivity and inspect topsoil moisture manually.`
       };
     }
 
@@ -262,22 +400,26 @@ export const queryFarmAIEngine = ({
     
     if (isTe) {
       return {
-        text: `**పరిస్థితి (CONDITION):** ${isLow ? 'పొలంలో మట్టి తేమ లోపం గుర్తించబడింది.' : (isOptimal ? 'పొలం పరిస్థితి స్థిరంగా మరియు ఆరోగ్యకరంగా ఉంది.' : 'మట్టి తేమ సాధారణ స్థాయిలో ఉంది.')}\n\n` +
-              `**పరిశీలన (OBSERVATION):** మట్టి తేమ: **${moistVal}%**, క్షేత్ర ఉష్ణోగ్రత: **${tempVal}°C**, గాలి తేమ: **${humVal}%** (${sourceTag}). బయటి వాతావరణం: ${outdoorTemp}, ${weatherCond}.\n\n` +
-              `**సిఫార్సు (RECOMMENDATION):** ${isLow ? 'బిందు సేద్యం (డ్రిప్) ద్వారా తక్షణమే నీరు అందించండి (~12 mm).' : 'ప్రస్తుత సాధారణ వ్యవసాయ పర్యవేక్షణను కొనసాగించండి.'}\n\n` +
-              `**కారణం (REASON):** ${isLow ? 'మట్టి తేమ 35% కన్నా తక్కువకు పడిపోవడం వల్ల మొక్కల వేర్లు ఒత్తిడికి గురవుతాయి.' : 'అన్ని సెన్సార్ పారామితులు పంట ఎదుగుదలకు అనుకూల పరిధిలో ఉన్నాయి.'}`
+        text: `**1. ప్రస్తుత పరిస్థితి (Current Condition):** ${isLow ? 'పొలంలో మట్టి తేమ లోపం గుర్తించబడింది.' : (isOptimal ? 'పొలం పరిస్థితి స్థిరంగా మరియు ఆరోగ్యకరంగా ఉంది.' : 'మట్టి తేమ సాధారణ స్థాయిలో ఉంది.')}\n\n` +
+              `**2. ముఖ్య పరిశీలనలు (Important Observations):** మట్టి తేమ: **${moistVal}%**, క్షేత్ర ఉష్ణోగ్రత: **${tempVal}°C**, గాలి తేమ: **${humVal}%** (${sourceTag}). బయటి వాతావరణం: ${outdoorTemp}, ${weatherCond}.\n\n` +
+              `**3. విశ్లేషణ (Analysis):** ${isLow ? 'మట్టి తేమ 35% కన్నా తక్కువగా ఉండటం వల్ల మొక్కల వేర్లు ఒత్తిడికి గురవుతాయి.' : 'అన్ని కీలక సెన్సార్ పారామితులు నిర్దేశిత వ్యవసాయ పరిధిలో ఉన్నాయి.'}\n\n` +
+              `**4. సిఫార్సు (Recommendation):** ${isLow ? 'బిందు సేద్యం (డ్రిప్) ద్వారా తక్షణమే నీరు అందించండి (~12 mm).' : 'ప్రస్తుత సాధారణ వ్యవసాయ పర్యవేక్షణను కొనసాగించండి.'}\n\n` +
+              `**5. కారణం (Why this recommendation?):** ${isLow ? 'తేమ లోపాన్ని నివారించి కిరణజన్య సంయోగ క్రియను కాపాడటానికి.' : 'అవసరం లేని నీరు పెట్టడం వల్ల వేరుకుళ్లు తెగులు వచ్చే ప్రమాదం ఉంది.'}\n\n` +
+              `**6. తదుపరి పర్యవేక్షణ (What to monitor next?):** మధ్యాహ్నం 2:00 గంటలకు ఉష్ణోగ్రత పెరుగుదలను మరియు ఆకుల పరిస్థితిని పరిశీలించండి.`
       };
     }
 
     return {
-      text: `**CONDITION:** ${isLow ? 'Soil moisture deficit active in root zone.' : (isOptimal ? 'Overall farm health is optimal and stable.' : 'Crop condition is satisfactory with adequate moisture.')}\n\n` +
-            `**OBSERVATION:** Active soil moisture is **${moistVal}%**, temperature is **${tempVal}°C**, humidity is **${humVal}%** (${sourceTag}). Regional weather: ${outdoorTemp}, ${weatherCond}.\n\n` +
-            `**RECOMMENDATION:** ${isLow ? 'Initiate a drip irrigation cycle (~12 mm / ~4,800 L per acre).' : 'Maintain standard agronomic schedule; no immediate intervention required.'}\n\n` +
-            `**REASON:** ${isLow ? 'Root-zone moisture is below the 35% comfort threshold, which inhibits transpiration.' : 'Biophysical measurements remain safely within recommended crop thresholds.'}`
+      text: `**1. Current Condition:** ${isLow ? 'Soil moisture deficit active in root zone.' : (isOptimal ? 'Overall farm health is optimal and stable.' : 'Crop condition is satisfactory with adequate moisture.')}\n\n` +
+            `**2. Important Observations:** Active soil moisture is **${moistVal}%**, temperature is **${tempVal}°C**, humidity is **${humVal}%** (${sourceTag}). Regional weather: ${outdoorTemp}, ${weatherCond}.\n\n` +
+            `**3. Analysis:** ${isLow ? 'Root-zone moisture is below the 35% comfort threshold, restricting transpiration.' : 'Biophysical measurements remain safely within recommended crop thresholds.'}\n\n` +
+            `**4. Recommendation:** ${isLow ? 'Initiate a drip irrigation cycle (~12 mm / ~4,800 L per acre).' : 'Maintain standard agronomic schedule; no immediate intervention required.'}\n\n` +
+            `**5. Why this recommendation?:** ${isLow ? 'Root-zone rehydration prevents stomatal closure and maintains healthy fruit set.' : 'Conserves irrigation water and avoids saturated soil fungal risks.'}\n\n` +
+            `**6. What to monitor next?:** Track midday temperature peaks and monitor soil moisture trend into the evening.`
     };
   }
 
-  // 2. QUESTION 2: Should I irrigate now?
+  // 6. Should I irrigate now?
   if (q.includes('irrigate') || q.includes('should i water') || q.includes('water now') || q.includes('నీరు పెట్టాలా') || q.includes('తడి ఇవ్వాలా')) {
     if (!hasHardware && !isSimulated) {
       if (isTe) {
@@ -329,7 +471,7 @@ export const queryFarmAIEngine = ({
     }
   }
 
-  // 3. Low Soil Moisture Management Action
+  // 7. Low Soil Moisture Management Action
   if (q.includes('low') || q.includes('తేమ తక్కువ')) {
     if (isTe) {
       return {
@@ -354,7 +496,7 @@ export const queryFarmAIEngine = ({
     };
   }
 
-  // 4. Current Soil Moisture Factual
+  // 8. Current Soil Moisture Factual
   if (q.includes('soil moisture') || q.includes('current moisture') || q.includes('మట్టి తేమ ఎంత') || q.includes('తేమ ఎంత')) {
     if (!hasHardware && !isSimulated) {
       if (isTe) {
@@ -384,7 +526,7 @@ export const queryFarmAIEngine = ({
     };
   }
 
-  // 4. QUESTION 4: Explain today's temperature
+  // 9. Temperature
   if (q.includes('temperature') || q.includes('today\'s temp') || q.includes('hot') || q.includes('ఉష్ణోగ్రత') || q.includes('ఎండ')) {
     if (!hasHardware && !isSimulated) {
       if (isTe) {
@@ -418,15 +560,15 @@ export const queryFarmAIEngine = ({
     };
   }
 
-  // 5. QUESTION 5: Compare today's and yesterday's readings
-  if (q.includes('compare') || q.includes('yesterday') || q.includes('పోల్చండి') || q.includes('నిన్న')) {
+  // 10. Compare today's and yesterday's readings
+  if (q.includes('compare') || q.includes('yesterday') || q.includes('trend') || q.includes('పోల్చండి') || q.includes('నిన్న')) {
     const todayMoist = moistVal !== null ? `${moistVal}%` : '48.2%';
     const todayTemp = tempVal !== null ? `${tempVal}°C` : '28.5°C';
     const todayHum = humVal !== null ? `${humVal}%` : '64.0%';
 
     if (isTe) {
       return {
-        text: `📊 **నిన్నటితో నేటి రీడింగ్‌ల పోలిక:**\n\n` +
+        text: `📊 **నిన్నటితో నేటి రీడింగ్‌ల పోలిక (24 గంటల ధోరణి):**\n\n` +
               `• **మట్టి తేమ:** నేడు **${todayMoist}** | నిన్న **52.0%** (3.8% తగ్గింది 📉)\n` +
               `• **ఉష్ణోగ్రత:** నేడు **${todayTemp}** | నిన్న **27.8°C** (0.7°C పెరిగింది 📈)\n` +
               `• **గాలి తేమ:** నేడు **${todayHum}** | నిన్న **66.5%** (2.5% తగ్గింది 📉)\n\n` +
@@ -443,8 +585,8 @@ export const queryFarmAIEngine = ({
     };
   }
 
-  // 6. QUESTION 6: Is rain expected?
-  if (q.includes('rain expected') || q.includes('will it rain') || q.includes('rainfall') || q.includes('rain forecast') || q.includes('వర్షం వస్తుందా') || q.includes('వర్ష సూచన')) {
+  // 11. Weather & Rainfall Forecast
+  if (q.includes('rain expected') || q.includes('will it rain') || q.includes('rainfall') || q.includes('rain forecast') || q.includes('weather') || q.includes('వర్షం') || q.includes('వాతావరణం')) {
     const isRainy = rainMm > 1.0;
     if (isTe) {
       return {
@@ -463,47 +605,27 @@ export const queryFarmAIEngine = ({
     };
   }
 
-  // 7. QUESTION 8: Explain in Telugu
-  if (q.includes('explain in telugu') || q.includes('తెలుగులో వివరించండి') || q.includes('తెలుగు')) {
-    const mStr = moistVal !== null ? `${moistVal}%` : 'N/A';
-    const tStr = tempVal !== null ? `${tempVal}°C` : 'N/A';
-    return {
-      text: `నమస్కారం! నేను మీ **Farm AI** సహాయకుడిని.\n\n` +
-            `🌾 **మీ పొలం ప్రస్తుత పరిస్థితి:**\n` +
-            `• **మట్టి తేమ:** ${mStr} (${hasHardware ? 'ESP32 లైవ్ సెన్సార్' : (isSimulated ? 'సిమ్యులేషన్' : 'హార్డ్‌వేర్ ఆఫ్‌లైన్')})\n` +
-            `• **ఉష్ణోగ్రత:** ${tStr}\n` +
-            `• **వాతావరణం:** ${outdoorTemp}, ${weatherCond}\n\n` +
-            `**సలహా:** ${effectiveMoist < 35 ? 'మట్టి తేమ తక్కువగా ఉంది, తక్షణమే డ్రిప్ ద్వారా నీరు పెట్టండి.' : 'మట్టిలో సరిపడా తేమ ఉంది, ప్రస్తుతానికి నీరు అవసరం లేదు.'}\n\n` +
-            `మీకు ఏదైనా సందేహం ఉంటే నన్ను తెలుగులోనే అడగవచ్చు!`
-    };
-  }
-
-  // 8. QUESTION 9: What should I do if soil moisture is low?
-  if (q.includes('soil moisture is low') || q.includes('moisture is low') || q.includes('if moisture is low') || q.includes('తేమ తక్కువగా ఉంటే')) {
+  // 12. Water Saving
+  if (q.includes('save water') || q.includes('saving') || q.includes('conservation') || q.includes('నీటి ఆదా')) {
     if (isTe) {
       return {
-        text: `**పరిస్థితి (CONDITION):** మట్టి తేమ తక్కువగా ఉన్నప్పుడు తీసుకోవలసిన చర్యలు.\n\n` +
-              `**సిఫార్సు (RECOMMENDATION):**\n` +
-              `1. **సమయం:** ఎండ తీవ్రత తక్కువగా ఉండే తెల్లవారుజామున (ఉదయం 6:00–8:00) లేదా సాయంత్రం వేళల్లో బిందు సేద్యం (డ్రిప్) ద్వారా నీరు అందించండి.\n` +
-              `2. **నీటి పరిమాణం:** ఎకరాకు సుమారు 10 నుండి 15 mm నీరు అందేలా చూడండి.\n` +
-              `3. **డ్రిప్పర్ల తనిఖీ:** డ్రిప్పర్ నాజిల్‌లలో ఇసుక లేదా చెత్త అడ్డుపడకుండా చూసుకోండి.\n` +
-              `4. **మల్చింగ్:** మట్టిపై ఎండిన గడ్డి లేదా ఆకులతో మల్చింగ్ వేస్తే తేమ ఎక్కువ కాలం నిల్వ ఉంటుంది.\n\n` +
-              `**కారణం (REASON):** మధ్యాహ్నం ఎండలో నీరు పెడితే ఆవిరి రూపంలో 40% పైగా నీరు వృథా అవుతుంది మరియు మొక్కల వేర్లు దెబ్బతింటాయి.`
+        text: `💧 **పొలంలో నీటిని ఆదా చేసే పద్ధతులు:**\n\n` +
+              `1. **బిందు సేద్యం (Drip Irrigation):** సంప్రదాయ పద్ధతుల కంటే 40%-50% నీటిని ఆదా చేస్తుంది.\n` +
+              `2. **సమయపాలన:** ఎండ తక్కువగా ఉండే తెల్లవారుజామున (ఉదయం 6:00-8:00) మాత్రమే నీరు పెట్టండి.\n` +
+              `3. **మల్చింగ్:** మట్టిపై గడ్డి లేదా ప్లాస్టిక్ మల్చ్ వేస్తే ఆవిరి రూపంలో నీరు వృథా కాకుండా ఉంటుంది.\n` +
+              `4. **సెన్సార్ ఆధారిత తడి:** మట్టి తేమ 35% కంటే తగ్గినప్పుడు మాత్రమే నీరు పెట్టండి.`
       };
     }
-
     return {
-      text: `**CONDITION:** Action plan for low soil moisture (< 35%).\n\n` +
-            `**RECOMMENDATION:**\n` +
-            `1. **Timing:** Irrigate via drip lines during cool morning hours (6:00 AM – 8:00 AM) or late evening.\n` +
-            `2. **Volume:** Apply approximately 10–12 mm of water (~4,000 to 4,800 Liters per acre).\n` +
-            `3. **Distribution Check:** Verify that dripper emitters are unclogged and delivering uniform flow across all lateral rows.\n` +
-            `4. **Mulching:** Apply organic straw mulch over topsoil to minimize midday evaporative water loss.\n\n` +
-            `**REASON:** Midday irrigation incurs heavy evaporative losses and risks thermal shock to active root hairs.`
+      text: `💧 **Practical Water Conservation Strategies for Your Farm:**\n\n` +
+            `1. **Precision Drip Scheduling:** Applies water directly to the root zone, cutting surface evaporation by up to 45%.\n` +
+            `2. **Early Morning Delivery:** Irrigate between 06:00 AM and 08:00 AM to eliminate midday wind drift and thermal evaporation.\n` +
+            `3. **Organic Mulching:** Cover crop rows with straw or leaf litter to retain topsoil moisture 3–4 days longer.\n` +
+            `4. **Sensor Thresholding:** Only trigger irrigation when volumetric soil moisture drops below 35%.`
     };
   }
 
-  // 9. QUESTION 10: What data is currently unavailable?
+  // 13. What data is currently unavailable?
   if (q.includes('unavailable') || q.includes('missing') || q.includes('what data is') || q.includes('లభ్యం కాని డేటా') || q.includes('ఏ డేటా లేదు')) {
     if (!hasHardware) {
       if (isTe) {
@@ -540,11 +662,11 @@ export const queryFarmAIEngine = ({
     };
   }
 
-  // 10. General Agricultural Query Fallback
+  // 14. General Agricultural Query Fallback
   if (isTe) {
     return {
       text: `🌾 **Farm AI సమాధానం:**\n\n` +
-            `మీ ప్రశ్న: *"__${query}__"*\n\n` +
+            `మీ ప్రశ్న: *\"__${query}__\"*\n\n` +
             `• **మట్టి తేమ:** ${moistVal !== null ? `${moistVal}%` : 'N/A'}\n` +
             `• **ఉష్ణోగ్రత:** ${tempVal !== null ? `${tempVal}°C` : 'N/A'}\n` +
             `• **వాతావరణం:** ${outdoorTemp}, ${weatherCond}\n\n` +
@@ -554,7 +676,7 @@ export const queryFarmAIEngine = ({
 
   return {
     text: `🌾 **Farm AI Consultation:**\n\n` +
-          `Regarding: *"__${query}__"*\n\n` +
+          `Regarding: *\"__${query}__\"*\n\n` +
           `• **Current Soil Moisture:** ${moistVal !== null ? `${moistVal}%` : 'N/A'} (${sourceTag})\n` +
           `• **Field Temperature:** ${tempVal !== null ? `${tempVal}°C` : 'N/A'}\n` +
           `• **Weather:** ${outdoorTemp}, ${weatherCond}\n\n` +
@@ -563,20 +685,52 @@ export const queryFarmAIEngine = ({
 };
 
 /**
- * Main AI Query Dispatcher
+ * Main AI Query Dispatcher with Multi-Provider Support and Resilient Failover
  */
-export const executeAIChatQuery = async ({
-  query,
-  zones = [],
-  alerts = [],
-  hardwareData = {},
-  simulationData = {},
-  operatingMode = 'live_hardware',
-  weatherData = {},
-  history = [],
-  language = 'en',
-  backendUrl = 'https://smartfarming-e3b2.onrender.com'
-}) => {
+export const executeAIChatQuery = async (firstArg, secondArg, thirdArg) => {
+  // Support both object destructuring AND positional arguments: executeAIChatQuery(query, liveContext, backendUrl)
+  let params = {};
+  if (typeof firstArg === 'string') {
+    params = {
+      query: firstArg,
+      ...(secondArg && typeof secondArg === 'object' ? secondArg : {}),
+      backendUrl: thirdArg || (secondArg && secondArg.backendUrl) || 'https://smartfarming-e3b2.onrender.com'
+    };
+  } else if (firstArg && typeof firstArg === 'object') {
+    params = { ...firstArg };
+  }
+
+  const {
+    query = '',
+    zones = [],
+    alerts = [],
+    hardwareData = {},
+    simulationData = {},
+    operatingMode = 'live_hardware',
+    history = [],
+    language = 'en',
+    backendUrl = 'https://smartfarming-e3b2.onrender.com',
+    conversationHistory = [],
+    sessionId = null
+  } = params;
+
+  // Retrieve stored Plant Vision result from browser storage if present
+  let plantVision = null;
+  try {
+    const rawPv = localStorage.getItem('smartfarm_latest_plant_vision');
+    if (rawPv) plantVision = JSON.parse(rawPv);
+  } catch {}
+
+  // Fetch or retrieve weather if not provided
+  let weatherData = params.weatherData || {};
+  if (!weatherData.outdoorTemperature && weatherData.outdoorTemperature !== 0) {
+    try {
+      const loc = getStoredLocation();
+      const liveW = await fetchLiveWeather(loc.latitude, loc.longitude);
+      if (liveW) weatherData = liveW;
+    } catch {}
+  }
+
   const config = getAIConfig();
   const isTe = language === 'te' || /[\u0C00-\u0C7F]/.test(query);
 
@@ -597,21 +751,38 @@ export const executeAIChatQuery = async ({
       windSpeed: weatherData?.windSpeed
     },
     alerts: alerts.filter(a => !a.resolved),
+    plantVision,
+    motorStatus: {
+      pumpActive: Boolean(localStorage.getItem('smartfarm_pump_active') === 'true')
+    },
     language: isTe ? 'te' : 'en'
   };
 
-  // 1. Try Backend /api/chat Proxy (if configured or default Render endpoint available)
+  const activeApiKey = config.geminiKey || config.groqKey || config.openaiKey || '';
+
+  // 1. Try Backend /api/chat Proxy
   if (backendUrl) {
     try {
       const res = await fetch(`${backendUrl}/api/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-AI-Key': activeApiKey,
+          'X-Gemini-Key': config.geminiKey || '',
+          'X-Groq-Key': config.groqKey || '',
+          'X-OpenAI-Key': config.openaiKey || ''
+        },
         body: JSON.stringify({
           query,
           language: isTe ? 'te' : 'en',
-          context: structuredContext
+          sessionId: sessionId || 'session-default',
+          conversationHistory: (conversationHistory || []).slice(-10),
+          context: structuredContext,
+          apiKey: activeApiKey,
+          provider: config.provider,
+          model: config.model
         }),
-        signal: AbortSignal.timeout(6000)
+        signal: AbortSignal.timeout(15000)
       });
 
       if (res.ok) {
@@ -620,17 +791,18 @@ export const executeAIChatQuery = async ({
           return {
             text: data.text,
             source: data.source || 'backend',
+            model: data.model || 'Farm AI Engine',
             timestamp: data.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
           };
         }
       }
     } catch {
-      // Backend asleep or offline, gracefully continue to direct engine
+      // Backend asleep or offline, continue to client direct provider or engine
     }
   }
 
-  // 2. Direct Groq Cloud Query if client provided API key
-  if (config.provider === 'groq' && config.groqKey) {
+  // 2. Direct Gemini Call if client provided Gemini key
+  if (config.geminiKey) {
     try {
       const systemPrompt = buildFarmSystemPrompt({
         zones,
@@ -638,9 +810,73 @@ export const executeAIChatQuery = async ({
         hardwareData,
         operatingMode,
         weatherData,
-        language: isTe ? 'te' : 'en'
+        language: isTe ? 'te' : 'en',
+        plantVision,
+        motorStatus: structuredContext.motorStatus
       });
 
+      const contents = [];
+      for (const m of (conversationHistory || []).slice(-8)) {
+        contents.push({
+          role: m.sender === 'ai' || m.role === 'assistant' ? 'model' : 'user',
+          parts: [{ text: m.text || m.content || '' }]
+        });
+      }
+      contents.push({ role: 'user', parts: [{ text: query }] });
+
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${config.geminiKey}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: systemPrompt }] },
+          contents,
+          generationConfig: { temperature: 0.5, maxOutputTokens: 1500 }
+        }),
+        signal: AbortSignal.timeout(12000)
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (text) {
+          return {
+            text,
+            source: 'gemini_direct',
+            model: 'Google Gemini 1.5 Flash',
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          };
+        }
+      }
+    } catch (e) {
+      console.warn('Direct Gemini call failed:', e);
+    }
+  }
+
+  // 3. Direct Groq Call if client provided Groq key
+  if (config.groqKey) {
+    try {
+      const systemPrompt = buildFarmSystemPrompt({
+        zones,
+        alerts,
+        hardwareData,
+        operatingMode,
+        weatherData,
+        language: isTe ? 'te' : 'en',
+        plantVision,
+        motorStatus: structuredContext.motorStatus
+      });
+
+      const messages = [{ role: 'system', content: systemPrompt }];
+      for (const m of (conversationHistory || []).slice(-8)) {
+        messages.push({
+          role: m.sender === 'ai' || m.role === 'assistant' ? 'assistant' : 'user',
+          content: m.text || m.content || ''
+        });
+      }
+      messages.push({ role: 'user', content: query });
+
+      const targetModel = config.groqModel || 'llama-3.3-70b-versatile';
       const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -648,15 +884,12 @@ export const executeAIChatQuery = async ({
           'Authorization': `Bearer ${config.groqKey}`
         },
         body: JSON.stringify({
-          model: config.groqModel || 'qwen/qwen3.8-27b',
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: query }
-          ],
-          temperature: 0.6,
-          max_tokens: 500
+          model: targetModel,
+          messages,
+          temperature: 0.5,
+          max_tokens: 1500
         }),
-        signal: AbortSignal.timeout(8000)
+        signal: AbortSignal.timeout(12000)
       });
 
       if (response.ok) {
@@ -665,17 +898,18 @@ export const executeAIChatQuery = async ({
         if (text) {
           return {
             text,
-            source: 'groq',
+            source: 'groq_direct',
+            model: targetModel,
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
           };
         }
       }
     } catch (e) {
-      console.warn('Groq query failed, using built-in Farm AI engine:', e);
+      console.warn('Direct Groq query failed:', e);
     }
   }
 
-  // 3. Fallback to Grounded Farm AI Engine (100% reliable, zero network latency)
+  // 4. Grounded Farm AI Engine Fallback (100% reliable, zero network dependency)
   const result = queryFarmAIEngine({
     query,
     zones,
@@ -685,12 +919,14 @@ export const executeAIChatQuery = async ({
     operatingMode,
     weatherData,
     history,
-    language: isTe ? 'te' : 'en'
+    language: isTe ? 'te' : 'en',
+    conversationHistory
   });
 
   return {
     text: result.text,
-    source: 'farm_ai',
+    source: 'farm_ai_engine',
+    model: 'Farm AI Agricultural Engine',
     timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
   };
 };

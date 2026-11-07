@@ -121,10 +121,10 @@ export default function AIAgronomistChat() {
         hardwareData,
         simulationData,
         operatingMode,
-        weatherData: {},
         history,
         language: isTe ? 'te' : 'en',
-        backendUrl
+        backendUrl,
+        conversationHistory: messages
       });
 
       const aiMessage = {
@@ -132,7 +132,8 @@ export default function AIAgronomistChat() {
         sender: 'ai',
         timestamp: response.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         text: response.text,
-        source: response.source
+        source: response.source,
+        model: response.model
       };
 
       setMessages(prev => [...prev, aiMessage]);
@@ -140,14 +141,22 @@ export default function AIAgronomistChat() {
       const errorMessage = {
         id: `ai-err-${Date.now()}`,
         sender: 'ai',
+        isError: true,
+        retryQuery: query,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         text: isTe
-          ? 'క్షమించండి, ప్రతిస్పందనను రూపొందించడంలో లోపం ఏర్పడింది. దయచేసి మళ్లీ ప్రయత్నించండి.'
+          ? `లోపం ఏర్పడింది (${err.message || 'సర్వీస్ అందుబాటులో లేదు'}). దయచేసి మళ్లీ ప్రయత్నించండి.`
           : `I encountered an error processing your farm data (${err.message || 'Service unavailable'}). Please try again.`
       };
       setMessages(prev => [...prev, errorMessage]);
     } finally {
       setIsTyping(false);
+    }
+  };
+
+  const handleRetry = (queryToRetry) => {
+    if (queryToRetry) {
+      handleSendMessage(queryToRetry);
     }
   };
 
@@ -268,9 +277,31 @@ export default function AIAgronomistChat() {
                   {renderFormattedContent(msg.text, isUser)}
                 </div>
 
-                {/* Footer: Timestamp and Copy Button */}
+                {/* Retry action for failed requests */}
+                {msg.isError && msg.retryQuery && (
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      onClick={() => handleRetry(msg.retryQuery)}
+                      disabled={isTyping}
+                      className="inline-flex items-center gap-1.5 px-3 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-[11px] font-bold transition-all cursor-pointer"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                      <span>{isTe ? 'మళ్లీ ప్రయత్నించండి' : 'Retry Question'}</span>
+                    </button>
+                  </div>
+                )}
+
+                {/* Footer: Timestamp, Model source, and Copy Button */}
                 <div className={`mt-2 flex items-center justify-between text-[10px] ${isUser ? 'text-slate-400' : 'text-slate-400'} pt-1 border-t ${isUser ? 'border-slate-800' : 'border-slate-100'}`}>
-                  <span>{msg.timestamp}</span>
+                  <span className="flex items-center gap-1.5">
+                    <span>{msg.timestamp}</span>
+                    {msg.model && (
+                      <span className="text-[9px] font-mono text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded">
+                        {msg.model}
+                      </span>
+                    )}
+                  </span>
                   {!isUser && (
                     <button
                       type="button"
@@ -429,19 +460,25 @@ export default function AIAgronomistChat() {
 function useMemoSuggestedPrompts(isTe) {
   if (isTe) {
     return [
-      'నా పొలం పరిస్థితి ఏమిటి?',
-      'ఇప్పుడు నీరు పెట్టాలా?',
-      'మట్టి తేమ ఎంత?',
-      'వాతావరణ సమాచారం విశ్లేషించండి',
-      'పొలం ఆరోగ్యం సారాంశం'
+      'నా పూర్తి పొలం పరిస్థితిని విశ్లేషించండి',
+      'ఈ రోజు నీరు పెట్టాలా?',
+      'తాజా సెన్సార్ రీడింగ్‌లను వివరించండి',
+      'మట్టి తేమ ధోరణిని విశ్లేషించండి',
+      'నేటి వాతావరణం నా పంటలపై ఎలా ప్రభావం చూపుతుంది?',
+      'తాజా మొక్కల వ్యాధి నిర్ధారణను వివరించండి',
+      'నీటిని ఎలా ఆదా చేయవచ్చు?',
+      'పంట ఆరోగ్య అంచనాను వివరించండి'
     ];
   }
   return [
-    'Analyze my farm.',
-    'Check irrigation requirements.',
-    'Analyze weather.',
-    'Check soil conditions.',
-    'Explain farm health.'
+    'Analyze my complete farm condition.',
+    'Should I irrigate today?',
+    'Explain my latest sensor readings.',
+    'Analyze my soil moisture trends.',
+    'How does today\'s weather affect my crops?',
+    'Explain my latest plant diagnosis.',
+    'How can I save water?',
+    'Explain my crop health prediction.'
   ];
 }
 
