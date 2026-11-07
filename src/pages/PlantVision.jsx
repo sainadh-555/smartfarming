@@ -4,554 +4,618 @@ import {
   Camera, 
   Upload, 
   Sparkles, 
-  Bug, 
-  Droplets, 
-  Thermometer, 
-  Wind, 
-  FlaskConical, 
-  Activity, 
+  AlertTriangle, 
   CheckCircle2, 
-  Layers, 
-  ArrowRight,
-  Plus
+  XCircle, 
+  HelpCircle, 
+  Info, 
+  RefreshCw, 
+  Thermometer, 
+  X
 } from 'lucide-react';
-import { PRESET_DIAGNOSES, analyzeUploadedImage } from '../ai/plantVisionEngine';
+import { 
+  validateImageFile, 
+  checkImageCanvasQuality, 
+  analyzePlantVision, 
+  VALIDATION_STATUSES,
+  SUPPORTED_CROPS 
+} from '../ai/plantVisionEngine';
 
 export default function PlantVision() {
-  const { zones, logPesticideSpray, simulateAction } = useFarmData();
+  const { language, hardwareData, operatingMode, backendUrl } = useFarmData();
+  const isTe = language === 'te';
+
   const fileInputRef = useRef(null);
+  const imgRef = useRef(null);
+  const activeAbortRef = useRef(null);
+  const requestIdRef = useRef(0);
 
-  // Active diagnosis state (defaults to the first realistic sample)
-  const [activeDiagnosis, setActiveDiagnosis] = useState(PRESET_DIAGNOSES[0]);
-  const [isScanning, setIsScanning] = useState(false);
-  const [showBoundingBoxes, setShowBoundingBoxes] = useState(true);
-  const [toastMessage, setToastMessage] = useState('');
-  const [selectedZoneTarget, setSelectedZoneTarget] = useState('ZONE-A');
+  // Core application states
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
+  const [imageMeta, setImageMeta] = useState(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisResult, setAnalysisResult] = useState(null);
+  const [errorMessage, setErrorMessage] = useState(null);
+  const [isDragOver, setIsDragOver] = useState(false);
 
-  // Handle local user file upload
-  const handleFileUpload = (e) => {
-    const file = e.target.files?.[0];
+  // Handle incoming file selection
+  const processSelectedFile = (file) => {
     if (!file) return;
 
+    // Cancel any running analysis
+    if (activeAbortRef.current) {
+      activeAbortRef.current.abort();
+      activeAbortRef.current = null;
+    }
+
+    // 1. CLEAR previous state immediately
+    setAnalysisResult(null);
+    setErrorMessage(null);
+    setIsAnalyzing(false);
+
+    // 2. Validate file metadata
+    const validation = validateImageFile(file);
+    if (!validation.valid) {
+      setErrorMessage(validation.error);
+      setSelectedFile(null);
+      setImagePreview(null);
+      setImageMeta(null);
+      return;
+    }
+
+    setSelectedFile(file);
+    setImageMeta({
+      name: file.name,
+      sizeKb: (file.size / 1024).toFixed(1),
+      type: file.type
+    });
+
+    // 3. Decode & preview image
     const reader = new FileReader();
-    reader.onload = (event) => {
-      const dataUrl = event.target.result;
-      runInference(dataUrl, file.name);
+    reader.onload = (e) => {
+      const dataUrl = e.target.result;
+      setImagePreview(dataUrl);
+    };
+    reader.onerror = () => {
+      setErrorMessage(isTe ? 'చిత్రాన్ని చదవడం సాధ్యం కాలేదు.' : 'Failed to read image file.');
     };
     reader.readAsDataURL(file);
   };
 
-  // Run simulated ML inference with scanner animation
-  const runInference = (imageUrl, filenameOrHint = '') => {
-    setIsScanning(true);
-    setToastMessage('Running YOLOv8 + ResNet50 neural inference on leaf image...');
-
-    setTimeout(() => {
-      const matchedZone = zones.find(z => z.zoneId === selectedZoneTarget) || zones[0];
-      const result = analyzeUploadedImage(imageUrl, matchedZone, filenameOrHint);
-      setActiveDiagnosis(result);
-      setIsScanning(false);
-      setToastMessage('Diagnosis complete! ML inference & ESP32 telemetry correlation verified.');
-      setTimeout(() => setToastMessage(''), 4000);
-    }, 1200);
+  const handleFileInputChange = (e) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      processSelectedFile(file);
+    }
   };
 
-  // Load a preset sample
-  const handleSelectPreset = (preset) => {
-    setSelectedZoneTarget(preset.zoneId);
-    runInference(preset.image, preset.cropName);
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    setIsDragOver(true);
   };
 
-  // Quick apply prescription to zone treatment history
-  const handleApplyPrescription = () => {
-    if (!activeDiagnosis) return;
-    const targetZoneId = activeDiagnosis.zoneId || selectedZoneTarget;
-
-    logPesticideSpray(targetZoneId, {
-      pesticideName: activeDiagnosis.prescription.chemical,
-      type: 'Targeted Treatment',
-      targetPest: activeDiagnosis.title,
-      dosage: activeDiagnosis.prescription.dosage,
-      carrierVolume: '50 Liters Water',
-      method: 'High-Pressure Foliar Spray',
-      operator: 'AI Prescription Engine'
-    });
-
-    setToastMessage(`Prescription logged into ${activeDiagnosis.cropName} (${targetZoneId}) treatment record!`);
-    setTimeout(() => setToastMessage(''), 4000);
+  const handleDragLeave = () => {
+    setIsDragOver(false);
   };
 
-  // Quick simulate remedial irrigation
-  const handleRemedialIrrigate = () => {
-    const targetZoneId = activeDiagnosis.zoneId || selectedZoneTarget;
-    simulateAction('IRRIGATE', targetZoneId);
-    setToastMessage(`Irrigation triggered for ${targetZoneId} to alleviate moisture stress!`);
-    setTimeout(() => setToastMessage(''), 4000);
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      processSelectedFile(file);
+    }
   };
+
+  // Run Real Computer Vision Analysis
+  const handleAnalyze = async () => {
+    if (!imagePreview && !selectedFile) return;
+
+    // Reset previous results
+    setAnalysisResult(null);
+    setErrorMessage(null);
+    setIsAnalyzing(true);
+
+    const currentRequestId = ++requestIdRef.current;
+    const abortController = new AbortController();
+    activeAbortRef.current = abortController;
+
+    try {
+      // Step A: Client-side canvas check (resolution & solid color check)
+      if (imgRef.current) {
+        const qualityCheck = checkImageCanvasQuality(imgRef.current);
+        if (qualityCheck.status) {
+          if (currentRequestId === requestIdRef.current) {
+            setAnalysisResult({
+              validation_status: qualityCheck.status,
+              is_plant: false,
+              detected_crop: 'Non-plant',
+              condition: null,
+              is_healthy: null,
+              model_score: null,
+              symptoms: [],
+              recommendations: isTe 
+                ? ['దయచేసి పంట ఆకు లేదా మొక్క ఫోటోను స్పష్టంగా తీసి అప్‌లోడ్ చేయండి.']
+                : ['Please upload a well-focused photo of a crop or leaf with adequate lighting.'],
+              message: qualityCheck.message,
+              model_info: 'Real Computer Vision Pipeline',
+              limitations: 'Image did not pass pre-validation checks.'
+            });
+            setIsAnalyzing(false);
+          }
+          return;
+        }
+      }
+
+      // Step B: Master Vision Analysis (calls backend /api/plant/analyze or configured client key)
+      const result = await analyzePlantVision({
+        file: selectedFile,
+        dataUrl: imagePreview,
+        language: isTe ? 'te' : 'en',
+        backendUrl,
+        signal: abortController.signal
+      });
+
+      // Step C: Verify request is still fresh
+      if (currentRequestId === requestIdRef.current) {
+        setAnalysisResult(result);
+      }
+    } catch (err) {
+      if (err.name !== 'AbortError' && currentRequestId === requestIdRef.current) {
+        setErrorMessage(err.message || (isTe ? 'విశ్లేషణలో లోపం సంభవించింది.' : 'An error occurred during plant analysis.'));
+      }
+    } finally {
+      if (currentRequestId === requestIdRef.current) {
+        setIsAnalyzing(false);
+        activeAbortRef.current = null;
+      }
+    }
+  };
+
+  // Clear current image & reset to initial state
+  const handleClearImage = () => {
+    if (activeAbortRef.current) {
+      activeAbortRef.current.abort();
+      activeAbortRef.current = null;
+    }
+    setSelectedFile(null);
+    setImagePreview(null);
+    setImageMeta(null);
+    setAnalysisResult(null);
+    setErrorMessage(null);
+    setIsAnalyzing(false);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  // Environmental context from hardware (clearly separate from image diagnosis)
+  const isHwConnected = operatingMode === 'live_hardware' && hardwareData?.connectionStatus === 'connected' && !hardwareData?.isStale;
+  const tempReading = isHwConnected && typeof hardwareData?.temperature === 'number' ? `${hardwareData.temperature.toFixed(1)}°C` : null;
+  const humReading = isHwConnected && typeof hardwareData?.humidity === 'number' ? `${hardwareData.humidity.toFixed(1)}%` : null;
+  const moistReading = isHwConnected && typeof hardwareData?.soil_moisture === 'number' ? `${hardwareData.soil_moisture.toFixed(1)}%` : null;
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2 text-emerald-600 font-bold text-xs uppercase tracking-wider mb-1">
-            <Camera className="w-4 h-4 text-emerald-600" />
-            <span>Computer Vision & Deep Learning Diagnostics</span>
+    <div className="space-y-6 max-w-5xl mx-auto pb-12">
+      
+      {/* Page Header */}
+      <div className="pb-4 border-b border-slate-200">
+        <div className="flex items-center gap-2 text-emerald-600 font-bold text-xs uppercase tracking-wider mb-1">
+          <Camera className="w-4 h-4 text-emerald-600" />
+          <span>{isTe ? 'కంప్యూటర్ విజన్ & పంట వ్యాధి విశ్లేషణ' : 'Plant Vision & Real Computer Vision Diagnostics'}</span>
+        </div>
+        <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
+          {isTe ? 'మొక్కల దృశ్య విశ్లేషణ' : 'Plant Health & Disease Vision'}
+        </h1>
+        <p className="text-xs sm:text-sm text-slate-500 mt-1">
+          {isTe 
+            ? 'టమోటా, మిర్చి, వరి, మరియు వేరుశనగ పంటల ఆకు ఫోటోలను అప్‌లోడ్ చేసి నిజమైన వ్యాధి నిర్ధారణ పొందండి.'
+            : 'Upload leaf or crop photos to verify botanical authenticity and diagnose diseases for Tomato, Chili, Paddy, and Groundnut.'}
+        </p>
+
+        {/* Supported Crops Badges */}
+        <div className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-slate-100">
+          <span className="text-xs font-bold text-slate-500">
+            {isTe ? 'మద్దతు ఉన్న పంటలు:' : 'Supported Crops:'}
+          </span>
+          {SUPPORTED_CROPS.map((crop) => (
+            <span key={crop} className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200">
+              {crop}
+            </span>
+          ))}
+          <span className="text-[11px] text-slate-400 italic ml-1">
+            ({isTe ? 'ఇతర చిత్రాలు లేదా మొక్కలు కానివి తిరస్కరించబడతాయి' : 'Non-plant & unsupported images will be rejected'})
+          </span>
+        </div>
+      </div>
+
+      {/* Error Banner */}
+      {errorMessage && (
+        <div className="p-4 bg-rose-50 border border-rose-200 text-rose-800 rounded-2xl flex items-start gap-3 shadow-xs">
+          <XCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <h4 className="font-bold text-xs">{isTe ? 'అప్‌లోడ్ లేదా ధృవీకరణ లోపం' : 'Validation Error'}</h4>
+            <p className="text-xs mt-0.5">{errorMessage}</p>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
-            Plant Vision & AI Disease Detection
-          </h1>
-          <p className="text-sm text-slate-500 mt-1">
-            Upload leaf or crop photos for real-time neural inference (YOLOv8 & CNNs), disease classification, and automated ESP32 sensor correlation.
-          </p>
+          <button onClick={() => setErrorMessage(null)} className="text-rose-400 hover:text-rose-600 cursor-pointer">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* 1. UPLOAD IMAGE SECTION                                  */}
+      {/* ======================================================== */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 sm:p-6 space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+          <h2 className="font-extrabold text-sm sm:text-base text-slate-900 flex items-center gap-2">
+            <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 text-xs font-black flex items-center justify-center">1</span>
+            <span>{isTe ? 'చిత్రాన్ని అప్‌లోడ్ చేయండి' : 'Upload Image'}</span>
+          </h2>
+          <span className="text-xs text-slate-400 font-mono">JPG, PNG, WebP (Max 10MB)</span>
         </div>
 
-        {/* Upload Action Button */}
-        <div className="flex items-center gap-2 shrink-0">
-          <input 
-            type="file" 
-            ref={fileInputRef} 
-            onChange={handleFileUpload} 
-            accept="image/*" 
-            className="hidden" 
-          />
+        <input 
+          type="file" 
+          ref={fileInputRef} 
+          onChange={handleFileInputChange} 
+          accept="image/jpeg,image/png,image/webp" 
+          className="hidden" 
+        />
+
+        <div
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          onClick={() => fileInputRef.current?.click()}
+          className={`border-2 border-dashed rounded-2xl p-6 sm:p-8 text-center cursor-pointer transition-all ${
+            isDragOver 
+              ? 'border-emerald-500 bg-emerald-50/50' 
+              : 'border-slate-300 hover:border-emerald-400 hover:bg-slate-50/70'
+          }`}
+        >
+          <div className="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 mx-auto flex items-center justify-center mb-3">
+            <Upload className="w-6 h-6" />
+          </div>
+          <p className="text-sm font-bold text-slate-800">
+            {isTe ? 'ఫోటోను ఎంచుకోండి లేదా ఇక్కడ లాగండి' : 'Click to browse or drag and drop a crop photo'}
+          </p>
+          <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
+            {isTe 
+              ? 'టమోటా, మిర్చి, వరి, లేదా వేరుశనగ మొక్క ఆకు ఫోటోను స్పష్టంగా తీసి అప్‌లోడ్ చేయండి.' 
+              : 'Take a clear, well-lit close-up of a leaf showing any symptoms or healthy tissue.'}
+          </p>
           <button 
-            onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2.5 rounded-xl hover:bg-emerald-700 font-bold text-xs shadow-md active:scale-95 transition-all"
+            type="button"
+            className="mt-4 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs transition-all pointer-events-none"
           >
-            <Upload className="w-4 h-4" />
-            <span>Upload Crop Photo</span>
+            {isTe ? 'ఫైల్ ఎంచుకోండి' : 'Select Crop Photo'}
           </button>
         </div>
       </div>
 
-      {/* Toast Notification */}
-      {toastMessage && (
-        <div className="p-3 bg-emerald-100 border border-emerald-300 text-emerald-800 text-xs font-semibold rounded-xl flex items-center gap-2 animate-fadeIn shadow-xs">
-          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-          <span>{toastMessage}</span>
+      {/* ======================================================== */}
+      {/* 2. IMAGE PREVIEW SECTION                                 */}
+      {/* ======================================================== */}
+      {imagePreview && (
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 sm:p-6 space-y-4 animate-fadeIn">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+            <h2 className="font-extrabold text-sm sm:text-base text-slate-900 flex items-center gap-2">
+              <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 text-xs font-black flex items-center justify-center">2</span>
+              <span>{isTe ? 'చిత్ర పరిదృశ్యం' : 'Image Preview'}</span>
+            </h2>
+            <button
+              onClick={handleClearImage}
+              className="text-xs text-slate-500 hover:text-rose-600 font-semibold flex items-center gap-1 cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+              <span>{isTe ? 'తొలగించు' : 'Remove Image'}</span>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
+            <div className="md:col-span-6 flex flex-col gap-2">
+              <div className="relative w-full h-64 sm:h-80 rounded-xl overflow-hidden bg-slate-900 border border-slate-200 flex items-center justify-center">
+                <img 
+                  ref={imgRef}
+                  src={imagePreview} 
+                  alt="Uploaded Crop Preview" 
+                  className="w-full h-full object-contain"
+                />
+                {isAnalyzing && (
+                  <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-xs flex flex-col items-center justify-center text-white gap-3">
+                    <RefreshCw className="w-8 h-8 text-emerald-400 animate-spin" />
+                    <span className="text-xs font-bold tracking-wide">
+                      {isTe ? 'కంప్యూటర్ విజన్ విశ్లేషణ జరుగుతోంది...' : 'Validating & Analyzing Image with Vision AI...'}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {imageMeta && (
+                <div className="flex items-center justify-between text-[11px] text-slate-500 px-1 font-mono">
+                  <span className="truncate max-w-[200px]">{imageMeta.name}</span>
+                  <span>{imageMeta.sizeKb} KB • {imageMeta.type}</span>
+                </div>
+              )}
+            </div>
+
+            {/* ======================================================== */}
+            {/* 3. ANALYZE PLANT ACTION                                  */}
+            {/* ======================================================== */}
+            <div className="md:col-span-6 flex flex-col justify-between space-y-4">
+              <div className="space-y-3">
+                <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
+                  <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 text-xs font-black flex items-center justify-center">3</span>
+                  <span>{isTe ? 'విశ్లేషణను ప్రారంభించండి' : 'Analyze Plant'}</span>
+                </h3>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  {isTe
+                    ? 'ఈ చిత్రం మొక్క అవునో కాదో సిస్టమ్ మొదట ధృవీకరిస్తుంది, పంటను గుర్తిస్తుంది మరియు వ్యాధి లక్షణాలను నిష్పాక్షికంగా పరిశీలిస్తుంది.'
+                    : 'The vision pipeline validates whether the image contains a real plant, verifies crop support, and diagnoses pathology with zero fabricated results.'}
+                </p>
+
+                {/* Optional Environmental Context from ESP32 */}
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1.5">
+                  <div className="flex items-center justify-between font-bold text-slate-700">
+                    <span className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide">
+                      <Thermometer className="w-3.5 h-3.5 text-blue-600" />
+                      <span>{isTe ? 'పర్యావరణ సందర్భం (ESP32)' : 'Environmental Context (ESP32)'}</span>
+                    </span>
+                    <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${isHwConnected ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'}`}>
+                      {isHwConnected ? 'Live' : 'Disconnected'}
+                    </span>
+                  </div>
+
+                  {isHwConnected ? (
+                    <div className="grid grid-cols-3 gap-2 pt-1 font-mono text-[11px] text-slate-800">
+                      <div>Temp: <strong>{tempReading || 'N/A'}</strong></div>
+                      <div>Humidity: <strong>{humReading || 'N/A'}</strong></div>
+                      <div>Moisture: <strong>{moistReading || 'N/A'}</strong></div>
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-slate-500 italic">
+                      {isTe 
+                        ? 'హార్డ్‌వేర్ డిస్‌కనెక్ట్ అయింది. చిత్ర నిర్ధారణ మాత్రమే వర్తిస్తుంది.'
+                        : 'Hardware disconnected. Visual diagnosis operates independently.'}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div className="pt-2">
+                <button
+                  onClick={handleAnalyze}
+                  disabled={isAnalyzing}
+                  className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-black text-sm rounded-xl shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-98"
+                >
+                  {isAnalyzing ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>{isTe ? 'విశ్లేషిస్తోంది...' : 'Analyzing Plant...'}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4" />
+                      <span>{isTe ? 'పంటను విశ్లేషించండి' : 'Analyze Plant'}</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
-      {/* Sample Quick Selector Ribbon */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs space-y-2">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-bold text-slate-600 flex items-center gap-1.5 uppercase tracking-wide">
-            <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-            <span>Quick Diagnostic Samples (1-Click AI Test)</span>
-          </span>
-          <span className="text-[11px] text-slate-400 font-medium hidden sm:inline">
-            Click any sample to run instant ML inference
-          </span>
-        </div>
+      {/* ======================================================== */}
+      {/* 4. ANALYSIS RESULT & 5. RECOMMENDED ACTIONS             */}
+      {/* ======================================================== */}
+      {analysisResult && (
+        <div className="space-y-6 animate-fadeIn">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 sm:p-6 space-y-5">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <h2 className="font-extrabold text-sm sm:text-base text-slate-900 flex items-center gap-2">
+                <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 text-xs font-black flex items-center justify-center">4</span>
+                <span>{isTe ? 'విశ్లేషణ ఫలితం' : 'Analysis Result'}</span>
+              </h2>
+              <span className="text-xs font-mono font-bold text-slate-500">
+                {analysisResult.model_info}
+              </span>
+            </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-          {PRESET_DIAGNOSES.map((preset) => {
-            const isSelected = activeDiagnosis?.id === preset.id;
-            return (
-              <button
-                key={preset.id}
-                onClick={() => handleSelectPreset(preset)}
-                className={`p-2.5 rounded-xl border text-left transition-all flex items-center gap-3 ${
-                  isSelected 
-                    ? 'border-emerald-500 bg-emerald-50/60 shadow-xs ring-2 ring-emerald-500/20' 
-                    : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
-                }`}
-              >
-                <img 
-                  src={preset.image} 
-                  alt={preset.cropName} 
-                  className="w-10 h-10 rounded-lg object-cover border border-slate-200 shrink-0"
-                />
-                <div className="overflow-hidden">
-                  <div className="text-xs font-bold text-slate-900 truncate">
-                    {preset.cropName}
+            {/* OUTCOME A: Valid Supported Crop */}
+            {analysisResult.validation_status === VALIDATION_STATUSES.VALID_SUPPORTED_CROP && (
+              <div className="space-y-5">
+                <div className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                  analysisResult.is_healthy 
+                    ? 'bg-emerald-50/70 border-emerald-200 text-emerald-900' 
+                    : 'bg-amber-50/70 border-amber-200 text-amber-900'
+                }`}>
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-wider block opacity-75">
+                      {isTe ? 'గుర్తించబడిన పంట & పరిస్థితి' : 'Detected Crop & Pathology'}
+                    </span>
+                    <h3 className="text-lg font-black mt-0.5">
+                      {analysisResult.detected_crop} — {analysisResult.condition}
+                    </h3>
+                    <p className="text-xs mt-1 opacity-90">
+                      {analysisResult.is_healthy 
+                        ? (isTe ? 'ఆకు ఆరోగ్యంగా ఉంది. వ్యాధి లేదా తెగులు లక్షణాలు కనిపించలేదు.' : 'Foliage appears healthy. No significant lesions, chlorosis, or fungal pathogen damage detected.')
+                        : (isTe ? 'ఆకుపై తెగులు లేదా వ్యాధి లక్షణాలు కనిపించాయి.' : 'Pathology detected on foliage. Review symptoms and agronomic advice below.')}
+                    </p>
                   </div>
-                  <div className="text-[10px] text-slate-500 truncate">
-                    {preset.title.split('(')[0]}
-                  </div>
+
+                  {typeof analysisResult.model_score === 'number' && (
+                    <div className="sm:text-right shrink-0">
+                      <span className="text-[10px] font-bold uppercase tracking-wider block opacity-75">
+                        {isTe ? 'మోడల్ స్కోరు' : 'Model Confidence'}
+                      </span>
+                      <span className="text-xl font-black font-mono">
+                        {(analysisResult.model_score <= 1.0 ? analysisResult.model_score * 100 : analysisResult.model_score).toFixed(1)}%
+                      </span>
+                    </div>
+                  )}
                 </div>
-              </button>
-            );
-          })}
-        </div>
-      </div>
 
-      {/* Main ML Inference & Diagnosis Studio */}
-      {activeDiagnosis && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          {/* Studio Header Bar */}
-          <div className="bg-slate-900 text-white px-6 py-3.5 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
-              <div>
-                <h3 className="text-sm font-bold tracking-tight">
-                  AI Computer Vision Diagnosis: {activeDiagnosis.title}
-                </h3>
-                <span className="text-[10px] text-slate-400 font-medium">
-                  Architecture: {activeDiagnosis.model} • Latency: 32ms
-                </span>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <label className="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer select-none">
-                <input 
-                  type="checkbox" 
-                  checked={showBoundingBoxes} 
-                  onChange={(e) => setShowBoundingBoxes(e.target.checked)}
-                  className="rounded text-emerald-500 focus:ring-emerald-400"
-                />
-                <span>Detection Bounding Boxes</span>
-              </label>
-
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-xs font-semibold rounded-lg text-slate-200 transition-colors"
-              >
-                Upload Different Image
-              </button>
-            </div>
-          </div>
-
-          <div className="p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
-            
-            {/* Left Column: Image with Scanning Effect & Bounding Boxes */}
-            <div className="lg:col-span-5 flex flex-col gap-3">
-              <div className="relative w-full h-80 sm:h-96 rounded-xl overflow-hidden bg-slate-950 border border-slate-200 shadow-inner group">
-                <img 
-                  src={activeDiagnosis.image} 
-                  alt={activeDiagnosis.cropName}
-                  className="w-full h-full object-cover"
-                />
-
-                {/* Laser Scanning Line Animation when analyzing */}
-                {isScanning && (
-                  <div className="absolute inset-x-0 h-1 bg-emerald-400 shadow-[0_0_15px_#10b981] animate-bounce z-30" />
+                {/* Visible Symptoms */}
+                {analysisResult.symptoms && analysisResult.symptoms.length > 0 && (
+                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                    <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wide">
+                      {isTe ? 'కనిపించే లక్షణాలు:' : 'Visible Symptoms Observed:'}
+                    </h4>
+                    <ul className="list-disc list-inside space-y-1 text-xs text-slate-700">
+                      {analysisResult.symptoms.map((symptom, idx) => (
+                        <li key={idx}>{symptom}</li>
+                      ))}
+                    </ul>
+                  </div>
                 )}
 
-                {/* ML Object Bounding Boxes Overlay */}
-                {showBoundingBoxes && !isScanning && activeDiagnosis.detections?.map((box, idx) => (
-                  <div
-                    key={idx}
-                    className="absolute border-2 rounded transition-all duration-300 animate-fadeIn"
-                    style={{
-                      left: `${box.x}%`,
-                      top: `${box.y}%`,
-                      width: `${box.width}%`,
-                      height: `${box.height}%`,
-                      borderColor: box.color,
-                      backgroundColor: `${box.color}20`
-                    }}
-                  >
-                    <span 
-                      className="absolute -top-5 left-0 px-1.5 py-0.5 rounded text-[9px] font-black text-white shadow-xs whitespace-nowrap"
-                      style={{ backgroundColor: box.color }}
-                    >
-                      {box.label} ({box.confidence}%)
-                    </span>
+                {/* Bounding Box Clarification / Model Limitation */}
+                <div className="p-3 bg-slate-100 rounded-xl border border-slate-200 text-[11px] text-slate-600 flex items-start gap-2">
+                  <Info className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
+                  <div>
+                    <strong>{isTe ? 'మోడల్ వర్గీకరణ నిర్మాణశైలి:' : 'Model Classification Architecture:'}</strong>{' '}
+                    {analysisResult.limitations || (isTe 
+                      ? 'ఈ మోడల్ వర్గీకరణ పద్ధతిని ఉపయోగిస్తుంది. నిజమైన స్థానిక కోఆర్డినేట్లు లేకుండా కృత్రిమ బౌండింగ్ బాక్స్‌లు గీయబడవు.' 
+                      : 'Object detection bounding boxes are disabled because bounding boxes require a verified localization/YOLO detection model with ground-truth coordinates.')}
                   </div>
-                ))}
-
-                {/* Top Badges */}
-                <div className="absolute top-3 left-3 bg-black/70 backdrop-blur-md px-3 py-1 rounded-full text-xs font-semibold text-white flex items-center gap-1.5">
-                  <Camera className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>{activeDiagnosis.cropName} ({activeDiagnosis.scientificName})</span>
-                </div>
-
-                <div className="absolute top-3 right-3 bg-emerald-500/90 backdrop-blur-md px-3 py-1 rounded-full text-xs font-black text-white shadow-xs">
-                  Confidence: {activeDiagnosis.confidence}%
-                </div>
-
-                {/* Bottom Overlay Info */}
-                <div className="absolute bottom-3 inset-x-3 bg-slate-900/80 backdrop-blur-md p-2.5 rounded-lg border border-slate-700/60 text-white text-[11px] flex justify-between items-center">
-                  <span>Growth Stage: <strong>{activeDiagnosis.growthStage}</strong></span>
-                  <span className="text-emerald-400 font-bold">Health: {activeDiagnosis.healthScore}%</span>
                 </div>
               </div>
+            )}
 
-              {/* Bounding Box Legend */}
-              <div className="flex flex-wrap gap-2 text-[11px] text-slate-500 font-medium">
-                <span className="flex items-center gap-1">
-                  <span className="w-2.5 h-2.5 rounded-sm bg-rose-500" />
-                  <span>Active Lesions</span>
-                </span>
-                <span className="flex items-center gap-1">
-                  <span className="w-2.5 h-2.5 rounded-sm bg-amber-500" />
-                  <span>Chlorosis/Curling</span>
-                </span>
-                <span className="flex items-center gap-1">
-                  <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500" />
-                  <span>Healthy Tissue</span>
-                </span>
+            {/* OUTCOME B: No Plant Detected */}
+            {analysisResult.validation_status === VALIDATION_STATUSES.NO_PLANT_DETECTED && (
+              <div className="p-5 bg-rose-50 border border-rose-200 rounded-xl text-rose-900 space-y-2">
+                <div className="flex items-center gap-2">
+                  <XCircle className="w-5 h-5 text-rose-600 shrink-0" />
+                  <h3 className="font-extrabold text-sm sm:text-base">
+                    {isTe ? 'మొక్క గుర్తించబడలేదు' : 'No Plant Detected'}
+                  </h3>
+                </div>
+                <p className="text-xs sm:text-sm text-rose-800 font-medium">
+                  {analysisResult.message || (isTe 
+                    ? 'మొక్క లేదా ఆకు గుర్తించబడలేదు. దయచేసి స్పష్టమైన పంట లేదా ఆకు ఫోటోను అప్‌లోడ్ చేయండి.' 
+                    : 'No plant detected. Please upload a clear photo of a crop or leaf.')}
+                </p>
+                <p className="text-[11px] text-rose-600 pt-1">
+                  {isTe 
+                    ? 'గమనిక: సిస్టమ్ మనుషులు, ముఖాలు, వాహనాలు, గది వస్తువులు లేదా నాన్-ప్లాంట్ చిత్రాలను ఆటోమేటిక్‌గా తిరస్కరిస్తుంది.' 
+                    : 'Note: The botanical verification pipeline rejects humans, faces, vehicles, casing, screens, and non-agricultural objects.'}
+                </p>
               </div>
-            </div>
+            )}
 
-            {/* Right Column: Deep Diagnostic Report & ESP32 Correlation */}
-            <div className="lg:col-span-7 space-y-5">
-              
-              {/* Classification & Severity Bar */}
-              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
-                    Pathological Classification (EPPO Standard)
-                  </span>
-                  <h4 className="text-lg font-black text-slate-900">
-                    {activeDiagnosis.title}
-                  </h4>
-                  <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                    {activeDiagnosis.eppoCode && (
-                      <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-purple-100 text-purple-700 border border-purple-200">
-                        EPPO: {activeDiagnosis.eppoCode}
-                      </span>
-                    )}
-                    {activeDiagnosis.fracIracCode && (
-                      <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-blue-100 text-blue-700 border border-blue-200">
-                        {activeDiagnosis.fracIracCode}
-                      </span>
-                    )}
-                    <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200">
-                      {activeDiagnosis.mrlStatus || 'GlobalG.A.P. MRL Safe'}
-                    </span>
-                  </div>
-                  <span className="text-xs text-slate-500 block mt-1.5">
-                    Surface Lesion Impact: <strong className="text-slate-800">{activeDiagnosis.affectedArea}</strong>
-                  </span>
+            {/* OUTCOME C: Unsupported Crop */}
+            {analysisResult.validation_status === VALIDATION_STATUSES.UNSUPPORTED_CROP && (
+              <div className="p-5 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 space-y-2">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+                  <h3 className="font-extrabold text-sm sm:text-base">
+                    {isTe ? 'మద్దతు లేని పంట' : 'This Crop is Not Currently Supported'}
+                  </h3>
                 </div>
-
-                <div className="text-right">
-                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
-                    Severity Rating
-                  </span>
-                  <span className={`inline-block px-3 py-1 rounded-full text-xs font-black uppercase ${
-                    activeDiagnosis.status === 'Critical' ? 'bg-rose-100 text-rose-800 border border-rose-300' :
-                    activeDiagnosis.status === 'Attention' ? 'bg-amber-100 text-amber-800 border border-amber-300' :
-                    'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                  }`}>
-                    {activeDiagnosis.severity}
-                  </span>
-                </div>
+                <p className="text-xs sm:text-sm text-amber-800 font-medium">
+                  {analysisResult.message || (isTe ? 'ఈ పంట ప్రస్తుతం మద్దతు ఇవ్వబడలేదు.' : 'This crop is not currently supported.')}
+                </p>
+                {analysisResult.detected_crop && analysisResult.detected_crop !== 'Unknown' && (
+                  <p className="text-xs text-amber-700 font-semibold">
+                    {isTe ? 'గుర్తించబడిన మొక్క:' : 'Detected Subject:'} {analysisResult.detected_crop}
+                  </p>
+                )}
+                <p className="text-[11px] text-amber-600 pt-1">
+                  {isTe 
+                    ? 'ప్రస్తుతం టమోటా, మిర్చి, వరి, మరియు వేరుశనగ పంటలకు మాత్రమే ధృవీకరించబడిన వ్యాధి విశ్లేషణ అందుబాటులో ఉంది.' 
+                    : 'Verified disease diagnosis is currently supported only for: Tomato, Chili, Paddy, and Groundnut.'}
+                </p>
               </div>
+            )}
 
-              {/* ESP32 IoT Node Correlation Strip */}
-              <div className="p-4 bg-gradient-to-r from-blue-50/70 to-indigo-50/60 rounded-xl border border-blue-200 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Activity className="w-4 h-4 text-blue-600" />
-                    <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                      ESP32 IoT Node Telemetry Correlation ({activeDiagnosis.esp32Data.deviceId})
-                    </span>
-                  </div>
-                  <span className="text-[11px] font-bold text-blue-700 bg-blue-100 px-2 py-0.5 rounded">
-                    {activeDiagnosis.esp32Data.zoneName}
-                  </span>
+            {/* OUTCOME D: Unclear Image */}
+            {analysisResult.validation_status === VALIDATION_STATUSES.UNCLEAR_IMAGE && (
+              <div className="p-5 bg-blue-50 border border-blue-200 rounded-xl text-blue-900 space-y-2">
+                <div className="flex items-center gap-2">
+                  <HelpCircle className="w-5 h-5 text-blue-600 shrink-0" />
+                  <h3 className="font-extrabold text-sm sm:text-base">
+                    {isTe ? 'చిత్రం అస్పష్టంగా ఉంది' : 'The Image is Unclear'}
+                  </h3>
                 </div>
+                <p className="text-xs sm:text-sm text-blue-800 font-medium">
+                  {analysisResult.message || (isTe 
+                    ? 'ఫోటో అస్పష్టంగా ఉంది. దయచేసి దగ్గరగా, మంచి వెలుతురులో తీసిన ఫోటోను అప్‌లోడ్ చేయండి.' 
+                    : 'The image is unclear. Please upload a closer, well-lit photo.')}
+                </p>
+                <p className="text-[11px] text-blue-600 pt-1">
+                  {isTe 
+                    ? 'మసకబారిన, చీకటిగా ఉన్న, లేదా ఎక్కువ దూరంగా ఉన్న చిత్రాల నుండి తప్పుడు నిర్ణయాలు తీసుకోకుండా సిస్టమ్ నివారిస్తుంది.' 
+                    : 'The quality filter prevents inaccurate predictions from blurry, dark, low-contrast, or overly distant images.'}
+                </p>
+              </div>
+            )}
 
-                {/* Sensor values at capture */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                  <div className="bg-white p-2 rounded-lg border border-blue-100">
-                    <span className="text-slate-500 text-[10px] flex items-center gap-1">
-                      <Thermometer className="w-3 h-3 text-orange-500" />
-                      <span>Air Temp</span>
-                    </span>
-                    <strong className="text-slate-900 font-bold">{activeDiagnosis.esp32Data.airTemp}°C</strong>
-                  </div>
-
-                  <div className="bg-white p-2 rounded-lg border border-blue-100">
-                    <span className="text-slate-500 text-[10px] flex items-center gap-1">
-                      <Wind className="w-3 h-3 text-cyan-500" />
-                      <span>Canopy Humidity</span>
-                    </span>
-                    <strong className="text-slate-900 font-bold">{activeDiagnosis.esp32Data.humidity}%</strong>
-                  </div>
-
-                  <div className="bg-white p-2 rounded-lg border border-blue-100">
-                    <span className="text-slate-500 text-[10px] flex items-center gap-1">
-                      <Droplets className="w-3 h-3 text-blue-500" />
-                      <span>Soil Moisture</span>
-                    </span>
-                    <strong className="text-slate-900 font-bold">{activeDiagnosis.esp32Data.soilMoisture}%</strong>
-                  </div>
-
-                  <div className="bg-white p-2 rounded-lg border border-blue-100">
-                    <span className="text-slate-500 text-[10px] flex items-center gap-1">
-                      <FlaskConical className="w-3 h-3 text-purple-500" />
-                      <span>Soil pH</span>
-                    </span>
-                    <strong className="text-slate-900 font-bold">{activeDiagnosis.esp32Data.soilPH}</strong>
-                  </div>
+            {/* OUTCOME E: Model Unavailable */}
+            {analysisResult.validation_status === VALIDATION_STATUSES.MODEL_UNAVAILABLE && (
+              <div className="p-5 bg-slate-100 border border-slate-200 rounded-xl text-slate-800 space-y-2">
+                <div className="flex items-center gap-2">
+                  <Info className="w-5 h-5 text-slate-600 shrink-0" />
+                  <h3 className="font-extrabold text-sm sm:text-base">
+                    {isTe ? 'మొక్కల విశ్లేషణ అందుబాటులో లేదు' : 'Plant Analysis is Temporarily Unavailable'}
+                  </h3>
                 </div>
+                <p className="text-xs sm:text-sm text-slate-700 font-medium">
+                  {analysisResult.message || (isTe 
+                    ? 'మొక్కల విశ్లేషణ తాత్కాలికంగా అందుబాటులో లేదు.' 
+                    : 'Plant analysis is temporarily unavailable.')}
+                </p>
+                <p className="text-[11px] text-slate-500 pt-1">
+                  {isTe 
+                    ? 'వాస్తవ విశ్లేషణ కోసం దయచేసి మీ పైథాన్ బ్యాకెండ్‌ను ప్రారంభించండి లేదా సెట్టింగ్స్ పేజీలో AI విజన్ API కీని నమోదు చేయండి.' 
+                    : 'To enable real inference, start your backend server or configure an AI Vision key in Settings. Hardcoded mock results are strictly disabled.'}
+                </p>
+              </div>
+            )}
 
-                {/* Epidemiological Reason */}
-                <p className="text-xs text-blue-950 font-medium leading-relaxed bg-white/80 p-2.5 rounded-lg border border-blue-100">
-                  <strong>Agronomic Correlation:</strong> {activeDiagnosis.correlationAnalysis}
+          </div>
+
+          {/* ======================================================== */}
+          {/* 5. RECOMMENDED ACTIONS SECTION                           */}
+          {/* ======================================================== */}
+          {analysisResult.recommendations && analysisResult.recommendations.length > 0 && (
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 sm:p-6 space-y-4">
+              <div className="pb-3 border-b border-slate-100">
+                <h2 className="font-extrabold text-sm sm:text-base text-slate-900 flex items-center gap-2">
+                  <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 text-xs font-black flex items-center justify-center">5</span>
+                  <span>{isTe ? 'రైతుకు సిఫార్సు చేయబడిన చర్యలు' : 'Recommended Next Steps'}</span>
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {isTe 
+                    ? 'నిర్ధారణ ఆధారంగా సరళమైన మరియు ఆచరణాత్మక వ్యవసాయ సలహాలు' 
+                    : 'Farmer-friendly, non-hazardous cultural and agronomic recommendations based on verified analysis'}
                 </p>
               </div>
 
-              {/* Chemical & Organic Prescription Plan */}
-              <div className="p-4 bg-emerald-50/60 rounded-xl border border-emerald-200 space-y-3">
-                <div className="flex items-center gap-2">
-                  <Bug className="w-4 h-4 text-emerald-700" />
-                  <h5 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                    Targeted Prescription & Chemical Dosages
-                  </h5>
-                </div>
-
-                <div className="space-y-2 text-xs">
-                  <div className="flex justify-between py-1 border-b border-emerald-100">
-                    <span className="text-slate-600 font-medium">Recommended Pesticide / Fungicide:</span>
-                    <strong className="text-slate-900 font-bold">{activeDiagnosis.prescription.chemical}</strong>
+              <div className="space-y-2.5">
+                {analysisResult.recommendations.map((rec, idx) => (
+                  <div key={idx} className="p-3 bg-emerald-50/60 rounded-xl border border-emerald-100 flex items-start gap-3">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    <span className="text-xs font-medium text-slate-800 leading-relaxed">
+                      {rec}
+                    </span>
                   </div>
-
-                  <div className="flex justify-between py-1 border-b border-emerald-100">
-                    <span className="text-slate-600 font-medium">Exact Dosage / Water Ratio:</span>
-                    <span className="text-emerald-800 font-bold">{activeDiagnosis.prescription.dosage}</span>
-                  </div>
-
-                  <div className="flex justify-between py-1 border-b border-emerald-100">
-                    <span className="text-slate-600 font-medium">Organic Alternative:</span>
-                    <span className="text-slate-800 font-semibold">{activeDiagnosis.prescription.organicOption}</span>
-                  </div>
-
-                  <div className="flex justify-between py-1 border-b border-emerald-100">
-                    <span className="text-slate-600 font-medium">Nutrient & Foliar Support:</span>
-                    <span className="text-purple-800 font-medium">{activeDiagnosis.prescription.fertilizer}</span>
-                  </div>
-
-                  <div className="flex justify-between py-1">
-                    <span className="text-slate-600 font-medium">Pre-Harvest Safety Interval (PHI):</span>
-                    <span className="text-slate-800 font-bold">{activeDiagnosis.prescription.phi}</span>
-                  </div>
-                </div>
-
-                {/* Cultural Practice Recommendation */}
-                <div className="bg-white/80 p-2.5 rounded-lg border border-emerald-100 text-[11px] text-emerald-950">
-                  <strong>Cultural Practice Advice:</strong> {activeDiagnosis.prescription.culturalPractice}
-                </div>
-
-                {/* Action Buttons to update system */}
-                <div className="flex flex-wrap items-center gap-2.5 pt-2">
-                  <button
-                    onClick={handleApplyPrescription}
-                    className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-1.5 active:scale-95"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>Log Spray into Zone Treatment History</span>
-                  </button>
-
-                  <button
-                    onClick={handleRemedialIrrigate}
-                    className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-1.5 active:scale-95"
-                  >
-                    <Droplets className="w-3.5 h-3.5" />
-                    <span>Run Remedial Drip Irrigation</span>
-                  </button>
-                </div>
+                ))}
               </div>
 
+              <p className="text-[11px] text-slate-400 italic pt-2 border-t border-slate-100">
+                {isTe 
+                  ? 'ముఖ్య గమనిక: ఏదైనా రసాయన చికిత్సను వర్తించే ముందు ఎల్లప్పుడూ స్థానిక వ్యవసాయ విస్తరణ అధికారి లేదా కేవీకే (KVK) ను సంప్రదించండి.' 
+                  : 'Important notice: Always consult local agricultural extension officers or Krishi Vigyan Kendra (KVK) before applying chemical treatments.'}
+              </p>
             </div>
-          </div>
+          )}
         </div>
       )}
 
-      {/* Camera Feeds from Monitored Farm Quadrants */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-black text-slate-900 tracking-tight flex items-center gap-2">
-            <Layers className="w-5 h-5 text-emerald-600" />
-            <span>Field Camera Feeds — 1-Acre Quadrant Nodes</span>
-          </h2>
-          <span className="text-xs font-semibold text-slate-500">
-            Click any camera stream to run deep neural inference
-          </span>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {zones.map((zone) => {
-            const agronomy = zone.agronomy;
-            const status = zone.analysis?.plantStatus || 'Healthy';
-
-            return (
-              <div 
-                key={zone.zoneId} 
-                className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs hover:shadow-md transition-all flex flex-col group cursor-pointer"
-                onClick={() => {
-                  setSelectedZoneTarget(zone.zoneId);
-                  runInference(zone.sensorData?.imageUrl || 'https://images.unsplash.com/photo-1592841200221-a6898f307baa?auto=format&fit=crop&w=800&q=80', zone.cropType);
-                  window.scrollTo({ top: 0, behavior: 'smooth' });
-                }}
-              >
-                <div className="relative h-56 overflow-hidden bg-slate-900">
-                  <img 
-                    src={zone.sensorData?.imageUrl || 'https://images.unsplash.com/photo-1592841200221-a6898f307baa?auto=format&fit=crop&w=800&q=80'} 
-                    alt={`${zone.cropType} in ${zone.name}`}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                  />
-                  <div className="absolute top-3 left-3 bg-black/60 backdrop-blur-md text-white px-2.5 py-1 rounded-full text-xs font-medium flex items-center gap-1.5">
-                    <Camera className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>{zone.sensorData?.deviceId || 'ESP32-CAM'}</span>
-                  </div>
-                  
-                  <div className={`absolute top-3 right-3 backdrop-blur-md px-3 py-1 rounded-full text-xs font-black shadow-xs ${
-                    status === 'Healthy' ? 'bg-emerald-500 text-white' : 
-                    status === 'Attention' ? 'bg-amber-400 text-amber-950' : 
-                    'bg-rose-500 text-white'
-                  }`}>
-                    Health: {zone.analysis?.overallHealthScore ?? 80}%
-                  </div>
-
-                  <div className="absolute bottom-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity bg-emerald-600 text-white px-3 py-1 rounded-lg text-xs font-bold shadow-md flex items-center gap-1">
-                    <span>Inspect with AI</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </div>
-                </div>
-                
-                <div className="p-5 flex-1 flex flex-col justify-between space-y-4">
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <h3 className="text-lg font-black text-slate-900">
-                        {zone.name} — {zone.cropType}
-                      </h3>
-                      <span className="text-xs text-slate-500 font-semibold">
-                        {agronomy?.quadrant || '0.25 Acre'}
-                      </span>
-                    </div>
-
-                    <p className="text-xs text-slate-500 italic mb-3">
-                      {agronomy?.crop?.variety || 'Hybrid Cultivar'} • Day {agronomy?.crop?.daysAfterSowing || 45}
-                    </p>
-                    
-                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-xs text-slate-600 space-y-1">
-                      <div className="flex justify-between">
-                        <span>Canopy Moisture:</span>
-                        <strong>{typeof zone.sensorData?.soilMoisture === 'number' ? `${zone.sensorData.soilMoisture.toFixed(0)}%` : '35%'}</strong>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Thermal Reading:</span>
-                        <strong>{typeof zone.sensorData?.airTemperature === 'number' ? `${zone.sensorData.airTemperature.toFixed(1)}°C` : '28.0°C'}</strong>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Visual Assessment:</span>
-                        <strong className={status === 'Healthy' ? 'text-emerald-700' : status === 'Attention' ? 'text-amber-700' : 'text-rose-700'}>
-                          {zone.analysis?.plantStatus || 'Healthy'}
-                        </strong>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-                    <span>7-Day Health Trend</span>
-                    <span className="text-emerald-700 font-bold flex items-center gap-1">
-                      <span>Click to scan with ML</span>
-                      <span>→</span>
-                    </span>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
     </div>
   );
 }

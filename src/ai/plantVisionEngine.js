@@ -1,226 +1,459 @@
 /**
- * AI/ML Plant Vision Inference Engine (EPPO & GlobalG.A.P. Standard)
- * Simulates YOLOv8 & ResNet-50 Deep Learning inference for precision crop diagnostics,
- * object detection bounding boxes, EPPO global pathogen codes, and ESP32 telemetry correlation.
+ * SmartFarm AI — Real Computer Vision Plant Pathologist Engine
+ * 
+ * Clinical 4-stage evaluation:
+ * 1. Botanical Verification (Rejects non-plant images: faces, vehicles, furniture, casing, blank)
+ * 2. Image Clarity Verification (Rejects blurry, dark, low-res, or out-of-focus photos)
+ * 3. Crop Identification (Prioritizes & strictly verifies Tomato, Chili, Paddy, Groundnut)
+ * 4. Pathological Classification (Real diagnosis with genuine confidence, symptoms, and advice)
+ * 
+ * STRICT ZERO HALLUCINATIONS POLICY:
+ * Does not invent diagnoses. Rejects unsupported or invalid images with exact agronomic explanations.
  */
 
-export const PRESET_DIAGNOSES = [
-  {
-    id: 'sample-tomato-blight',
-    cropName: 'Tomato',
-    scientificName: 'Solanum lycopersicum',
-    zoneId: 'ZONE-A',
-    image: 'https://images.unsplash.com/photo-1592841200221-a6898f307baa?auto=format&fit=crop&w=800&q=80',
-    title: 'Tomato Early Blight (Alternaria solani)',
-    eppoCode: 'ALTESO',
-    fracIracCode: 'FRAC M01 (Inorganic Copper) / FRAC 11 (QoI)',
-    whoClass: 'WHO Class III (Slightly Hazardous)',
-    mrlStatus: 'MRL Safe (Codex Standard 0.5 mg/kg)',
-    model: 'YOLOv8x-PlantDisease + ResNet50 Classifier (EPPO Taxonomy)',
-    confidence: 96.8,
-    severity: 'Moderate',
-    healthScore: 54,
-    status: 'Attention',
-    affectedArea: '14.2% leaf surface',
-    growthStage: 'Flowering & Early Fruit Set (Day 48)',
-    esp32Data: {
-      deviceId: 'ESP32-CAM-01',
-      zoneName: 'Zone A',
-      airTemp: 34.0,
-      humidity: 72.0,
-      soilMoisture: 28.0,
-      soilPH: 6.5,
-      lightIntensity: 850
-    },
-    correlationAnalysis: 'High canopy humidity (72%) combined with elevated daytime temperature (34°C) created favorable incubation conditions for Alternaria spores over the last 48 hours.',
-    detections: [
-      { label: 'Early Blight Lesion (ALTESO)', confidence: 97.2, x: 25, y: 35, width: 28, height: 26, color: '#ef4444' },
-      { label: 'Leaf Margin Necrosis', confidence: 91.5, x: 58, y: 48, width: 22, height: 20, color: '#f59e0b' },
-      { label: 'Healthy Fruit Tissue', confidence: 98.4, x: 38, y: 65, width: 32, height: 28, color: '#10b981' }
-    ],
-    prescription: {
-      chemical: 'Copper Oxychloride 50% WP',
-      dosage: '2.5 g / Liter of water (Foliar spray)',
-      organicOption: 'NeemAzal-T/S (Azadirachtin 1% EC) @ 3 ml / L',
-      fertilizer: 'Foliar Potassium Nitrate (13:0:45) @ 4g/L to strengthen leaf epidermis',
-      phi: '7 Days safety interval (GlobalG.A.P. Certified)',
-      culturalPractice: 'Prune lower leaves touching soil; maintain drip irrigation without splashing foliage.'
-    }
-  },
-  {
-    id: 'sample-chili-thrips',
-    cropName: 'Chili',
-    scientificName: 'Capsicum annuum',
-    zoneId: 'ZONE-B',
-    image: 'https://images.unsplash.com/photo-1588252303782-cb80119abd6d?auto=format&fit=crop&w=800&q=80',
-    title: 'Chili Leaf Curl & Thrips Infestation',
-    eppoCode: 'THRPSP',
-    fracIracCode: 'IRAC 4A (Neonicotinoids) / IRAC 5 (Spinosyns)',
-    whoClass: 'WHO Class II/III (Moderately Hazardous)',
-    mrlStatus: 'MRL Safe (Codex Standard 0.05 mg/kg)',
-    model: 'YOLOv8-PestDetector (EPPO Standard)',
-    confidence: 94.2,
-    severity: 'Mild to Moderate',
-    healthScore: 78,
-    status: 'Attention',
-    affectedArea: '8.5% canopy area',
-    growthStage: 'Vegetative & Pre-Flowering (Day 35)',
-    esp32Data: {
-      deviceId: 'ESP32-CAM-02',
-      zoneName: 'Zone B',
-      airTemp: 29.5,
-      humidity: 55.0,
-      soilMoisture: 35.0,
-      soilPH: 6.8,
-      lightIntensity: 780
-    },
-    correlationAnalysis: 'Dry warm weather (29.5°C, 55% RH) accelerated thrips reproduction cycle. Moderate vector activity detected on fresh shoot tips.',
-    detections: [
-      { label: 'Thrips Upward Leaf Curl (THRPSP)', confidence: 95.1, x: 30, y: 22, width: 35, height: 32, color: '#f59e0b' },
-      { label: 'Healthy Shoot Bud', confidence: 92.0, x: 62, y: 55, width: 25, height: 24, color: '#10b981' }
-    ],
-    prescription: {
-      chemical: 'Imidacloprid 17.8% SL',
-      dosage: '0.5 ml / Liter of water (Ultra-low volume foliar spray)',
-      organicOption: 'Pongamia oil extract + Lecanicillium lecanii bio-agent',
-      fertilizer: 'Zinc Sulphate (0.2%) micronutrient spray to restore leaf vigor',
-      phi: '5 Days safety interval',
-      culturalPractice: 'Install yellow sticky traps (15 traps / 0.25 acre) around quadrant borders.'
-    }
-  },
-  {
-    id: 'sample-paddy-blast',
-    cropName: 'Paddy',
-    scientificName: 'Oryza sativa',
-    zoneId: 'ZONE-C',
-    image: 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=800&q=80',
-    title: 'Paddy Sheath & Leaf Blast (Magnaporthe oryzae)',
-    eppoCode: 'PYRIOR',
-    fracIracCode: 'FRAC 16.1 (Melanin Biosynthesis Inhibitor)',
-    whoClass: 'WHO Class U (Unlikely to present acute hazard)',
-    mrlStatus: 'MRL Safe (Codex Standard 0.1 mg/kg)',
-    model: 'ResNet50-GrainVision (IRRI & FAO Standard)',
-    confidence: 95.5,
-    severity: 'Minimal',
-    healthScore: 88,
-    status: 'Healthy',
-    affectedArea: '3.1% tiller area',
-    growthStage: 'Active Tillering (Day 40)',
-    esp32Data: {
-      deviceId: 'ESP32-CAM-03',
-      zoneName: 'Zone C',
-      airTemp: 26.0,
-      humidity: 82.0,
-      soilMoisture: 75.0,
-      soilPH: 6.2,
-      lightIntensity: 650
-    },
-    correlationAnalysis: 'Paddy flood moisture (75%) and morning mist humidity (82%) elevated blast risk. Canopy vigor remains high with negligible lesion spread.',
-    detections: [
-      { label: 'Minor Spindle Blast Lesion (PYRIOR)', confidence: 92.4, x: 40, y: 38, width: 20, height: 26, color: '#f59e0b' },
-      { label: 'Vigorous Tiller Canopy', confidence: 97.9, x: 22, y: 50, width: 55, height: 40, color: '#10b981' }
-    ],
-    prescription: {
-      chemical: 'Tricyclazole 75% WP',
-      dosage: '0.6 g / Liter of water',
-      organicOption: 'Pseudomonas fluorescens seed and foliar drenching @ 10g/L',
-      fertilizer: 'Avoid excess top-dressing Nitrogen; apply Silicon foliar spray (2ml/L)',
-      phi: '14 Days safety interval',
-      culturalPractice: 'Maintain 3-5 cm standing water level; avoid deep prolonged submersion.'
-    }
-  },
-  {
-    id: 'sample-groundnut-tikka',
-    cropName: 'Groundnut',
-    scientificName: 'Arachis hypogaea',
-    zoneId: 'ZONE-D',
-    image: 'https://images.unsplash.com/photo-1599423300746-b62533397364?auto=format&fit=crop&w=800&q=80',
-    title: 'Groundnut Tikka Leaf Spot & Drought Stress',
-    eppoCode: 'CERCAR',
-    fracIracCode: 'FRAC 3 (DMI Triazoles) / FRAC M02 (Inorganic Sulfur)',
-    whoClass: 'WHO Class III (Slightly Hazardous)',
-    mrlStatus: 'MRL Safe (Codex Standard 0.2 mg/kg)',
-    model: 'YOLOv8-CanopyStress + CNN Diagnostic',
-    confidence: 98.1,
-    severity: 'Critical (Drought + Spot)',
-    healthScore: 38,
-    status: 'Critical',
-    affectedArea: '22.8% leaf surface + severe moisture deficit',
-    growthStage: 'Pod Development & Pegging (Day 52)',
-    esp32Data: {
-      deviceId: 'ESP32-CAM-04',
-      zoneName: 'Zone D',
-      airTemp: 38.0,
-      humidity: 42.0,
-      soilMoisture: 15.0,
-      soilPH: 6.9,
-      lightIntensity: 980
-    },
-    correlationAnalysis: 'CRITICAL LIMITING FACTOR: Soil moisture collapsed to 15% under 38°C midday heat, compromising plant cuticle defenses and accelerating Tikka fungal lesions.',
-    detections: [
-      { label: 'Tikka Circular Necrosis (CERCAR)', confidence: 97.8, x: 32, y: 28, width: 30, height: 28, color: '#ef4444' },
-      { label: 'Thermal Wilting Desiccation', confidence: 98.5, x: 20, y: 52, width: 45, height: 35, color: '#ef4444' },
-      { label: 'Surviving Leaflet Area', confidence: 89.2, x: 62, y: 65, width: 25, height: 22, color: '#10b981' }
-    ],
-    prescription: {
-      chemical: 'Hexaconazole 5% EC + Mancozeb 75% WP',
-      dosage: 'Mix 2g + 1g in 1L water; spray immediately',
-      organicOption: 'Trichoderma soil drenching + 5% Panchagavya spray',
-      fertilizer: 'Agricultural Gypsum @ 50 kg / 0.25 acre to nourish peg calcium',
-      phi: '10 Days safety interval',
-      culturalPractice: 'URGENT: Run drip irrigation for minimum 45 minutes to restore soil moisture above 40%.'
-    }
-  }
-];
+import { getAIConfig } from '../services/aiChatService.js';
+
+export const SUPPORTED_CROPS = ['Tomato', 'Chili', 'Paddy', 'Groundnut'];
+
+export const VALIDATION_STATUSES = {
+  VALID_SUPPORTED_CROP: 'VALID_SUPPORTED_CROP',
+  NO_PLANT_DETECTED: 'NO_PLANT_DETECTED',
+  UNSUPPORTED_CROP: 'UNSUPPORTED_CROP',
+  UNCLEAR_IMAGE: 'UNCLEAR_IMAGE',
+  MODEL_UNAVAILABLE: 'MODEL_UNAVAILABLE'
+};
 
 /**
- * Simulates analyzing an uploaded image via deep learning vision model.
+ * 1. Validate File Metadata (Type, Size)
  */
-export const analyzeUploadedImage = (imageDataUrl, matchedZone, customCropHint = '') => {
-  let baseTemplate = PRESET_DIAGNOSES[0];
-  if (matchedZone?.zoneId === 'ZONE-B' || customCropHint.toLowerCase().includes('chili')) {
-    baseTemplate = PRESET_DIAGNOSES[1];
-  } else if (matchedZone?.zoneId === 'ZONE-C' || customCropHint.toLowerCase().includes('paddy') || customCropHint.toLowerCase().includes('rice')) {
-    baseTemplate = PRESET_DIAGNOSES[2];
-  } else if (matchedZone?.zoneId === 'ZONE-D' || customCropHint.toLowerCase().includes('groundnut') || customCropHint.toLowerCase().includes('peanut')) {
-    baseTemplate = PRESET_DIAGNOSES[3];
+export function validateImageFile(file) {
+  if (!file) {
+    return { valid: false, error: 'No file selected.' };
   }
 
-  const sensor = matchedZone?.sensorData || baseTemplate.esp32Data;
+  const validTypes = ['image/jpeg', 'image/png', 'image/webp'];
+  const ext = file.name ? file.name.split('.').pop().toLowerCase() : '';
+  const validExts = ['jpg', 'jpeg', 'png', 'webp'];
+
+  if (!validTypes.includes(file.type) && !validExts.includes(ext)) {
+    return {
+      valid: false,
+      error: 'Unsupported file format. Please upload a JPG, JPEG, PNG, or WebP image.'
+    };
+  }
+
+  const MAX_BYTES = 10 * 1024 * 1024; // 10MB
+  if (file.size > MAX_BYTES) {
+    return {
+      valid: false,
+      error: `File is too large (${(file.size / (1024 * 1024)).toFixed(1)} MB). Maximum allowed size is 10 MB.`
+    };
+  }
+
+  return { valid: true };
+}
+
+/**
+ * 2. Client-side canvas check (Dimensions, blank/solid image detection)
+ */
+export function checkImageCanvasQuality(imgElement) {
+  try {
+    const width = imgElement.naturalWidth || imgElement.width || 0;
+    const height = imgElement.naturalHeight || imgElement.height || 0;
+
+    if (width < 64 || height < 64) {
+      return {
+        status: VALIDATION_STATUSES.UNCLEAR_IMAGE,
+        message: 'The image resolution is too low. Please upload a closer, well-lit photo.'
+      };
+    }
+
+    // Off-screen canvas analysis
+    const canvas = document.createElement('canvas');
+    const sampleSize = 64;
+    canvas.width = sampleSize;
+    canvas.height = sampleSize;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return { status: null };
+
+    ctx.drawImage(imgElement, 0, 0, sampleSize, sampleSize);
+    const imgData = ctx.getImageData(0, 0, sampleSize, sampleSize);
+    const data = imgData.data;
+
+    let sumR = 0, sumG = 0, sumB = 0;
+    const totalPixels = sampleSize * sampleSize;
+
+    for (let i = 0; i < data.length; i += 4) {
+      sumR += data[i];
+      sumG += data[i + 1];
+      sumB += data[i + 2];
+    }
+
+    const meanR = sumR / totalPixels;
+    const meanG = sumG / totalPixels;
+    const meanB = sumB / totalPixels;
+
+    let variance = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      const diffR = data[i] - meanR;
+      const diffG = data[i + 1] - meanG;
+      const diffB = data[i + 2] - meanB;
+      variance += (diffR * diffR + diffG * diffG + diffB * diffB) / 3;
+    }
+    const stdDev = Math.sqrt(variance / totalPixels);
+
+    // If standard deviation is extremely low, it's a solid/blank color (all black, white, or monochrome)
+    if (stdDev < 5.0) {
+      return {
+        status: VALIDATION_STATUSES.NO_PLANT_DETECTED,
+        message: 'No plant detected. Please upload a clear photo of a crop or leaf.'
+      };
+    }
+
+    return { status: null }; // Passed pre-checks
+  } catch (e) {
+    console.warn('[Canvas Quality Check]', e);
+    return { status: null };
+  }
+}
+
+/**
+ * 3. Master Plant Vision Inference Engine
+ */
+export async function analyzePlantVision({
+  file = null,
+  dataUrl = '',
+  language = 'en',
+  backendUrl = 'https://smartfarming-e3b2.onrender.com',
+  signal = null
+}) {
+  const isTe = language === 'te';
+
+  // Attempt Tier 1: Dedicated Backend Endpoint
+  const cleanBackendUrl = backendUrl ? backendUrl.trim().replace(/\/+$/, '') : 'https://smartfarming-e3b2.onrender.com';
+
+  try {
+    let res;
+    if (file) {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('language', language);
+      res = await fetch(`${cleanBackendUrl}/api/plant/analyze`, {
+        method: 'POST',
+        body: formData,
+        signal: signal || AbortSignal.timeout(18000)
+      });
+    } else if (dataUrl) {
+      res = await fetch(`${cleanBackendUrl}/api/plant/analyze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: dataUrl, language }),
+        signal: signal || AbortSignal.timeout(18000)
+      });
+    }
+
+    if (res && res.ok) {
+      const data = await res.json();
+      if (data && data.validation_status) {
+        return formatDiagnosticResult(data, isTe);
+      }
+    }
+  } catch (err) {
+    console.warn('[PlantVisionEngine] Backend analysis unavailable:', err.message);
+  }
+
+  // Attempt Tier 2: Direct Client-Side Multimodal AI Vision if user configured an API key in Settings
+  const aiConfig = getAIConfig();
+  if (dataUrl && (aiConfig.geminiKey || aiConfig.groqKey || aiConfig.openaiKey)) {
+    try {
+      const clientVisionResult = await callClientVisionModel({
+        dataUrl,
+        aiConfig,
+        language,
+        isTe,
+        signal
+      });
+      if (clientVisionResult) {
+        return formatDiagnosticResult(clientVisionResult, isTe);
+      }
+    } catch (clientErr) {
+      console.warn('[PlantVisionEngine] Direct client vision call failed:', clientErr.message);
+    }
+  }
+
+  // Tier 3: Model Unavailable
+  // Strictly tell the truth! Never fabricate mock disease findings!
+  return {
+    validation_status: VALIDATION_STATUSES.MODEL_UNAVAILABLE,
+    is_plant: null,
+    detected_crop: null,
+    condition: null,
+    is_healthy: null,
+    model_score: null,
+    symptoms: [],
+    recommendations: isTe
+      ? ['దయచేసి బ్యాకెండ్ సర్వర్‌ను ప్రారంభించండి లేదా సెట్టింగ్స్‌లో చెల్లుబాటు అయ్యే AI విజన్ కీని కాన్ఫిగర్ చేయండి.']
+      : ['Plant analysis requires an active backend server or a configured AI Vision API key in Settings.'],
+    message: isTe
+      ? 'మొక్కల విశ్లేషణ తాత్కాలికంగా అందుబాటులో లేదు.'
+      : 'Plant analysis is temporarily unavailable.',
+    model_info: 'Real Computer Vision Pipeline',
+    limitations: 'Inference model is currently offline or unreachable. Fabricated results are strictly forbidden.'
+  };
+}
+
+/**
+ * Helper to call Gemini, Groq, or OpenAI directly with the botanical system prompt
+ */
+async function callClientVisionModel({ dataUrl, aiConfig, isTe, signal }) {
+  const systemPrompt = `You are an expert botanical validator and precision crop pathologist for SmartFarm AI.
+Analyze the provided image with clinical accuracy. Language: ${isTe ? 'Telugu' : 'English'}.
+
+Follow this 4-step decision hierarchy strictly:
+1. BOTANICAL VALIDATION:
+   Does this image contain an actual plant, crop, leaf, stem, or agricultural foliage?
+   - If the image contains a human, person, face, animal, vehicle, indoor room, furniture, screen, casing, hardware board, drawing, tool, or non-plant subject:
+     Return:
+     "validation_status": "NO_PLANT_DETECTED",
+     "is_plant": false,
+     "detected_crop": "Non-plant",
+     "condition": null,
+     "is_healthy": null,
+     "message": "${isTe ? 'మొక్క లేదా ఆకు గుర్తించబడలేదు. దయచేసి స్పష్టమైన పంట లేదా ఆకు ఫోటోను అప్‌లోడ్ చేయండి.' : 'No plant detected. Please upload a clear photo of a crop or leaf.'}"
+
+2. CLARITY CHECK:
+   Is the image clear enough for leaf/pathology analysis?
+   - If extremely blurry, out-of-focus, completely black/white, or too distant:
+     Return:
+     "validation_status": "UNCLEAR_IMAGE",
+     "is_plant": false,
+     "detected_crop": "Unknown",
+     "condition": null,
+     "is_healthy": null,
+     "message": "${isTe ? 'ఫోటో అస్పష్టంగా ఉంది. దయచేసి దగ్గరగా, మంచి వెలుతురులో తీసిన ఫోటోను అప్‌లోడ్ చేయండి.' : 'The image is unclear. Please upload a closer, well-lit photo.'}"
+
+3. CROP IDENTIFICATION:
+   Identify the plant species. Supported crops are ONLY:
+   - Tomato
+   - Chili
+   - Paddy
+   - Groundnut
+   - If the image is a plant or leaf, but NOT one of these 4 crops (e.g. Apple, Wheat, Corn, Cotton, Mango, Rose, Houseplant, Weed):
+     Return:
+     "validation_status": "UNSUPPORTED_CROP",
+     "is_plant": true,
+     "detected_crop": "<Common name of the detected plant>",
+     "condition": null,
+     "is_healthy": null,
+     "message": "${isTe ? 'ఈ పంట ప్రస్తుతం మద్దతు ఇవ్వబడలేదు. ప్రస్తుతం టమోటా, మిర్చి, వరి, మరియు వేరుశనగ పంటలకు మాత్రమే మద్దతు ఉంది.' : 'This crop is not currently supported.'}"
+
+4. CONDITION & HEALTH DIAGNOSIS (Only for Tomato, Chili, Paddy, Groundnut):
+   - If healthy:
+     "validation_status": "VALID_SUPPORTED_CROP",
+     "is_plant": true,
+     "condition": "Healthy",
+     "is_healthy": true,
+     "model_score": 0.95,
+     "symptoms": [],
+     "recommendations": ["Maintain regular irrigation schedule.", "Inspect foliage weekly for early signs of stress."]
+   - If diseased or stressed:
+     "validation_status": "VALID_SUPPORTED_CROP",
+     "is_plant": true,
+     "condition": "<Precise condition name, e.g. Tomato Early Blight, Chili Leaf Curl, Paddy Blast, Groundnut Tikka Spot>",
+     "is_healthy": false,
+     "model_score": 0.90,
+     "symptoms": ["Visible concentric brown leaf lesions", "Chlorosis on margin"],
+     "recommendations": ["Remove heavily affected lower leaves.", "Avoid overhead irrigation to keep canopy dry.", "Consult local agricultural extension for recommended treatment."]
+
+Respond strictly with valid JSON conforming to this schema:
+{
+  "validation_status": "VALID_SUPPORTED_CROP" | "NO_PLANT_DETECTED" | "UNSUPPORTED_CROP" | "UNCLEAR_IMAGE",
+  "is_plant": true | false,
+  "detected_crop": string,
+  "condition": string | null,
+  "is_healthy": true | false | null,
+  "model_score": number | null,
+  "symptoms": string[],
+  "recommendations": string[],
+  "message": string
+}`;
+
+  // 1. Google Gemini
+  if (aiConfig.geminiKey) {
+    const cleanKey = aiConfig.geminiKey.trim();
+    const model = aiConfig.geminiModel || 'gemini-1.5-flash';
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${cleanKey}`;
+    
+    let mimeType = 'image/jpeg';
+    let base64Part = dataUrl;
+    if (dataUrl.includes(',')) {
+      const parts = dataUrl.split(',');
+      if (parts[0].includes('image/png')) mimeType = 'image/png';
+      else if (parts[0].includes('image/webp')) mimeType = 'image/webp';
+      base64Part = parts[1];
+    }
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{
+          parts: [
+            { text: systemPrompt },
+            { inline_data: { mime_type: mimeType, data: base64Part } }
+          ]
+        }],
+        generationConfig: {
+          temperature: 0.1,
+          response_mime_type: 'application/json'
+        }
+      }),
+      signal: signal || AbortSignal.timeout(18000)
+    });
+
+    if (res.ok) {
+      const json = await res.json();
+      const rawText = json.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (rawText) {
+        const parsed = JSON.parse(rawText);
+        parsed.model_info = `Google ${model} Vision`;
+        parsed.limitations = 'Classification inference. Does not provide localized bounding box coordinates.';
+        return parsed;
+      }
+    }
+  }
+
+  // 2. Groq Vision
+  if (aiConfig.groqKey) {
+    const cleanKey = aiConfig.groqKey.trim();
+    const url = 'https://api.groq.com/openai/v1/chat/completions';
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${cleanKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'llama-3.2-11b-vision-preview',
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'text', text: systemPrompt },
+            { type: 'image_url', image_url: { url: dataUrl } }
+          ]
+        }],
+        response_format: { type: 'json_object' },
+        temperature: 0.1
+      }),
+      signal: signal || AbortSignal.timeout(18000)
+    });
+
+    if (res.ok) {
+      const json = await res.json();
+      const content = json.choices?.[0]?.message?.content;
+      if (content) {
+        const parsed = JSON.parse(content);
+        parsed.model_info = 'Groq Llama 3.2 Vision (11B)';
+        parsed.limitations = 'Classification inference. Does not provide localized bounding box coordinates.';
+        return parsed;
+      }
+    }
+  }
+
+  // 3. OpenAI Vision
+  if (aiConfig.openaiKey) {
+    const cleanKey = aiConfig.openaiKey.trim();
+    const url = 'https://api.openai.com/v1/chat/completions';
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${cleanKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'text', text: systemPrompt },
+            { type: 'image_url', image_url: { url: dataUrl } }
+          ]
+        }],
+        response_format: { type: 'json_object' },
+        temperature: 0.1
+      }),
+      signal: signal || AbortSignal.timeout(18000)
+    });
+
+    if (res.ok) {
+      const json = await res.json();
+      const content = json.choices?.[0]?.message?.content;
+      if (content) {
+        const parsed = JSON.parse(content);
+        parsed.model_info = 'OpenAI GPT-4o-mini Vision';
+        parsed.limitations = 'Classification inference. Does not provide localized bounding box coordinates.';
+        return parsed;
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Normalizes and formats the response object
+ */
+function formatDiagnosticResult(data, isTe) {
+  const status = data.validation_status || VALIDATION_STATUSES.MODEL_UNAVAILABLE;
+
+  let message = data.message;
+  if (!message) {
+    switch (status) {
+      case VALIDATION_STATUSES.NO_PLANT_DETECTED:
+        message = isTe
+          ? 'మొక్క లేదా ఆకు గుర్తించబడలేదు. దయచేసి స్పష్టమైన పంట లేదా ఆకు ఫోటోను అప్‌లోడ్ చేయండి.'
+          : 'No plant detected. Please upload a clear photo of a crop or leaf.';
+        break;
+      case VALIDATION_STATUSES.UNSUPPORTED_CROP:
+        message = isTe
+          ? 'ఈ పంట ప్రస్తుతం మద్దతు ఇవ్వబడలేదు.'
+          : 'This crop is not currently supported.';
+        break;
+      case VALIDATION_STATUSES.UNCLEAR_IMAGE:
+        message = isTe
+          ? 'ఫోటో అస్పష్టంగా ఉంది. దయచేసి దగ్గరగా, మంచి వెలుతురులో తీసిన ఫోటోను అప్‌లోడ్ చేయండి.'
+          : 'The image is unclear. Please upload a closer, well-lit photo.';
+        break;
+      case VALIDATION_STATUSES.MODEL_UNAVAILABLE:
+        message = isTe
+          ? 'మొక్కల విశ్లేషణ తాత్కాలికంగా అందుబాటులో లేదు.'
+          : 'Plant analysis is temporarily unavailable.';
+        break;
+      default:
+        message = isTe ? 'విశ్లేషణ పూర్తయింది.' : 'Analysis complete.';
+    }
+  }
 
   return {
-    id: `upload-${Date.now()}`,
-    cropName: matchedZone?.cropType || baseTemplate.cropName,
-    scientificName: matchedZone?.agronomy?.crop?.scientificName || baseTemplate.scientificName,
-    zoneId: matchedZone?.zoneId || baseTemplate.zoneId,
-    image: imageDataUrl,
-    title: `${matchedZone?.cropType || baseTemplate.cropName} Vision Health Scan`,
-    eppoCode: baseTemplate.eppoCode,
-    fracIracCode: baseTemplate.fracIracCode,
-    whoClass: baseTemplate.whoClass,
-    mrlStatus: baseTemplate.mrlStatus,
-    model: 'YOLOv8-AgriVision Deep Ensemble (EPPO & GlobalG.A.P. Standard)',
-    confidence: (94.0 + Math.random() * 4.5).toFixed(1),
-    severity: sensor.soilMoisture < 25 ? 'High Stress' : sensor.soilMoisture < 40 ? 'Moderate' : 'Optimal',
-    healthScore: matchedZone?.analysis?.overallHealthScore || baseTemplate.healthScore,
-    status: matchedZone?.analysis?.plantStatus || baseTemplate.status,
-    affectedArea: `${(5.0 + Math.random() * 12.0).toFixed(1)}% leaf surface`,
-    growthStage: matchedZone?.agronomy?.crop?.growthStage || baseTemplate.growthStage,
-    esp32Data: {
-      deviceId: sensor.deviceId || 'ESP32-CAM-01',
-      zoneName: matchedZone?.name || 'Zone A',
-      airTemp: sensor.airTemperature || sensor.airTemp || 32.0,
-      humidity: sensor.humidity || 55.0,
-      soilMoisture: sensor.soilMoisture || 35.0,
-      soilPH: sensor.soilPH || 6.5,
-      lightIntensity: sensor.lightIntensity || 850
-    },
-    correlationAnalysis: `ESP32 node telemetry (${sensor.soilMoisture}% moisture, ${sensor.airTemperature}°C ambient) cross-referenced with computer vision feature maps. Pathogen growth index calculated at ${(0.4 + Math.random() * 0.4).toFixed(2)}.`,
-    detections: [
-      { label: `${matchedZone?.cropType || 'Crop'} Leaf Margin Lesion (${baseTemplate.eppoCode})`, confidence: 95.8, x: 26, y: 30, width: 32, height: 28, color: '#ef4444' },
-      { label: 'Chlorophyll Chlorosis', confidence: 91.2, x: 55, y: 46, width: 24, height: 22, color: '#f59e0b' },
-      { label: 'Healthy Tissue Base', confidence: 98.0, x: 35, y: 62, width: 35, height: 30, color: '#10b981' }
-    ],
-    prescription: baseTemplate.prescription
+    validation_status: status,
+    is_plant: data.is_plant ?? null,
+    detected_crop: data.detected_crop || (status === VALIDATION_STATUSES.VALID_SUPPORTED_CROP ? 'Supported Crop' : 'Unknown'),
+    condition: data.condition || null,
+    is_healthy: data.is_healthy ?? null,
+    model_score: typeof data.model_score === 'number' ? data.model_score : null,
+    symptoms: Array.isArray(data.symptoms) ? data.symptoms : [],
+    recommendations: Array.isArray(data.recommendations) ? data.recommendations : [],
+    message,
+    model_info: data.model_info || 'Real Computer Vision Pipeline',
+    limitations: data.limitations || 'Classification model. Object detection bounding boxes are disabled because bounding boxes require a verified localization/YOLO detection model.'
   };
+}
+
+/**
+ * Backward compatibility exports
+ */
+export const analyzeUploadedImage = async (dataUrl, matchedZone, customHint, language = 'en') => {
+  return await analyzePlantVision({ dataUrl, language });
 };
+
+export const PRESET_DIAGNOSES = [];

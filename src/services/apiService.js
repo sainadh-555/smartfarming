@@ -868,6 +868,42 @@ class SmartFarmApiService {
     }
   }
 
+  async analyzePlantImage(imageFileOrBase64, language = 'en') {
+    const target = this.backendUrl || 'https://smartfarming-e3b2.onrender.com';
+    try {
+      let response;
+      if (typeof imageFileOrBase64 === 'string') {
+        response = await fetch(`${target}/api/plant/analyze`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: imageFileOrBase64, language }),
+          signal: AbortSignal.timeout(20000)
+        });
+      } else if (imageFileOrBase64 instanceof File || imageFileOrBase64 instanceof Blob) {
+        const formData = new FormData();
+        formData.append('file', imageFileOrBase64);
+        formData.append('language', language);
+        response = await fetch(`${target}/api/plant/analyze`, {
+          method: 'POST',
+          body: formData,
+          signal: AbortSignal.timeout(20000)
+        });
+      } else {
+        throw new Error('Unsupported image input type');
+      }
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || `Server error (HTTP ${response.status})`);
+      }
+
+      return await response.json();
+    } catch (err) {
+      console.warn('[ApiService] Backend plant vision request failed:', err.message);
+      throw err;
+    }
+  }
+
   startCloudPolling() {
     this.stopCloudPolling();
     this.fetchLiveCloudData();

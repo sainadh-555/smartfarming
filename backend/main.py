@@ -4,7 +4,7 @@ Designed for deployment on Render (https://render.com)
 Interfaces with ESP32 Hardware (DHT11, Soil Moisture, LDR) and React Frontend Dashboard.
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, List, Any, Union
@@ -14,6 +14,8 @@ import random
 import re
 import requests
 import uvicorn
+import base64
+import json
 
 try:
     from database import (
@@ -412,6 +414,309 @@ def get_irrigation_status():
     }
 
 # ==========================================
+# ==========================================
+# PLANT VISION & IMAGE ANALYSIS BACKEND
+# ==========================================
+
+@app.post("/api/plant/analyze")
+async def analyze_plant_image(
+    request: Request,
+    file: Optional[UploadFile] = File(None),
+    image: Optional[str] = Form(None),
+    language: Optional[str] = Form("en")
+):
+    """
+    Real Computer Vision Plant Analysis Endpoint.
+    - Validates image file type, size, and magic bytes.
+    - Performs botanical verification: Rejects non-plant images (e.g. human face, vehicle, casing, furniture).
+    - Checks clarity: Rejects blurry or unreadable images.
+    - Identifies crop: Supports Tomato, Chili, Paddy, Groundnut. Flags other crops as unsupported.
+    - Diagnoses plant health/disease using verified multimodal vision inference without hallucinating.
+    """
+    raw_bytes = None
+    content_type = None
+
+    # 1. Parse JSON body if present
+    content_type_header = request.headers.get("content-type", "")
+    if "application/json" in content_type_header:
+        try:
+            body = await request.json()
+            img_val = body.get("image") or body.get("image_base64")
+            language = body.get("language", language or "en")
+            if img_val:
+                if "," in img_val:
+                    header_part, b64_part = img_val.split(",", 1)
+                    if "image/png" in header_part:
+                        content_type = "image/png"
+                    elif "image/webp" in header_part:
+                        content_type = "image/webp"
+                    else:
+                        content_type = "image/jpeg"
+                else:
+                    b64_part = img_val
+                raw_bytes = base64.b64decode(b64_part)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid JSON request body: {str(e)}")
+
+    # 2. Parse Multipart file upload
+    if raw_bytes is None and file is not None:
+        raw_bytes = await file.read()
+        content_type = file.content_type
+
+    # 3. Parse Multipart form text field
+    if raw_bytes is None and image:
+        if "," in image:
+            header_part, b64_part = image.split(",", 1)
+            if "image/png" in header_part:
+                content_type = "image/png"
+            elif "image/webp" in header_part:
+                content_type = "image/webp"
+            else:
+                content_type = "image/jpeg"
+        else:
+            b64_part = image
+        raw_bytes = base64.b64decode(b64_part)
+
+    if not raw_bytes or len(raw_bytes) == 0:
+        raise HTTPException(status_code=400, detail="No image provided. Please upload an image file.")
+
+    if len(raw_bytes) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Image size exceeds maximum limit of 10MB.")
+
+    # 4. Verify magic bytes format
+    detected_mime = None
+    if raw_bytes.startswith(b'\xff\xd8\xff'):
+        detected_mime = "image/jpeg"
+    elif raw_bytes.startswith(b'\x89PNG\r\n\x1a\n'):
+        detected_mime = "image/png"
+    elif raw_bytes.startswith(b'RIFF') and b'WEBP' in raw_bytes[:16]:
+        detected_mime = "image/webp"
+
+    if not detected_mime:
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported image format. Allowed formats are JPG, JPEG, PNG, and WebP."
+        )
+    content_type = detected_mime
+    is_te = language == "te"
+
+    # 5. Check if file is excessively small (corrupt or non-image)
+    if len(raw_bytes) < 300:
+        return {
+            "validation_status": "UNCLEAR_IMAGE",
+            "is_plant": False,
+            "detected_crop": "Unknown",
+            "condition": None,
+            "is_healthy": None,
+            "model_score": None,
+            "symptoms": [],
+            "recommendations": (
+                ["దయచేసి స్పష్టమైన, అధిక-రిజల్యూషన్ గల పంట లేదా ఆకు ఫోటోను అప్‌లోడ్ చేయండి."]
+                if is_te else
+                ["Please upload a clear, higher-resolution photo of a crop or leaf."]
+            ),
+            "message": (
+                "ఫోటో అస్పష్టంగా ఉంది. దయచేసి దగ్గరగా, మంచి వెలుతురులో తీసిన ఫోటోను అప్‌లోడ్ చేయండి."
+                if is_te else
+                "The image is unclear. Please upload a closer, well-lit photo."
+            ),
+            "model_info": "Image Pre-validation Engine",
+            "limitations": "File size or resolution is too low to perform visual diagnosis."
+        }
+
+    # 6. Encode image to base64 for API transmission
+    base64_image = base64.b64encode(raw_bytes).decode("utf-8")
+
+    # 7. Check for configured Vision AI Keys
+    gemini_api_key = os.environ.get("GEMINI_API_KEY")
+    groq_api_key = os.environ.get("GROQ_API_KEY")
+    openai_api_key = os.environ.get("OPENAI_API_KEY")
+
+    system_instruction = f"""You are an expert botanical validator and precision crop pathologist for SmartFarm AI.
+Analyze the provided image with clinical accuracy. Language for text/recommendations: {"Telugu" if is_te else "English"}.
+
+Follow this 4-step decision hierarchy strictly:
+
+1. BOTANICAL VALIDATION:
+   Does this image contain an actual plant, crop, leaf, stem, or agricultural foliage?
+   - If the image contains a human, person, face, animal, vehicle, indoor room, furniture, screen, casing, hardware board, drawing, tool, or non-plant subject:
+     Return:
+     "validation_status": "NO_PLANT_DETECTED",
+     "is_plant": false,
+     "detected_crop": "Non-plant",
+     "condition": null,
+     "is_healthy": null,
+     "message": "{"మొక్క లేదా ఆకు గుర్తించబడలేదు. దయచేసి స్పష్టమైన పంట లేదా ఆకు ఫోటోను అప్‌లోడ్ చేయండి." if is_te else "No plant detected. Please upload a clear photo of a crop or leaf."}"
+
+2. CLARITY CHECK:
+   Is the image clear enough for leaf/pathology analysis?
+   - If the image is extremely blurry, out-of-focus, completely black/white, or too distant:
+     Return:
+     "validation_status": "UNCLEAR_IMAGE",
+     "is_plant": false,
+     "detected_crop": "Unknown",
+     "condition": null,
+     "is_healthy": null,
+     "message": "{"ఫోటో అస్పష్టంగా ఉంది. దయచేసి దగ్గరగా, మంచి వెలుతురులో తీసిన ఫోటోను అప్‌లోడ్ చేయండి." if is_te else "The image is unclear. Please upload a closer, well-lit photo."}"
+
+3. CROP IDENTIFICATION:
+   Identify the plant species.
+   Supported crops are ONLY:
+   - Tomato
+   - Chili (Pepper)
+   - Paddy (Rice)
+   - Groundnut (Peanut)
+   - If the image is a plant or leaf, but NOT one of these 4 crops (e.g. Apple, Wheat, Corn, Cotton, Mango, Rose, Houseplant, Weed):
+     Return:
+     "validation_status": "UNSUPPORTED_CROP",
+     "is_plant": true,
+     "detected_crop": "<Common name of the detected plant>",
+     "condition": null,
+     "is_healthy": null,
+     "message": "{"ఈ పంట ప్రస్తుతం మద్దతు ఇవ్వబడలేదు. ప్రస్తుతం టమోటా, మిర్చి, వరి, మరియు వేరుశనగ పంటలకు మాత్రమే మద్దతు ఉంది." if is_te else "This crop is not currently supported."}"
+
+4. CONDITION & HEALTH DIAGNOSIS (Only for Tomato, Chili, Paddy, Groundnut):
+   Check if the leaf is healthy or has disease symptoms.
+   - If healthy:
+     "validation_status": "VALID_SUPPORTED_CROP",
+     "is_plant": true,
+     "condition": "Healthy",
+     "is_healthy": true,
+     "model_score": 0.95,
+     "symptoms": [],
+     "recommendations": ["Maintain regular irrigation schedule.", "Inspect foliage weekly for early signs of stress."]
+   - If diseased or stressed:
+     "validation_status": "VALID_SUPPORTED_CROP",
+     "is_plant": true,
+     "condition": "<Precise condition name, e.g. Tomato Early Blight, Chili Leaf Curl, Paddy Blast, Groundnut Tikka Spot>",
+     "is_healthy": false,
+     "model_score": 0.90,
+     "symptoms": ["Visible concentric brown leaf lesions", "Chlorosis on margin"],
+     "recommendations": ["Remove heavily affected lower leaves.", "Avoid overhead irrigation to keep canopy dry.", "Consult local agricultural extension for recommended treatment."]
+
+Respond strictly with valid JSON conforming to this schema:
+{{
+  "validation_status": "VALID_SUPPORTED_CROP" | "NO_PLANT_DETECTED" | "UNSUPPORTED_CROP" | "UNCLEAR_IMAGE",
+  "is_plant": true | false,
+  "detected_crop": string,
+  "condition": string | null,
+  "is_healthy": true | false | null,
+  "model_score": number | null,
+  "symptoms": string[],
+  "recommendations": string[],
+  "message": string
+}}"""
+
+    # Try Gemini Vision if key exists
+    if gemini_api_key:
+        try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gemini_api_key}"
+            payload = {
+                "contents": [{
+                    "parts": [
+                        {"text": system_instruction},
+                        {"inline_data": {"mime_type": content_type, "data": base64_image}}
+                    ]
+                }],
+                "generationConfig": {
+                    "temperature": 0.1,
+                    "response_mime_type": "application/json"
+                }
+            }
+            res = requests.post(url, json=payload, timeout=18)
+            if res.status_code == 200:
+                res_data = res.json()
+                text_content = res_data["candidates"][0]["content"]["parts"][0]["text"]
+                parsed = json.loads(text_content)
+                parsed["model_info"] = "Google Gemini 1.5 Flash Vision"
+                parsed["limitations"] = "Multimodal classification inference. Does not provide localized bounding box coordinates."
+                return parsed
+        except Exception as e:
+            print(f"[Plant Vision Backend] Gemini call failed: {e}")
+
+    # Try Groq Vision if key exists
+    if groq_api_key:
+        try:
+            url = "https://api.groq.com/openai/v1/chat/completions"
+            payload = {
+                "model": "llama-3.2-11b-vision-preview",
+                "messages": [{
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": system_instruction},
+                        {"type": "image_url", "image_url": {"url": f"data:{content_type};base64,{base64_image}"}}
+                    ]
+                }],
+                "response_format": {"type": "json_object"},
+                "temperature": 0.1
+            }
+            headers = {
+                "Authorization": f"Bearer {groq_api_key}",
+                "Content-Type": "application/json"
+            }
+            res = requests.post(url, headers=headers, json=payload, timeout=18)
+            if res.status_code == 200:
+                text_content = res.json()["choices"][0]["message"]["content"]
+                parsed = json.loads(text_content)
+                parsed["model_info"] = "Groq Llama 3.2 Vision (11B)"
+                parsed["limitations"] = "Multimodal classification inference. Does not provide localized bounding box coordinates."
+                return parsed
+        except Exception as e:
+            print(f"[Plant Vision Backend] Groq call failed: {e}")
+
+    # Try OpenAI Vision if key exists
+    if openai_api_key:
+        try:
+            url = "https://api.openai.com/v1/chat/completions"
+            payload = {
+                "model": "gpt-4o-mini",
+                "messages": [{
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": system_instruction},
+                        {"type": "image_url", "image_url": {"url": f"data:{content_type};base64,{base64_image}"}}
+                    ]
+                }],
+                "response_format": {"type": "json_object"},
+                "temperature": 0.1
+            }
+            headers = {
+                "Authorization": f"Bearer {openai_api_key}",
+                "Content-Type": "application/json"
+            }
+            res = requests.post(url, headers=headers, json=payload, timeout=18)
+            if res.status_code == 200:
+                text_content = res.json()["choices"][0]["message"]["content"]
+                parsed = json.loads(text_content)
+                parsed["model_info"] = "OpenAI GPT-4o-mini Vision"
+                parsed["limitations"] = "Multimodal classification inference. Does not provide localized bounding box coordinates."
+                return parsed
+        except Exception as e:
+            print(f"[Plant Vision Backend] OpenAI call failed: {e}")
+
+    # Fallback: Model is unconfigured in backend environment
+    return {
+        "validation_status": "MODEL_UNAVAILABLE",
+        "is_plant": None,
+        "detected_crop": None,
+        "condition": None,
+        "is_healthy": None,
+        "model_score": None,
+        "symptoms": [],
+        "recommendations": (
+            ["దయచేసి బ్యాకెండ్ ఎన్విరాన్‌మెంట్‌లో లేదా సెట్టింగ్స్‌లో AI కీని కాన్ఫిగర్ చేయండి."]
+            if is_te else
+            ["Configure an AI Vision API key in the backend environment or in the Settings page to enable real computer vision analysis."]
+        ),
+        "message": (
+            "మొక్కల విశ్లేషణ తాత్కాలికంగా అందుబాటులో లేదు."
+            if is_te else
+            "Plant analysis is temporarily unavailable."
+        ),
+        "model_info": "Multimodal Vision Pipeline",
+        "limitations": "No vision inference model is currently active. Simulated/fabricated diagnoses are strictly disabled."
+    }
+
 # FARM AI — INTELLIGENT CHAT BACKEND
 # ==========================================
 
