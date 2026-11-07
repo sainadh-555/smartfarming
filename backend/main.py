@@ -193,23 +193,96 @@ def root():
         "timestamp": datetime.utcnow().isoformat() + "Z"
     }
 
-@app.get("/api/health")
-def health_check():
-    gemini_key = os.environ.get("GEMINI_API_KEY")
-    groq_key = os.environ.get("GROQ_API_KEY")
-    openai_key = os.environ.get("OPENAI_API_KEY")
+def resolve_vision_config(request: Optional[Request] = None) -> tuple[Optional[str], Optional[str], Optional[str], str]:
+    """
+    Resolves the active AI Vision Provider, Model, and API Key based on:
+    1. Client request headers (dynamic client key from Settings)
+    2. Explicit backend environment variables: AI_VISION_API_KEY, AI_VISION_PROVIDER, AI_VISION_MODEL
+    3. Named backend environment variables: GEMINI_API_KEY, GROQ_API_KEY, OPENAI_API_KEY
+    Returns: (provider, model, key, source) where source is 'CLIENT_HEADER', 'ENVIRONMENT', or 'NONE'
+    """
+    client_key = None
+    client_provider = None
+    client_model = None
 
-    active_provider = None
-    active_model = None
+    if request:
+        req_headers = getattr(request, "headers", {}) or {}
+        client_key = (
+            req_headers.get("X-Vision-Key") or
+            req_headers.get("x-vision-key") or
+            req_headers.get("X-Gemini-Key") or
+            req_headers.get("X-Groq-Key") or
+            req_headers.get("X-OpenAI-Key") or
+            (req_headers.get("Authorization", "").replace("Bearer ", "").strip() if req_headers.get("Authorization") else None)
+        )
+        client_provider = req_headers.get("X-Vision-Provider")
+        client_model = req_headers.get("X-Vision-Model")
+
+    # 1. Client header override
+    if client_key and client_key.strip():
+        k = client_key.strip()
+        p = client_provider.strip().lower() if client_provider else None
+        if not p:
+            if k.startswith("AIzaSy"):
+                p = "gemini"
+            elif k.startswith("gsk_"):
+                p = "groq"
+            elif k.startswith("sk-"):
+                p = "openai"
+            else:
+                p = "gemini"
+        
+        m = client_model.strip() if client_model else None
+        if not m:
+            if p == "gemini":
+                m = "gemini-1.5-flash"
+            elif p == "groq":
+                m = "qwen/qwen3.8-27b"
+            elif p == "openai":
+                m = "gpt-4o-mini"
+            else:
+                m = "gemini-1.5-flash"
+        return p, m, k, "CLIENT_HEADER"
+
+    # 2. Explicit AI_VISION_* environment variables
+    ai_vision_key = os.environ.get("AI_VISION_API_KEY", "").strip()
+    ai_vision_provider = os.environ.get("AI_VISION_PROVIDER", "").strip().lower()
+    ai_vision_model = os.environ.get("AI_VISION_MODEL", "").strip()
+
+    if ai_vision_key:
+        p = ai_vision_provider
+        if not p:
+            if ai_vision_key.startswith("AIzaSy"):
+                p = "gemini"
+            elif ai_vision_key.startswith("gsk_"):
+                p = "groq"
+            elif ai_vision_key.startswith("sk-"):
+                p = "openai"
+            else:
+                p = "gemini"
+        m = ai_vision_model or ("gemini-1.5-flash" if p == "gemini" else ("qwen/qwen3.8-27b" if p == "groq" else "gpt-4o-mini"))
+        return p, m, ai_vision_key, "ENVIRONMENT"
+
+    # 3. Named backend environment variables
+    gemini_key = os.environ.get("GEMINI_API_KEY", "").strip()
     if gemini_key:
-        active_provider = "gemini"
-        active_model = "gemini-1.5-flash"
-    elif groq_key:
-        active_provider = "groq"
-        active_model = "llama-3.2-11b-vision-preview"
-    elif openai_key:
-        active_provider = "openai"
-        active_model = "gpt-4o-mini"
+        return "gemini", ai_vision_model or "gemini-1.5-flash", gemini_key, "ENVIRONMENT"
+
+    groq_key = os.environ.get("GROQ_API_KEY", "").strip()
+    if groq_key:
+        return "groq", ai_vision_model or "qwen/qwen3.8-27b", groq_key, "ENVIRONMENT"
+
+    openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
+    if openai_key:
+        return "openai", ai_vision_model or "gpt-4o-mini", openai_key, "ENVIRONMENT"
+
+    return None, None, None, "NONE"
+
+
+@app.get("/api/health")
+def health_check(request: Request):
+    provider, model, key, source = resolve_vision_config(request)
+    is_ready = bool(key)
 
     return {
         "status": "healthy",
@@ -219,8 +292,8 @@ def health_check():
         "historyCount": len(telemetry_history),
         "pumpCommand": active_pump_command,
         "chat": {
-            "configured": active_provider is not None,
-            "provider": active_provider or "farm_ai_engine",
+            "configured": is_ready,
+            "provider": provider or "farm_ai_engine",
             "ready": True
         },
         "motor": {
@@ -245,13 +318,44 @@ def health_check():
             ]
         },
         "vision": {
-            "configured": active_provider is not None,
-            "provider": active_provider,
-            "model": active_model,
-            "inferenceReady": active_provider is not None,
+            "configured": is_ready,
+            "provider": provider if is_ready else None,
+            "model": model if is_ready else None,
+            "inferenceReady": is_ready,
+            "keySource": source,
+            "backendKeyConfigured": source == "ENVIRONMENT",
             "providersSupported": ["gemini", "groq", "openai"],
             "supportedCrops": ["Tomato", "Chili", "Paddy", "Groundnut"]
         }
+    }
+
+
+@app.get("/api/plant/status")
+def get_plant_vision_status(request: Request):
+    """
+    Returns actual vision inference readiness, provider, model, and configuration source.
+    """
+    provider, model, key, source = resolve_vision_config(request)
+    is_ready = bool(key)
+
+    return {
+        "status": "online",
+        "backend": "online",
+        "version": "2.2.0",
+        "inferenceReady": is_ready,
+        "provider": provider if is_ready else None,
+        "model": model if is_ready else None,
+        "keySource": source,
+        "backendKeyConfigured": source == "ENVIRONMENT",
+        "clientKeyProvided": source == "CLIENT_HEADER",
+        "supportedCrops": ["Tomato", "Chili", "Paddy", "Groundnut"],
+        "maxFileSizeMb": 10,
+        "allowedFormats": ["jpg", "jpeg", "png", "webp"],
+        "message": (
+            f"Vision inference engine is ready using {provider.upper()} ({model})."
+            if is_ready else
+            "AI Vision key is not configured in backend environment or request headers."
+        )
     }
 
 @app.post("/api/sensor-data")
@@ -606,25 +710,8 @@ async def analyze_plant_image(
     # 6. Encode image to base64 for API transmission
     base64_image = base64.b64encode(raw_bytes).decode("utf-8")
 
-    # 7. Check for configured Vision AI Keys (Backend Environment OR Client-Provided Key)
-    gemini_api_key = os.environ.get("GEMINI_API_KEY")
-    groq_api_key = os.environ.get("GROQ_API_KEY")
-    openai_api_key = os.environ.get("OPENAI_API_KEY")
-
-    # Client-provided key fallback (passed via header or body from Settings)
-    client_vision_key = (
-        request.headers.get("X-Vision-Key") or
-        request.headers.get("x-vision-key") or
-        (request.headers.get("Authorization", "").replace("Bearer ", "").strip() if request.headers.get("Authorization") else None)
-    )
-    if client_vision_key:
-        clean_client_key = client_vision_key.strip()
-        if clean_client_key.startswith("AIzaSy"):
-            gemini_api_key = gemini_api_key or clean_client_key
-        elif clean_client_key.startswith("gsk_"):
-            groq_api_key = groq_api_key or clean_client_key
-        elif clean_client_key.startswith("sk-"):
-            openai_api_key = openai_api_key or clean_client_key
+    # 7. Resolve configured Vision AI Provider, Model, and Key
+    active_provider, active_model, active_key, key_source = resolve_vision_config(request)
 
     system_instruction = f"""You are an expert botanical validator and precision crop pathologist for SmartFarm AI.
 Analyze the provided image with clinical accuracy. Language for text/recommendations: {"Telugu" if is_te else "English"}.
@@ -717,97 +804,147 @@ Respond strictly with valid JSON conforming to this schema:
   "message": string
 }}"""
 
-    # Try Gemini Vision if key exists
-    if gemini_api_key:
-        try:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gemini_api_key}"
-            payload = {
-                "contents": [{
-                    "parts": [
-                        {"text": system_instruction},
-                        {"inline_data": {"mime_type": content_type, "data": base64_image}}
-                    ]
-                }],
-                "generationConfig": {
-                    "temperature": 0.1,
-                    "response_mime_type": "application/json"
+    # Dispatch to configured vision model
+    if active_key:
+        # A. Google Gemini Vision
+        if active_provider == "gemini":
+            try:
+                model_name = active_model or "gemini-1.5-flash"
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={active_key}"
+                payload = {
+                    "contents": [{
+                        "parts": [
+                            {"text": system_instruction},
+                            {"inline_data": {"mime_type": content_type, "data": base64_image}}
+                        ]
+                    }],
+                    "generationConfig": {
+                        "temperature": 0.1,
+                        "response_mime_type": "application/json"
+                    }
                 }
-            }
-            res = requests.post(url, json=payload, timeout=18)
-            if res.status_code == 200:
-                res_data = res.json()
-                text_content = res_data["candidates"][0]["content"]["parts"][0]["text"]
-                parsed = json.loads(text_content)
-                parsed["model_info"] = "Google Gemini 1.5 Flash Vision"
-                parsed["limitations"] = "Multimodal classification inference. Does not provide localized bounding box coordinates."
-                record_plant_vision_analysis(parsed)
-                return parsed
-        except Exception as e:
-            print(f"[Plant Vision Backend] Gemini call failed: {e}")
+                res = requests.post(url, json=payload, timeout=20)
+                if res.status_code == 200:
+                    res_data = res.json()
+                    text_content = res_data["candidates"][0]["content"]["parts"][0]["text"]
+                    parsed = json.loads(text_content)
+                    parsed["model_info"] = f"Google {model_name} Vision"
+                    parsed["limitations"] = "Multimodal classification inference. Does not provide localized bounding box coordinates."
+                    record_plant_vision_analysis(parsed)
+                    return parsed
+                elif res.status_code in (401, 403):
+                    return {
+                        "validation_status": "MODEL_UNAVAILABLE",
+                        "is_plant": None,
+                        "detected_crop": None,
+                        "message": "Google Gemini API key rejected. Please verify GEMINI_API_KEY / AI_VISION_API_KEY.",
+                        "model_info": "Gemini Authentication Error",
+                        "limitations": f"HTTP {res.status_code} Unauthorized from Google AI Studio."
+                    }
+                elif res.status_code == 429:
+                    return {
+                        "validation_status": "MODEL_UNAVAILABLE",
+                        "is_plant": None,
+                        "detected_crop": None,
+                        "message": "Google Gemini rate limit / quota exceeded. Please retry in a moment.",
+                        "model_info": "Gemini Rate Limited",
+                        "limitations": "HTTP 429 Quota Exceeded."
+                    }
+            except Exception as e:
+                print(f"[Plant Vision Backend] Gemini call failed: {e}")
 
-    # Try Groq Vision if key exists
-    if groq_api_key:
-        try:
-            url = "https://api.groq.com/openai/v1/chat/completions"
-            payload = {
-                "model": "llama-3.2-11b-vision-preview",
-                "messages": [{
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": system_instruction},
-                        {"type": "image_url", "image_url": {"url": f"data:{content_type};base64,{base64_image}"}}
-                    ]
-                }],
-                "response_format": {"type": "json_object"},
-                "temperature": 0.1
-            }
-            headers = {
-                "Authorization": f"Bearer {groq_api_key}",
-                "Content-Type": "application/json"
-            }
-            res = requests.post(url, headers=headers, json=payload, timeout=18)
-            if res.status_code == 200:
-                text_content = res.json()["choices"][0]["message"]["content"]
-                parsed = json.loads(text_content)
-                parsed["model_info"] = "Groq Llama 3.2 Vision (11B)"
-                parsed["limitations"] = "Multimodal classification inference. Does not provide localized bounding box coordinates."
-                record_plant_vision_analysis(parsed)
-                return parsed
-        except Exception as e:
-            print(f"[Plant Vision Backend] Groq call failed: {e}")
+        # B. Groq Multimodal Vision (qwen/qwen3.8-27b)
+        elif active_provider == "groq":
+            try:
+                model_name = active_model or "qwen/qwen3.8-27b"
+                url = "https://api.groq.com/openai/v1/chat/completions"
+                payload = {
+                    "model": model_name,
+                    "messages": [{
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": system_instruction},
+                            {"type": "image_url", "image_url": {"url": f"data:{content_type};base64,{base64_image}"}}
+                        ]
+                    }],
+                    "response_format": {"type": "json_object"},
+                    "temperature": 0.1
+                }
+                headers = {
+                    "Authorization": f"Bearer {active_key}",
+                    "Content-Type": "application/json"
+                }
+                res = requests.post(url, headers=headers, json=payload, timeout=20)
+                if res.status_code == 200:
+                    text_content = res.json()["choices"][0]["message"]["content"]
+                    parsed = json.loads(text_content)
+                    parsed["model_info"] = f"Groq {model_name} Vision"
+                    parsed["limitations"] = "Multimodal classification inference. Does not provide localized bounding box coordinates."
+                    record_plant_vision_analysis(parsed)
+                    return parsed
+                elif res.status_code in (401, 403):
+                    return {
+                        "validation_status": "MODEL_UNAVAILABLE",
+                        "is_plant": None,
+                        "detected_crop": None,
+                        "message": "Groq Cloud API key rejected. Please verify GROQ_API_KEY / AI_VISION_API_KEY.",
+                        "model_info": "Groq Authentication Error",
+                        "limitations": f"HTTP {res.status_code} Unauthorized from Groq."
+                    }
+                elif res.status_code == 429:
+                    return {
+                        "validation_status": "MODEL_UNAVAILABLE",
+                        "is_plant": None,
+                        "detected_crop": None,
+                        "message": "Groq Cloud rate limit exceeded. Please wait a moment or configure Gemini.",
+                        "model_info": "Groq Rate Limited",
+                        "limitations": "HTTP 429 Quota Exceeded."
+                    }
+            except Exception as e:
+                print(f"[Plant Vision Backend] Groq call failed: {e}")
 
-    # Try OpenAI Vision if key exists
-    if openai_api_key:
-        try:
-            url = "https://api.openai.com/v1/chat/completions"
-            payload = {
-                "model": "gpt-4o-mini",
-                "messages": [{
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": system_instruction},
-                        {"type": "image_url", "image_url": {"url": f"data:{content_type};base64,{base64_image}"}}
-                    ]
-                }],
-                "response_format": {"type": "json_object"},
-                "temperature": 0.1
-            }
-            headers = {
-                "Authorization": f"Bearer {openai_api_key}",
-                "Content-Type": "application/json"
-            }
-            res = requests.post(url, headers=headers, json=payload, timeout=18)
-            if res.status_code == 200:
-                text_content = res.json()["choices"][0]["message"]["content"]
-                parsed = json.loads(text_content)
-                parsed["model_info"] = "OpenAI GPT-4o-mini Vision"
-                parsed["limitations"] = "Multimodal classification inference. Does not provide localized bounding box coordinates."
-                record_plant_vision_analysis(parsed)
-                return parsed
-        except Exception as e:
-            print(f"[Plant Vision Backend] OpenAI call failed: {e}")
+        # C. OpenAI GPT-4o-mini Vision
+        elif active_provider == "openai":
+            try:
+                model_name = active_model or "gpt-4o-mini"
+                url = "https://api.openai.com/v1/chat/completions"
+                payload = {
+                    "model": model_name,
+                    "messages": [{
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": system_instruction},
+                            {"type": "image_url", "image_url": {"url": f"data:{content_type};base64,{base64_image}"}}
+                        ]
+                    }],
+                    "response_format": {"type": "json_object"},
+                    "temperature": 0.1
+                }
+                headers = {
+                    "Authorization": f"Bearer {active_key}",
+                    "Content-Type": "application/json"
+                }
+                res = requests.post(url, headers=headers, json=payload, timeout=20)
+                if res.status_code == 200:
+                    text_content = res.json()["choices"][0]["message"]["content"]
+                    parsed = json.loads(text_content)
+                    parsed["model_info"] = f"OpenAI {model_name} Vision"
+                    parsed["limitations"] = "Multimodal classification inference. Does not provide localized bounding box coordinates."
+                    record_plant_vision_analysis(parsed)
+                    return parsed
+                elif res.status_code in (401, 403):
+                    return {
+                        "validation_status": "MODEL_UNAVAILABLE",
+                        "is_plant": None,
+                        "detected_crop": None,
+                        "message": "OpenAI API key rejected. Please verify OPENAI_API_KEY / AI_VISION_API_KEY.",
+                        "model_info": "OpenAI Authentication Error",
+                        "limitations": f"HTTP {res.status_code} Unauthorized from OpenAI."
+                    }
+            except Exception as e:
+                print(f"[Plant Vision Backend] OpenAI call failed: {e}")
 
-    # Fallback: Model is unconfigured in backend environment
+    # Fallback: No active vision key configured
     return {
         "validation_status": "MODEL_UNAVAILABLE",
         "is_plant": None,
@@ -822,15 +959,15 @@ Respond strictly with valid JSON conforming to this schema:
         "recommendations": (
             ["దయచేసి బ్యాకెండ్ ఎన్విరాన్‌మెంట్‌లో లేదా సెట్టింగ్స్‌లో AI కీని కాన్ఫిగర్ చేయండి."]
             if is_te else
-            ["Configure an AI Vision API key in the backend environment or in the Settings page to enable real computer vision analysis."]
+            ["Configure an AI Vision API key (AI_VISION_API_KEY, GEMINI_API_KEY, or GROQ_API_KEY) in Render environment variables or in Settings to enable real computer vision analysis."]
         ),
         "message": (
-            "మొక్కల విశ్లేషణ తాత్కాలికంగా అందుబాటులో లేదు."
+            "మొక్కల విశ్లేషణ తాత్కాలికంగా అందుబాటులో లేదు. AI విజన్ API కీ కాన్ఫిగర్ చేయబడలేదు."
             if is_te else
-            "Plant analysis is temporarily unavailable."
+            "Plant analysis is temporarily unavailable. No AI Vision API key is configured in the backend environment or request headers."
         ),
-        "model_info": "Multimodal Vision Pipeline",
-        "limitations": "No vision inference model is currently active. Simulated/fabricated diagnoses are strictly disabled."
+        "model_info": "Vision Model Offline (Key Required)",
+        "limitations": "Inference model is currently offline. Simulated/fabricated diagnoses are strictly disabled."
     }
 
 # ==========================================

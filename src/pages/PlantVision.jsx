@@ -1,6 +1,7 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useFarmData } from '../context/FarmContext';
+import { getAIConfig } from '../services/aiChatService';
 import { 
   Camera, 
   Upload, 
@@ -47,6 +48,89 @@ export default function PlantVision() {
   });
   const [errorMessage, setErrorMessage] = useState(null);
   const [isDragOver, setIsDragOver] = useState(false);
+
+  // Real-time Inference Readiness Probe State
+  const [inferenceStatus, setInferenceStatus] = useState({
+    checking: true,
+    ready: false,
+    backendOnline: false,
+    provider: null,
+    model: null,
+    source: null,
+    message: 'Checking vision inference engine...'
+  });
+
+  // Probe Backend & Client Inference Readiness on Mount
+  useEffect(() => {
+    let isMounted = true;
+    const probeInferenceStatus = async () => {
+      const cleanUrl = backendUrl ? backendUrl.trim().replace(/\/+$/, '') : 'https://smartfarming-e3b2.onrender.com';
+      const aiConfig = getAIConfig();
+      const clientKey = aiConfig.geminiKey || aiConfig.groqKey || aiConfig.openaiKey || '';
+
+      const headers = {};
+      if (clientKey) {
+        headers['X-Vision-Key'] = clientKey.trim();
+        if (aiConfig.provider) headers['X-Vision-Provider'] = aiConfig.provider;
+        if (aiConfig.model) headers['X-Vision-Model'] = aiConfig.model;
+      }
+
+      try {
+        const res = await fetch(`${cleanUrl}/api/plant/status`, {
+          headers,
+          signal: AbortSignal.timeout(6000)
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (isMounted) {
+            setInferenceStatus({
+              checking: false,
+              ready: Boolean(data.inferenceReady),
+              backendOnline: true,
+              provider: data.provider,
+              model: data.model,
+              source: data.keySource,
+              message: data.message
+            });
+            return;
+          }
+        }
+      } catch (err) {
+        // Backend offline or sleeping
+      }
+
+      // If backend probe didn't confirm, check client-side stored key
+      if (isMounted) {
+        if (clientKey) {
+          const p = aiConfig.geminiKey ? 'gemini' : (aiConfig.groqKey ? 'groq' : 'openai');
+          const m = aiConfig.geminiKey ? 'gemini-1.5-flash' : (aiConfig.groqKey ? (aiConfig.groqModel || 'qwen/qwen3.8-27b') : 'gpt-4o-mini');
+          setInferenceStatus({
+            checking: false,
+            ready: true,
+            backendOnline: false,
+            provider: p,
+            model: m,
+            source: 'CLIENT_BROWSER',
+            message: `Ready via client key (${p.toUpperCase()})`
+          });
+        } else {
+          setInferenceStatus({
+            checking: false,
+            ready: false,
+            backendOnline: false,
+            provider: null,
+            model: null,
+            source: 'NONE',
+            message: 'AI Vision key not configured'
+          });
+        }
+      }
+    };
+
+    probeInferenceStatus();
+    return () => { isMounted = false; };
+  }, [backendUrl]);
 
   // Handle incoming file selection
   const processSelectedFile = (file) => {
@@ -248,6 +332,44 @@ export default function PlantVision() {
             ({isTe ? 'ఇతర చిత్రాలు లేదా మొక్కలు కానివి తిరస్కరించబడతాయి' : 'Non-plant & unsupported images will be rejected'})
           </span>
         </div>
+
+        {/* Inference Readiness Status Indicator */}
+        <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-100 flex-wrap text-xs">
+          <span className="font-bold text-slate-500">
+            {isTe ? 'విజన్ మోడల్ స్థితి:' : 'Vision Engine Status:'}
+          </span>
+          {inferenceStatus.checking ? (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full font-medium bg-slate-100 text-slate-600 border border-slate-200">
+              <RefreshCw className="w-3 h-3 animate-spin text-slate-500" />
+              <span>{isTe ? 'తనిఖీ చేస్తోంది...' : 'Checking Vision Model Readiness...'}</span>
+            </span>
+          ) : inferenceStatus.ready ? (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full font-bold bg-emerald-50 text-emerald-800 border border-emerald-300 shadow-2xs">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+              <span>
+                {isTe ? 'ఇన్ఫరెన్స్ సిద్ధంగా ఉంది' : 'Inference Ready'} • {inferenceStatus.provider?.toUpperCase()} ({inferenceStatus.model})
+              </span>
+            </span>
+          ) : (
+            <div className="inline-flex items-center gap-2 flex-wrap">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full font-bold bg-amber-50 text-amber-800 border border-amber-300">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                <span>
+                  {inferenceStatus.backendOnline 
+                    ? (isTe ? 'విజన్ మోడల్ ఆఫ్‌లైన్: API కీ అవసరం' : 'Vision Model Offline: API Key Missing')
+                    : (isTe ? 'బ్యాకెండ్ సర్వర్ ఆఫ్‌లైన్' : 'Backend Service Offline')}
+                </span>
+              </span>
+              <Link
+                to="/settings#ai-vision-settings"
+                className="font-bold text-emerald-700 hover:text-emerald-800 underline flex items-center gap-1"
+              >
+                <span>{isTe ? 'సెట్టింగ్స్‌లో కాన్ఫిగర్ చేయండి' : 'Configure in Settings'}</span>
+                <ArrowRight className="w-3 h-3" />
+              </Link>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Error Banner */}
@@ -439,8 +561,12 @@ export default function PlantVision() {
                 <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 text-xs font-black flex items-center justify-center">4</span>
                 <span>{isTe ? 'విశ్లేషణ ఫలితం' : 'Analysis Result'}</span>
               </h2>
-              <span className="text-xs font-mono font-bold text-slate-500">
-                {analysisResult.model_info}
+              <span className={`text-xs font-mono font-bold px-2.5 py-0.5 rounded-full border ${
+                analysisResult.validation_status === VALIDATION_STATUSES.MODEL_UNAVAILABLE
+                  ? 'bg-amber-50 text-amber-800 border-amber-300'
+                  : 'bg-emerald-50 text-emerald-800 border-emerald-300'
+              }`}>
+                {analysisResult.model_info || (analysisResult.validation_status === VALIDATION_STATUSES.MODEL_UNAVAILABLE ? 'Vision Model Offline (Key Required)' : 'Real Multimodal Vision AI')}
               </span>
             </div>
 
@@ -673,8 +799,8 @@ export default function PlantVision() {
                 </p>
                 <div className="pt-1">
                   <Link
-                    to="/settings"
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs"
+                    to="/settings#ai-vision-settings"
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer active:scale-95"
                   >
                     <span>{isTe ? 'సెట్టింగ్స్‌లో AI విజన్ కాన్ఫిగర్ చేయండి' : 'Configure AI Vision in Settings'}</span>
                     <ArrowRight className="w-3.5 h-3.5" />

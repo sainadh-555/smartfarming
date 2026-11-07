@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Save, 
   Bell, 
@@ -75,6 +75,20 @@ export default function Settings() {
 
   const [saved, setSaved] = useState(false);
 
+  // Auto-scroll and highlight AI Vision configuration section if navigated with hash
+  useEffect(() => {
+    if (window.location.hash === '#ai-vision-settings') {
+      setTimeout(() => {
+        const el = document.getElementById('ai-vision-settings');
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          el.classList.add('ring-4', 'ring-emerald-400');
+          setTimeout(() => el.classList.remove('ring-4', 'ring-emerald-400'), 3000);
+        }
+      }, 150);
+    }
+  }, []);
+
   const handleTestBridge = async () => {
     setTestingBridge(true);
     setBridgeResult(null);
@@ -114,52 +128,62 @@ export default function Settings() {
     setTestingVision(true);
     setVisionTestResult(null);
     try {
-      // 1. Probe Render Backend /api/health to inspect vision readiness
-      const healthRes = await fetch(`${inputCloudUrl}/api/health`, { signal: AbortSignal.timeout(8000) })
-        .then(r => r.json())
-        .catch(() => null);
+      // 1. Probe Backend /api/plant/status
+      const headers = {};
+      const activeKey = geminiKey || groqKey || openaiKey;
+      if (activeKey) {
+        headers['X-Vision-Key'] = activeKey.trim();
+        if (geminiKey) headers['X-Gemini-Key'] = geminiKey.trim();
+        if (groqKey) headers['X-Groq-Key'] = groqKey.trim();
+      }
 
-      if (healthRes && healthRes.vision?.inferenceReady) {
+      const statusRes = await fetch(`${inputCloudUrl}/api/plant/status`, { 
+        headers,
+        signal: AbortSignal.timeout(8000) 
+      }).then(r => r.json()).catch(() => null);
+
+      if (statusRes && statusRes.inferenceReady) {
         setVisionTestResult({
           success: true,
-          message: `Render Cloud Backend Vision is ONLINE & READY! Active provider: ${healthRes.vision.provider.toUpperCase()} (${healthRes.vision.model})`
+          message: `Backend Vision Inference is ONLINE & READY! Active provider: ${statusRes.provider?.toUpperCase()} (${statusRes.model}) via ${statusRes.keySource}.`
         });
         setTestingVision(false);
         return;
       }
 
-      // 2. Check client-side configured keys
-      const activeKey = geminiKey || groqKey || openaiKey;
+      // 2. Check client-side configured keys directly
       if (geminiKey && geminiKey.trim()) {
         const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey.trim()}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ contents: [{ parts: [{ text: 'Respond with: READY' }] }] })
+          body: JSON.stringify({ contents: [{ parts: [{ text: 'Respond with: READY' }] }] }),
+          signal: AbortSignal.timeout(10000)
         });
         if (res.ok) {
           setVisionTestResult({
             success: true,
-            message: 'Direct Google Gemini Vision (gemini-1.5-flash) verified and ready for leaf analysis!'
+            message: 'Client Google Gemini Vision key (gemini-1.5-flash) verified and ready for leaf analysis!'
           });
         } else {
-          setVisionTestResult({ success: false, error: 'Gemini API key rejected by Google AI Studio.' });
+          setVisionTestResult({ success: false, error: 'Gemini API key rejected by Google AI Studio (HTTP ' + res.status + ').' });
         }
       } else if (groqKey && groqKey.trim()) {
         const res = await fetch('https://api.groq.com/openai/v1/models', {
-          headers: { 'Authorization': `Bearer ${groqKey.trim()}` }
+          headers: { 'Authorization': `Bearer ${groqKey.trim()}` },
+          signal: AbortSignal.timeout(10000)
         });
         if (res.ok) {
           setVisionTestResult({
             success: true,
-            message: 'Direct Groq Vision (llama-3.2-11b-vision-preview) verified and ready for leaf analysis!'
+            message: `Client Groq key verified! Multimodal model: ${groqModel || 'qwen/qwen3.8-27b'} ready for leaf analysis.`
           });
         } else {
-          setVisionTestResult({ success: false, error: 'Groq API key rejected by console.groq.com.' });
+          setVisionTestResult({ success: false, error: 'Groq API key rejected by console.groq.com (HTTP ' + res.status + ').' });
         }
       } else {
         setVisionTestResult({
           success: false,
-          error: 'No Vision API key detected. Set GEMINI_API_KEY in Render environment variables or enter a free Gemini/Groq key above.'
+          error: 'No Vision API key detected. Set AI_VISION_API_KEY (or GEMINI_API_KEY / GROQ_API_KEY) in Render environment variables or enter a Gemini/Groq key in the AI Copilot section above.'
         });
       }
     } catch (err) {
@@ -577,7 +601,10 @@ export default function Settings() {
       </div>
 
       {/* Plant Vision Computer Vision Configuration */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4">
+      <div 
+        id="ai-vision-settings"
+        className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4 transition-all duration-500"
+      >
         <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-2">
           <div className="flex items-center gap-2.5">
             <div className="p-2 rounded-xl bg-emerald-50 text-emerald-600">
@@ -597,27 +624,34 @@ export default function Settings() {
         <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
             <div>
-              <span className="font-bold text-slate-700 block mb-1">Backend Vision Server</span>
-              <p className="text-slate-500 text-[11px] leading-relaxed">
+              <span className="font-bold text-slate-700 block mb-1">Backend Vision Server & Environment Variables</span>
+              <p className="text-slate-600 text-[11px] leading-relaxed">
                 Render Cloud URL: <code className="font-mono bg-white px-1.5 py-0.5 rounded border border-slate-200 text-slate-800">{inputCloudUrl}</code>
               </p>
-              <p className="text-slate-400 text-[10px] mt-1">
-                Render environment variables: <code className="font-mono text-emerald-700">GEMINI_API_KEY</code> or <code className="font-mono text-amber-700">GROQ_API_KEY</code>
-              </p>
+              <div className="mt-2 space-y-1 text-[11px] text-slate-500">
+                <p>Supported backend environment variables on Render:</p>
+                <div className="flex flex-wrap gap-1 font-mono text-[10px]">
+                  <span className="bg-white px-1.5 py-0.5 rounded border border-slate-200 text-emerald-700">AI_VISION_API_KEY</span>
+                  <span className="bg-white px-1.5 py-0.5 rounded border border-slate-200 text-emerald-700">AI_VISION_PROVIDER</span>
+                  <span className="bg-white px-1.5 py-0.5 rounded border border-slate-200 text-emerald-700">AI_VISION_MODEL</span>
+                  <span className="bg-white px-1.5 py-0.5 rounded border border-slate-200 text-blue-700">GEMINI_API_KEY</span>
+                  <span className="bg-white px-1.5 py-0.5 rounded border border-slate-200 text-amber-700">GROQ_API_KEY</span>
+                </div>
+              </div>
             </div>
 
             <div>
               <span className="font-bold text-slate-700 block mb-1">Active Vision Provider Status</span>
               <div className="flex items-center gap-2">
-                <span className={`inline-block w-2.5 h-2.5 rounded-full ${(geminiKey || groqKey || openaiKey) ? 'bg-emerald-500' : 'bg-amber-400'}`} />
+                <span className={`inline-block w-2.5 h-2.5 rounded-full ${(geminiKey || groqKey || openaiKey) ? 'bg-emerald-500 animate-pulse' : 'bg-amber-400'}`} />
                 <span className="font-bold text-slate-800 text-xs">
-                  {geminiKey ? 'Google Gemini 1.5 Flash Vision' : (groqKey ? 'Groq Llama 3.2 11B Vision' : (openaiKey ? 'OpenAI GPT-4o-mini' : 'Awaiting API Key Configuration'))}
+                  {geminiKey ? 'Google Gemini (gemini-1.5-flash)' : (groqKey ? `Groq (${groqModel || 'qwen/qwen3.8-27b'})` : (openaiKey ? 'OpenAI (gpt-4o-mini)' : 'Awaiting API Key Configuration'))}
                 </span>
               </div>
-              <span className="text-[10px] text-slate-400 block mt-1">
+              <span className="text-[10px] text-slate-500 block mt-1.5 leading-relaxed">
                 {(geminiKey || groqKey || openaiKey) 
-                  ? 'Key configured and ready for botanical leaf diagnosis.' 
-                  : 'Configure an API key in the AI Copilot section above to enable real inference.'}
+                  ? 'API key configured in browser client. It will be securely transmitted in request headers to your backend.' 
+                  : 'No key detected. Set AI_VISION_API_KEY in Render environment variables or enter a Gemini/Groq key in the AI Copilot section above.'}
               </span>
             </div>
           </div>
@@ -631,7 +665,7 @@ export default function Settings() {
               type="button"
               onClick={handleTestVision}
               disabled={testingVision}
-              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shrink-0 active:scale-95 flex items-center gap-1.5 cursor-pointer"
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shrink-0 active:scale-95 flex items-center gap-1.5 cursor-pointer shadow-xs"
             >
               {testingVision ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Camera className="w-3.5 h-3.5" />}
               <span>{testingVision ? 'Verifying Pipeline...' : 'Test Vision Inference Readiness'}</span>

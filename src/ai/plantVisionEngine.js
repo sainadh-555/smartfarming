@@ -139,6 +139,11 @@ export async function analyzePlantVision({
     const headers = {};
     if (clientVisionKey) {
       headers['X-Vision-Key'] = clientVisionKey.trim();
+      if (aiConfig.provider) headers['X-Vision-Provider'] = aiConfig.provider;
+      if (aiConfig.model) headers['X-Vision-Model'] = aiConfig.model;
+      if (aiConfig.geminiKey) headers['X-Gemini-Key'] = aiConfig.geminiKey.trim();
+      if (aiConfig.groqKey) headers['X-Groq-Key'] = aiConfig.groqKey.trim();
+      if (aiConfig.openaiKey) headers['X-OpenAI-Key'] = aiConfig.openaiKey.trim();
     }
 
     if (file) {
@@ -151,7 +156,7 @@ export async function analyzePlantVision({
         method: 'POST',
         headers,
         body: formData,
-        signal: signal || AbortSignal.timeout(18000)
+        signal: signal || AbortSignal.timeout(20000)
       });
     } else if (dataUrl) {
       headers['Content-Type'] = 'application/json';
@@ -159,7 +164,7 @@ export async function analyzePlantVision({
         method: 'POST',
         headers,
         body: JSON.stringify({ image: dataUrl, language, apiKey: clientVisionKey }),
-        signal: signal || AbortSignal.timeout(18000)
+        signal: signal || AbortSignal.timeout(20000)
       });
     }
 
@@ -209,9 +214,9 @@ export async function analyzePlantVision({
       ? ['దయచేసి బ్యాకెండ్ సర్వర్‌లో లేదా సెట్టింగ్స్‌లో చెల్లుబాటు అయ్యే AI విజన్ కీని (Gemini లేదా Groq) కాన్ఫిగర్ చేయండి.']
       : ['To enable real vision inference, configure an AI Vision key (Gemini, Groq, or OpenAI) in the Settings page or on your backend server.'],
     message: isTe
-      ? 'మొక్కల విశ్లేషణ తాత్కాలికంగా అందుబాటులో లేదు.'
-      : 'Plant analysis is temporarily unavailable.',
-    model_info: 'Real Computer Vision Pipeline',
+      ? 'మొక్కల విశ్లేషణ తాత్కాలికంగా అందుబాటులో లేదు. AI విజన్ API కీ కాన్ఫిగర్ చేయబడలేదు.'
+      : 'Plant analysis is temporarily unavailable. No AI Vision API key is configured.',
+    model_info: 'Vision Model Offline (Key Required)',
     limitations: 'Inference model is currently offline or unconfigured. Fabricated results are strictly forbidden.'
   };
 }
@@ -353,9 +358,12 @@ Respond strictly with valid JSON conforming to this schema:
     }
   }
 
-  // 2. Groq Multimodal Vision (Requires llama-3.2-11b-vision-preview)
+  // 2. Groq Multimodal Vision (Supports qwen/qwen3.8-27b)
   if (aiConfig.groqKey) {
     const cleanKey = aiConfig.groqKey.trim();
+    const modelName = aiConfig.groqModel?.includes('qwen') || aiConfig.groqModel?.includes('vision')
+      ? aiConfig.groqModel
+      : 'qwen/qwen3.8-27b';
     const url = 'https://api.groq.com/openai/v1/chat/completions';
     const res = await fetch(url, {
       method: 'POST',
@@ -364,7 +372,7 @@ Respond strictly with valid JSON conforming to this schema:
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'llama-3.2-11b-vision-preview',
+        model: modelName,
         messages: [{
           role: 'user',
           content: [
@@ -375,7 +383,7 @@ Respond strictly with valid JSON conforming to this schema:
         response_format: { type: 'json_object' },
         temperature: 0.1
       }),
-      signal: signal || AbortSignal.timeout(18000)
+      signal: signal || AbortSignal.timeout(20000)
     });
 
     if (res.ok) {
@@ -383,7 +391,7 @@ Respond strictly with valid JSON conforming to this schema:
       const content = json.choices?.[0]?.message?.content;
       if (content) {
         const parsed = JSON.parse(content);
-        parsed.model_info = 'Groq Llama 3.2 Vision (11B)';
+        parsed.model_info = `Groq ${modelName} Vision`;
         parsed.limitations = 'Classification inference. Does not provide localized bounding box coordinates.';
         return parsed;
       }
@@ -393,6 +401,7 @@ Respond strictly with valid JSON conforming to this schema:
   // 3. OpenAI Vision
   if (aiConfig.openaiKey) {
     const cleanKey = aiConfig.openaiKey.trim();
+    const modelName = aiConfig.model?.includes('gpt') ? aiConfig.model : 'gpt-4o-mini';
     const url = 'https://api.openai.com/v1/chat/completions';
     const res = await fetch(url, {
       method: 'POST',
@@ -401,7 +410,7 @@ Respond strictly with valid JSON conforming to this schema:
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: modelName,
         messages: [{
           role: 'user',
           content: [
@@ -412,7 +421,7 @@ Respond strictly with valid JSON conforming to this schema:
         response_format: { type: 'json_object' },
         temperature: 0.1
       }),
-      signal: signal || AbortSignal.timeout(18000)
+      signal: signal || AbortSignal.timeout(20000)
     });
 
     if (res.ok) {
@@ -420,7 +429,7 @@ Respond strictly with valid JSON conforming to this schema:
       const content = json.choices?.[0]?.message?.content;
       if (content) {
         const parsed = JSON.parse(content);
-        parsed.model_info = 'OpenAI GPT-4o-mini Vision';
+        parsed.model_info = `OpenAI ${modelName} Vision`;
         parsed.limitations = 'Classification inference. Does not provide localized bounding box coordinates.';
         return parsed;
       }
@@ -435,6 +444,7 @@ Respond strictly with valid JSON conforming to this schema:
  */
 function formatDiagnosticResult(data, isTe) {
   const status = data.validation_status || VALIDATION_STATUSES.MODEL_UNAVAILABLE;
+  const isOffline = status === VALIDATION_STATUSES.MODEL_UNAVAILABLE;
 
   let message = data.message;
   if (!message) {
@@ -456,13 +466,17 @@ function formatDiagnosticResult(data, isTe) {
         break;
       case VALIDATION_STATUSES.MODEL_UNAVAILABLE:
         message = isTe
-          ? 'మొక్కల విశ్లేషణ తాత్కాలికంగా అందుబాటులో లేదు.'
-          : 'Plant analysis is temporarily unavailable.';
+          ? 'మొక్కల విశ్లేషణ తాత్కాలికంగా అందుబాటులో లేదు (AI Vision Key కాన్ఫిగర్ చేయబడలేదు).'
+          : 'Plant analysis is temporarily unavailable (AI Vision key not configured).';
         break;
       default:
         message = isTe ? 'విశ్లేషణ పూర్తయింది.' : 'Analysis complete.';
     }
   }
+
+  const defaultModelInfo = isOffline
+    ? 'Vision Model Offline (Key Required)'
+    : 'Real Multimodal Vision AI';
 
   return {
     validation_status: status,
@@ -477,7 +491,7 @@ function formatDiagnosticResult(data, isTe) {
     symptoms: Array.isArray(data.symptoms) ? data.symptoms : [],
     recommendations: Array.isArray(data.recommendations) ? data.recommendations : [],
     message,
-    model_info: data.model_info || 'Real Computer Vision Pipeline',
+    model_info: data.model_info || defaultModelInfo,
     limitations: data.limitations || 'Classification model. Object detection bounding boxes are disabled because bounding boxes require a verified localization/YOLO detection model.'
   };
 }
