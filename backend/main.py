@@ -868,16 +868,25 @@ Respond strictly with valid JSON conforming to this schema:
                         ]
                     }],
                     "response_format": {"type": "json_object"},
+                    "reasoning_format": "hidden",
                     "temperature": 0.1
                 }
                 headers = {
                     "Authorization": f"Bearer {active_key}",
                     "Content-Type": "application/json"
                 }
-                res = requests.post(url, headers=headers, json=payload, timeout=20)
+                res = requests.post(url, headers=headers, json=payload, timeout=25)
                 if res.status_code == 200:
                     text_content = res.json()["choices"][0]["message"]["content"]
-                    parsed = json.loads(text_content)
+                    # Strip any reasoning thoughts if present
+                    if "<think>" in text_content and "</think>" in text_content:
+                        text_content = text_content.split("</think>", 1)[1].strip()
+                    
+                    # Robustly extract JSON object substring
+                    fb = text_content.find("{")
+                    lb = text_content.rfind("}")
+                    clean_str = text_content[fb:lb+1] if (fb != -1 and lb != -1) else text_content
+                    parsed = json.loads(clean_str)
                     parsed["model_info"] = f"Groq {model_name} Vision"
                     parsed["limitations"] = "Multimodal classification inference. Does not provide localized bounding box coordinates."
                     record_plant_vision_analysis(parsed)

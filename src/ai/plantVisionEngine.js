@@ -381,6 +381,7 @@ Respond strictly with valid JSON conforming to this schema:
           ]
         }],
         response_format: { type: 'json_object' },
+        reasoning_format: 'hidden',
         temperature: 0.1
       }),
       signal: signal || AbortSignal.timeout(20000)
@@ -388,9 +389,15 @@ Respond strictly with valid JSON conforming to this schema:
 
     if (res.ok) {
       const json = await res.json();
-      const content = json.choices?.[0]?.message?.content;
+      let content = json.choices?.[0]?.message?.content;
       if (content) {
-        const parsed = JSON.parse(content);
+        if (content.includes('<think>') && content.includes('</think>')) {
+          content = content.split('</think>')[1].trim();
+        }
+        const fb = content.indexOf('{');
+        const lb = content.lastIndexOf('}');
+        const cleanJson = (fb !== -1 && lb !== -1) ? content.slice(fb, lb + 1) : content;
+        const parsed = JSON.parse(cleanJson);
         parsed.model_info = `Groq ${modelName} Vision`;
         parsed.limitations = 'Classification inference. Does not provide localized bounding box coordinates.';
         return parsed;
