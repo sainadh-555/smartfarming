@@ -359,7 +359,7 @@ export const UnitConverters = {
 
 export const I18N_DICTIONARY = {
   en: {
-    platformTitle: 'SmartFarm AI™ Enterprise',
+    platformTitle: 'AgriNex™ Enterprise',
     platformSubtitle: 'ISO 11783 & FAO-56 Agronomy Intelligence',
     farmName: 'Farm: Green Valley Quadrants',
     faoEt0Title: 'FAO-56 Evapotranspiration',
@@ -378,7 +378,7 @@ export const I18N_DICTIONARY = {
     unitSystem: 'Units'
   },
   es: {
-    platformTitle: 'SmartFarm AI™ Empresarial',
+    platformTitle: 'AgriNex™ Empresarial',
     platformSubtitle: 'Inteligencia Agronómica ISO 11783 y FAO-56',
     farmName: 'Finca: Cuadrantes Valle Verde',
     faoEt0Title: 'Evapotranspiración FAO-56',
@@ -397,7 +397,7 @@ export const I18N_DICTIONARY = {
     unitSystem: 'Unidades'
   },
   fr: {
-    platformTitle: 'SmartFarm AI™ Entreprise',
+    platformTitle: 'AgriNex™ Entreprise',
     platformSubtitle: 'Intelligence Agronomique ISO 11783 et FAO-56',
     farmName: 'Exploitation : Vallée Verte',
     faoEt0Title: 'Évapotranspiration FAO-56',

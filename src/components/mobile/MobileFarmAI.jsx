@@ -69,8 +69,8 @@ export default function MobileFarmAI() {
         sender: 'ai',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         text: isTe
-          ? 'నమస్కారం! నేను మీ **Farm AI** అసిస్టెంట్‌ని. మీ పొలం మట్టి తేమ, ఉష్ణోగ్రత, నీటి పారుదల లేదా పంట సంరక్షణ గురించి ఏదైనా అడగండి.'
-          : 'Hello! I am **Farm AI**, your intelligent agricultural assistant. How can I help with your soil moisture, irrigation, or crop health today?'
+          ? 'నమస్కారం! నేను మీ **AgriNex AI** అసిస్టెంట్‌ని. మీ పొలం మట్టి తేమ, ఉష్ణోగ్రత, నీటి పారుదల లేదా పంట సంరక్షణ గురించి ఏదైనా అడగండి.'
+          : 'Hello! I am **AgriNex AI**, your intelligent agricultural assistant. How can I help with your soil moisture, irrigation, or crop health today?'
       }
     ];
   });
@@ -187,7 +187,7 @@ export default function MobileFarmAI() {
           </div>
           <div>
             <div className="flex items-center gap-1.5">
-              <h2 className="text-xs font-black text-slate-900">Farm AI</h2>
+              <h2 className="text-xs font-black text-slate-900">AgriNex AI</h2>
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
             </div>
             <p className="text-[10px] text-slate-500">

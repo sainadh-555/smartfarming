@@ -344,7 +344,7 @@ export default function Inventory() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `SmartFarm_Financial_Report_${new Date().toISOString().split('T')[0]}.csv`;
+    link.download = `AgriNex_Financial_Report_${new Date().toISOString().split('T')[0]}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);

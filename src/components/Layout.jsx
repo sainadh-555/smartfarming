@@ -42,7 +42,7 @@ export default function Layout() {
     { name: t('nav_dashboard', 'Dashboard'), path: '/', icon: LayoutDashboard },
     { name: t('nav_farm_map', 'Farm Map'), path: '/map', icon: Map, sub: isTe ? 'పొలం పటం' : 'Field Overview' },
     { name: t('nav_plant_vision', 'Plant Vision'), path: '/vision', icon: Sprout, sub: isTe ? 'తెగుళ్ల గుర్తింపు' : 'Crop Vision' },
-    { name: t('nav_ai_insights', 'Farm AI'), path: '/insights', icon: Brain, sub: isTe ? 'రైతు సలహాదారు' : 'Farming Copilot' },
+    { name: t('nav_ai_insights', 'AgriNex AI'), path: '/insights', icon: Brain, sub: isTe ? 'రైతు సలహాదారు' : 'Farming Copilot' },
     { name: t('nav_analytics', 'Analytics'), path: '/analytics', icon: BarChart3, sub: isTe ? 'గణాంకాలు & పోకడలు' : 'Sensor Analytics' },
     { name: t('nav_inventory', 'Inventory'), path: '/inventory', icon: Package, sub: isTe ? 'నిల్వలు & ఖర్చులు (₹)' : 'Supplies & Expenses (₹)' },
     { name: t('nav_alerts', 'Alerts'), path: '/alerts', icon: Bell, badge: activeAlertsCount },
@@ -60,9 +60,9 @@ export default function Layout() {
           </div>
           <div>
             <div className="flex items-center gap-1.5">
-              <h1 className="text-base font-extrabold tracking-tight text-white">SmartFarm AI</h1>
+              <h1 className="text-base font-extrabold tracking-tight text-white">AgriNex</h1>
             </div>
-            <p className="text-[11px] text-slate-400 font-medium">{isTe ? 'స్మార్ట్ ఫార్మింగ్ ప్లాట్‌ఫామ్' : 'Smart Farming Platform'}</p>
+            <p className="text-[11px] text-slate-400 font-medium">{isTe ? 'అగ్రినెక్స్ వ్యవసాయ వేదిక' : 'Precision Agriculture Platform'}</p>
           </div>
         </div>
       </div>

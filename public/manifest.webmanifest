@@ -1,7 +1,7 @@
 {
-  "name": "SmartFarm AI - Precision Agriculture & Agronomy",
-  "short_name": "SmartFarm AI",
-  "description": "Professional smart farming telemetry, IoT sensors, weather predictions, and agronomic management.",
+  "name": "AgriNex - Precision Agriculture & Agronomy",
+  "short_name": "AgriNex",
+  "description": "Precision agriculture telemetry, IoT sensors, weather predictions, and agronomic management.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

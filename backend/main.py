@@ -42,7 +42,7 @@ except Exception as e:
     DB_AVAILABLE = False
 
 app = FastAPI(
-    title="SmartFarm AI™ IoT Telemetry Backend",
+    title="AgriNex™ IoT Telemetry Backend",
     description="Enterprise Precision Agriculture & ISOBUS Telemetry API for ESP32 and React Dashboard",
     version="2.0.0"
 )
@@ -187,7 +187,7 @@ active_pump_command: bool = False
 def root():
     return {
         "status": "online",
-        "platform": "SmartFarm AI™ Precision Agriculture Backend",
+        "platform": "AgriNex™ Precision Agriculture Backend",
         "version": "2.0.0",
         "hardwareTarget": "ESP32 Dev Module (GPIO 4 DHT11, GPIO 34 Soil, GPIO 35 LDR)",
         "docsUrl": "/docs",
@@ -735,7 +735,7 @@ async def analyze_plant_image(
     # 7. Resolve configured Vision AI Provider, Model, and Key
     active_provider, active_model, active_key, key_source = resolve_vision_config(request)
 
-    system_instruction = f"""You are an expert botanical validator and precision crop pathologist for SmartFarm AI.
+    system_instruction = f"""You are an expert botanical validator and precision crop pathologist for AgriNex.
 Analyze the provided image with clinical accuracy. Language for text/recommendations: {"Telugu" if is_te else "English"}.
 
 Follow this 4-step decision hierarchy strictly:
@@ -1437,7 +1437,7 @@ def chat_with_farm_ai(payload: ChatPayload, request: Request):
         pvd = latest_plant_vision_store["data"]
         pv_summary = f"Crop: {pvd.get('detected_crop')} ({pvd.get('scientific_name', '')}), Condition: {pvd.get('condition')}, Severity: {pvd.get('severity', 'Moderate')}, Surface Impact: {pvd.get('surface_lesion_impact', 'N/A')}"
 
-    system_prompt = f"""You are Farm AI, an expert agricultural consultant and AI copilot for Green Valley Precision Farm (1.0 Acre, Hyderabad, India).
+    system_prompt = f"""You are AgriNex AI, an expert agricultural consultant and AI copilot for Green Valley Precision Farm (1.0 Acre, Hyderabad, India).
 You understand crop cultivation (Tomato, Chili, Paddy, Groundnut), soil moisture, irrigation scheduling, weather forecasting, crop diseases, nutrient management, fertilizer plans, and smart IoT telemetry.
 Language to respond in: {"Telugu (తెలుగు) - use authentic farming terminology" if is_te else "English"}.
 
@@ -1608,7 +1608,7 @@ CRITICAL RULES:
     return {
         "text": answer_text,
         "source": "backend_farm_ai_engine",
-        "model": "Farm AI Agronomic Engine",
+        "model": "AgriNex AI Agronomic Engine",
         "timestamp": datetime.utcnow().strftime("%I:%M %p")
     }
 
@@ -1950,22 +1950,22 @@ def generate_agronomy_response(
             return (
                 "🎬 **ప్రభాస్ (Prabhas):**\n\n"
                 "ప్రభాస్ (ఉప్పలపాటి వెంకట సూర్యనారాయణ ప్రభాస్ రాజు) భారతీయ మరియు తెలుగు సినిమా అగ్ర కథానాయకుడు. *బాహుబలి*, *సలార్*, *కల్కి 2898 AD* వంటి అంతర్జాతీయ ఖ్యాతి గడించిన చిత్రాలతో పాన్-ఇండియా స్టార్‌గా నిలిచారు.\n\n"
-                "🌾 **SmartFarm AI అసిస్టెంట్:** మీ క్షేత్రంలోని టమోటా, మిర్చి, వరి, వేరుశనగ పంటల సంరక్షణ, నీటి పారుదల మరియు లైవ్ సెన్సార్ డేటా విశ్లేషణకు కూడా నేను ఎల్లప్పుడూ సిద్ధంగా ఉన్నాను!"
+                "🌾 **AgriNex AI అసిస్టెంట్:** మీ క్షేత్రంలోని టమోటా, మిర్చి, వరి, వేరుశనగ పంటల సంరక్షణ, నీటి పారుదల మరియు లైవ్ సెన్సార్ డేటా విశ్లేషణకు కూడా నేను ఎల్లప్పుడూ సిద్ధంగా ఉన్నాను!"
             )
         return (
             "🎬 **Prabhas:**\n\n"
             "Prabhas (Uppalapati Venkata Suryanarayana Prabhas Raju) is an internationally acclaimed Indian actor, primarily in Telugu cinema, celebrated for iconic blockbusters including the *Baahubali* franchise, *Salaar*, and *Kalki 2898 AD*.\n\n"
-            "🌾 **SmartFarm AI Copilot:** I am also your 24/7 precision farming copilot, ready to optimize irrigation, evaluate sensor telemetry, and detect plant diseases across your farm plots!"
+            "🌾 **AgriNex Copilot:** I am also your 24/7 precision farming copilot, ready to optimize irrigation, evaluate sensor telemetry, and detect plant diseases across your farm plots!"
         )
 
     if is_te:
         return (
-            f"నమస్కారం! నేను మీ **Farm AI** వ్యవసాయ నిపుణుడిని.\n\n"
+            f"నమస్కారం! నేను మీ **AgriNex AI** వ్యవసాయ నిపుణుడిని.\n\n"
             f"మీ ప్రశ్న: *\"{query}\"*\n\n"
             f"నేను మీ క్షేత్రంలోని సెన్సార్ డేటా, డ్రిప్ ఇరిగేషన్, వాతావరణ హెచ్చరికలు మరియు మొక్కల తెగుళ్ల విశ్లేషణపై ఖచ్చితమైన సమాచారాన్ని అందించగలను. దయచేసి వ్యవసాయ సంబంధిత ప్రశ్నలను అడగండి."
         )
     return (
-        f"Hello! I am **Farm AI**, your intelligent precision agricultural copilot.\n\n"
+        f"Hello! I am **AgriNex AI**, your intelligent precision agricultural copilot.\n\n"
         f"Regarding: *\"{query}\"*\n\n"
         "I provide agronomic consultation grounded in your live IoT telemetry, drip irrigation requirements, weather forecasts, and crop disease diagnosis. Feel free to ask about your soil moisture, irrigation schedule, or crop health!"
     )
@@ -1977,5 +1977,5 @@ def generate_agronomy_response(
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
-    print(f"Starting SmartFarm AI Backend on port {port}...")
+    print(f"Starting AgriNex Backend on port {port}...")
     uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)

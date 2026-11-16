@@ -156,7 +156,7 @@ export const buildFarmSystemPrompt = ({
 
   const isMotorOn = motorStatus?.pumpActive || false;
 
-  return `You are Farm AI, an expert agricultural consultant and AI copilot for Green Valley Precision Farm (1.0 Acre, Hyderabad, India).
+  return `You are AgriNex AI, an expert agricultural consultant and AI copilot for Green Valley Precision Farm (1.0 Acre, Hyderabad, India).
 You understand crop cultivation (Tomato, Chili, Paddy, Groundnut), soil moisture, irrigation scheduling, weather forecasting, crop diseases, nutrient management, fertilizer plans, and smart IoT telemetry.
 Language to respond in: ${isTe ? 'Telugu (తెలుగు) - use authentic farming terminology' : 'English'}.
 
@@ -668,7 +668,7 @@ export const queryFarmAIEngine = ({
   // 14. General Agricultural Query Fallback
   if (isTe) {
     return {
-      text: `🌾 **Farm AI సమాధానం:**\n\n` +
+      text: `🌾 **AgriNex AI సమాధానం:**\n\n` +
             `మీ ప్రశ్న: *\"__${query}__\"*\n\n` +
             `• **మట్టి తేమ:** ${moistVal !== null ? `${moistVal}%` : 'N/A'}\n` +
             `• **ఉష్ణోగ్రత:** ${tempVal !== null ? `${tempVal}°C` : 'N/A'}\n` +
@@ -678,7 +678,7 @@ export const queryFarmAIEngine = ({
   }
 
   return {
-    text: `🌾 **Farm AI Consultation:**\n\n` +
+    text: `🌾 **AgriNex AI Consultation:**\n\n` +
           `Regarding: *\"__${query}__\"*\n\n` +
           `• **Current Soil Moisture:** ${moistVal !== null ? `${moistVal}%` : 'N/A'} (${sourceTag})\n` +
           `• **Field Temperature:** ${tempVal !== null ? `${tempVal}°C` : 'N/A'}\n` +
@@ -794,7 +794,7 @@ export const executeAIChatQuery = async (firstArg, secondArg, thirdArg) => {
           return {
             text: data.text,
             source: data.source || 'backend',
-            model: data.model || 'Farm AI Engine',
+            model: data.model || 'AgriNex AI Engine',
             timestamp: data.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
           };
         }
@@ -929,7 +929,7 @@ export const executeAIChatQuery = async (firstArg, secondArg, thirdArg) => {
   return {
     text: result.text,
     source: 'farm_ai_engine',
-    model: 'Farm AI Agricultural Engine',
+    model: 'AgriNex Agricultural Engine',
     timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
   };
 };

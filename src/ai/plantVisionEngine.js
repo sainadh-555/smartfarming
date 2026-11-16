@@ -225,7 +225,7 @@ export async function analyzePlantVision({
  * Helper to call Gemini, Groq, or OpenAI directly with the botanical system prompt
  */
 async function callClientVisionModel({ dataUrl, aiConfig, isTe, signal }) {
-  const systemPrompt = `You are an expert botanical validator and precision crop pathologist for SmartFarm AI.
+  const systemPrompt = `You are an expert botanical validator and precision crop pathologist for AgriNex.
 Analyze the provided image with clinical accuracy. Language: ${isTe ? 'Telugu' : 'English'}.
 
 Follow this 4-step decision hierarchy strictly:

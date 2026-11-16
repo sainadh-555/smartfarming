@@ -321,7 +321,7 @@ export default function Dashboard() {
           <div>
             <div className="flex items-center gap-2.5 flex-wrap">
               <span className="text-xs font-black uppercase tracking-wider text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full">
-                SmartFarm AI
+                AgriNex
               </span>
               <span className="text-slate-300">•</span>
               <span className="text-xs font-semibold text-slate-700 flex items-center gap-1">

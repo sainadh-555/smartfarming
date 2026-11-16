@@ -56,8 +56,8 @@ export default function AIAgronomistChat() {
         sender: 'ai',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         text: isTe
-          ? 'నమస్కారం! నేను మీ **Farm AI** సహాయకుడిని. మీ మట్టి తేమ, ఉష్ణోగ్రత, నీటి పారుదల లేదా వాతావరణం గురించి ఏవైనా సందేహాలుంటే నన్ను అడగండి.'
-          : 'Hello! I am **Farm AI**, your intelligent agricultural assistant. How can I help you with your soil moisture, irrigation, weather, or crop health today?'
+          ? 'నమస్కారం! నేను మీ **AgriNex AI** సహాయకుడిని. మీ మట్టి తేమ, ఉష్ణోగ్రత, నీటి పారుదల లేదా వాతావరణం గురించి ఏవైనా సందేహాలుంటే నన్ను అడగండి.'
+          : 'Hello! I am **AgriNex AI**, your intelligent agricultural assistant. How can I help you with your soil moisture, irrigation, weather, or crop health today?'
       }
     ];
   });
@@ -183,8 +183,8 @@ export default function AIAgronomistChat() {
         sender: 'ai',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         text: isTe
-          ? 'సంభాషణ క్లియర్ చేయబడింది. నేను మీ **Farm AI** సహాయకుడిని. మీకు ఎలాంటి వ్యవసాయ సహాయం కావాలి?'
-          : 'Conversation cleared. I am **Farm AI**. How can I assist you with your farm conditions today?'
+          ? 'సంభాషణ క్లియర్ చేయబడింది. నేను మీ **AgriNex AI** సహాయకుడిని. మీకు ఎలాంటి వ్యవసాయ సహాయం కావాలి?'
+          : 'Conversation cleared. I am **AgriNex AI**. How can I assist you with your farm conditions today?'
       }
     ];
     setMessages(reset);
@@ -216,7 +216,7 @@ export default function AIAgronomistChat() {
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-sm font-extrabold text-slate-900 tracking-tight">Farm AI</h2>
+              <h2 className="text-sm font-extrabold text-slate-900 tracking-tight">AgriNex AI</h2>
               <span className="w-2 h-2 rounded-full bg-emerald-500" title="Active" />
               <span className="text-[10px] font-mono font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.2 rounded-full">
                 {isTe ? 'వ్యవసాయ సహాయకుడు' : 'Agricultural Assistant'}
@@ -336,7 +336,7 @@ export default function AIAgronomistChat() {
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-bounce" style={{ animationDelay: '150ms' }} />
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-bounce" style={{ animationDelay: '300ms' }} />
               <span className="text-[11px] text-slate-400 font-medium ml-1.5">
-                {isTe ? 'Farm AI విశ్లేషిస్తోంది...' : 'Farm AI analyzing...'}
+                {isTe ? 'AgriNex AI విశ్లేషిస్తోంది...' : 'AgriNex AI analyzing...'}
               </span>
             </div>
           </div>
@@ -373,7 +373,7 @@ export default function AIAgronomistChat() {
             value={inputValue}
             onChange={handleTextareaChange}
             onKeyDown={handleKeyDown}
-            placeholder={isTe ? 'Farm AI ని ఏదైనా అడగండి... (ఉదా: ఇప్పుడు నీరు పెట్టాలా?)' : 'Ask Farm AI anything... (Press Enter to send, Shift+Enter for new line)'}
+            placeholder={isTe ? 'AgriNex AI ని ఏదైనా అడగండి... (ఉదా: ఇప్పుడు నీరు పెట్టాలా?)' : 'Ask AgriNex AI anything... (Press Enter to send, Shift+Enter for new line)'}
             className="flex-1 resize-none bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 placeholder-slate-400 transition-all focus:outline-none max-h-32 leading-relaxed"
           />
 
@@ -390,8 +390,8 @@ export default function AIAgronomistChat() {
 
         <div className="text-[10px] text-slate-400 text-center font-medium">
           {isTe 
-            ? 'Farm AI మీ పొలం సెన్సార్లు మరియు నిర్ణయ సూత్రాల ఆధారంగా సలహాలు అందిస్తుంది.' 
-            : 'Farm AI provides agronomic guidance based on your live sensors and crop decision models.'}
+            ? 'AgriNex AI మీ పొలం సెన్సార్లు మరియు నిర్ణయ సూత్రాల ఆధారంగా సలహాలు అందిస్తుంది.' 
+            : 'AgriNex AI provides agronomic guidance based on your live sensors and crop decision models.'}
         </div>
       </div>
 
@@ -417,7 +417,7 @@ export default function AIAgronomistChat() {
 
             <div className="space-y-3 text-xs">
               <p className="text-slate-600 leading-relaxed">
-                Farm AI works 100% offline using your local crop decision engine. You can also optionally connect a cloud LLM API key (e.g. Groq) for enhanced conversational responses:
+                AgriNex AI works 100% offline using your local crop decision engine. You can also optionally connect a cloud LLM API key (e.g. Groq) for enhanced conversational responses:
               </p>
 
               <div>

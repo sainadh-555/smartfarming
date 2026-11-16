@@ -34,7 +34,7 @@ export default function MobileHeader() {
               <span className={`w-2 h-2 rounded-full shrink-0 ${isConnected ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`} />
             </div>
             <span className="text-[10px] text-slate-500 font-medium truncate">
-              SmartFarm AI • {farmLocation?.displayLocation || 'Precision Farm'}
+              AgriNex • {farmLocation?.displayLocation || 'Precision Farm'}
             </span>
           </div>
         </NavLink>

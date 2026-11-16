@@ -7,8 +7,8 @@
 export const TRANSLATIONS = {
   en: {
     // Brand & Navigation
-    'brand.name': 'SmartFarm AI',
-    'brand.tagline': 'Smart Farming System',
+    'brand.name': 'AgriNex',
+    'brand.tagline': 'Precision Agriculture Platform',
     'brand.pro': 'PRO',
     'nav.dashboard': 'Dashboard',
     'nav.farmMap': 'Farm Map',
@@ -216,8 +216,8 @@ export const TRANSLATIONS = {
 
   te: {
     // Brand & Navigation (బ్రాండ్ మరియు నావిగేషన్)
-    'brand.name': 'స్మార్ట్‌ఫామ్ AI',
-    'brand.tagline': 'స్మార్ట్ వ్యవసాయ వ్యవస్థ',
+    'brand.name': 'అగ్రినెక్స్ (AgriNex)',
+    'brand.tagline': 'ప్రెసిషన్ వ్యవసాయ వేదిక',
     'brand.pro': 'ప్రో',
     'nav.dashboard': 'డాష్‌బోర్డ్',
     'nav.farmMap': 'పొలం మ్యాప్',

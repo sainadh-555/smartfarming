@@ -1,11 +1,11 @@
 """
-SmartFarm AI™ — Production USB Serial to HTTP & Cloud Bridge
+AgriNex™ — Production USB Serial to HTTP & Cloud Bridge
 ============================================================
 Connects ESP32 microcontroller streaming newline-delimited JSON
 over USB Serial (default COM7 @ 115200 baud) directly to:
   1. Local HTTP API (http://127.0.0.1:5000/api/readings)
   2. Cloud Backend (/api/sensor-data on Render)
-  3. SmartFarm AI Frontend Dashboard
+  3. AgriNex Frontend Dashboard
 
 Expected JSON schema from ESP32:
   - device (string, e.g. "ESP32-DEV-USB")
@@ -292,7 +292,7 @@ class CloudSyncWorker(threading.Thread):
                     headers={
                         "Content-Type": "application/json",
                         "Accept": "application/json",
-                        "User-Agent": "SmartFarm-ESP32-Bridge/2.0"
+                        "User-Agent": "AgriNex-ESP32-Bridge/2.0"
                     },
                     method="POST"
                 )
@@ -599,7 +599,7 @@ def create_app(state):
     @app.route("/", methods=["GET"])
     def index():
         return jsonify({
-            "service": "SmartFarm AI™ USB Serial Bridge",
+            "service": "AgriNex™ USB Serial Bridge",
             "version": "2.2.0",
             "status": "online",
             "endpoints": {
@@ -615,7 +615,7 @@ def create_app(state):
         snapshot = state.get_snapshot()
         return jsonify({
             "status": "ok" if snapshot["is_live"] else ("stale" if snapshot["is_stale"] else "disconnected"),
-            "bridge": "SmartFarm AI USB Serial Bridge",
+            "bridge": "AgriNex USB Serial Bridge",
             "serial_status": snapshot["status"],
             "is_live": snapshot["is_live"],
             "port": snapshot["port"],
@@ -716,7 +716,7 @@ def run_self_tests(port="COM7", baud=115200, cloud_url="https://smartfarming-e3b
       5. End-to-end backend POST to /api/sensor-data
     """
     print("=" * 65)
-    print(" SmartFarm AI™ — USB Serial Bridge Automated Verification Suite ")
+    print("   AgriNex™ — USB Serial Bridge Automated Verification Suite   ")
     print("=" * 65)
 
     test_state = SerialBridgeState(port=port, baud=baud, timeout=2.0)
@@ -808,7 +808,7 @@ def main():
     env_http_port = int(os.environ.get("BRIDGE_PORT", "5000"))
     env_cloud_url = os.environ.get("BACKEND_URL", "https://smartfarming-e3b2.onrender.com")
 
-    parser = argparse.ArgumentParser(description="SmartFarm AI USB Serial Bridge")
+    parser = argparse.ArgumentParser(description="AgriNex USB Serial Bridge")
     parser.add_argument("--port", type=str, default=env_port, help=f"Serial COM port (default: {env_port})")
     parser.add_argument("--baud", type=int, default=env_baud, help=f"Baud rate (default: {env_baud})")
     parser.add_argument("--timeout", type=float, default=env_timeout, help=f"Stale timeout seconds (default: {env_timeout})")
@@ -826,7 +826,7 @@ def main():
     cloud_sync_target = None if args.no_cloud else args.cloud_url
 
     print("=" * 65)
-    print("      SmartFarm AI™ — Production USB Serial to HTTP Bridge      ")
+    print("        AgriNex™ — Production USB Serial to HTTP Bridge        ")
     print("=" * 65)
     print(f" Serial Port : {args.port} @ {args.baud} baud")
     print(f" Timeout     : {args.timeout}s (Marks disconnected if no readings arrive)")
