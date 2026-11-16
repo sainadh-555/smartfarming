@@ -1437,7 +1437,7 @@ def chat_with_farm_ai(payload: ChatPayload, request: Request):
         pvd = latest_plant_vision_store["data"]
         pv_summary = f"Crop: {pvd.get('detected_crop')} ({pvd.get('scientific_name', '')}), Condition: {pvd.get('condition')}, Severity: {pvd.get('severity', 'Moderate')}, Surface Impact: {pvd.get('surface_lesion_impact', 'N/A')}"
 
-    system_prompt = f"""You are AgriNex AI, an expert agricultural consultant and AI copilot for Green Valley Precision Farm (1.0 Acre, Hyderabad, India).
+    system_prompt = f"""You are AgriNex AI, an expert agricultural consultant and AI copilot for AgriNex Precision Farm (1.0 Acre).
 You understand crop cultivation (Tomato, Chili, Paddy, Groundnut), soil moisture, irrigation scheduling, weather forecasting, crop diseases, nutrient management, fertilizer plans, and smart IoT telemetry.
 Language to respond in: {"Telugu (తెలుగు) - use authentic farming terminology" if is_te else "English"}.
 

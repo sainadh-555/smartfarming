@@ -10,7 +10,8 @@ export default function MobileHeader() {
     language, 
     setLanguage, 
     operatingMode, 
-    hardwareData 
+    hardwareData,
+    gpsData 
   } = useFarmData();
 
   const isTe = language === 'te';
@@ -29,12 +30,12 @@ export default function MobileHeader() {
           <div className="flex flex-col min-w-0">
             <div className="flex items-center gap-1.5">
               <span className="text-sm font-extrabold text-slate-900 tracking-tight truncate max-w-[140px] sm:max-w-[200px]">
-                {farmLocation?.name || 'Green Valley'}
+                {gpsData?.city && gpsData.city !== 'N/A' ? `${gpsData.city} Farm` : (gpsData?.isLive ? 'Live Farm' : 'AgriNex Farm')}
               </span>
               <span className={`w-2 h-2 rounded-full shrink-0 ${isConnected ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`} />
             </div>
             <span className="text-[10px] text-slate-500 font-medium truncate">
-              AgriNex • {farmLocation?.displayLocation || 'Precision Farm'}
+              AgriNex • {gpsData?.isLive ? `${gpsData.city || 'Live GPS'}` : 'GPS Offline'}
             </span>
           </div>
         </NavLink>

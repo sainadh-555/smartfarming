@@ -20,11 +20,13 @@ import {
 import { useFarmData } from '../../context/FarmContext';
 import ZoneDetailModal from '../ZoneDetailModal';
 import AddPlotModal from '../AddPlotModal';
+import LiveFarmLeafletMap from '../LiveFarmLeafletMap';
 
 export default function MobileFarmMap() {
   const { zones, farmLocation, language, operatingMode, hardwareData, simulationData } = useFarmData();
   const isTe = language === 'te';
 
+  const [viewType, setViewType] = useState('leaflet'); // 'leaflet' | 'cadastral'
   const [searchQuery, setSearchQuery] = useState('');
   const [activeLayer, setActiveLayer] = useState('satellite'); // 'satellite' | 'moisture' | 'ndvi' | 'topo'
   const [selectedZoneId, setSelectedZoneId] = useState(zones[0]?.zoneId || null);
@@ -177,16 +179,44 @@ export default function MobileFarmMap() {
 
       </div>
 
+      {/* View Switcher: Live GPS Leaflet Map vs Cadastral Schematic */}
+      <div className="absolute top-15 left-3 right-3 z-20 flex items-center bg-white/95 backdrop-blur-md p-1 rounded-xl shadow-lg border border-slate-200/90 text-xs font-bold">
+        <button
+          type="button"
+          onClick={() => setViewType('leaflet')}
+          className={`flex-1 py-1.5 rounded-lg transition-all cursor-pointer ${
+            viewType === 'leaflet' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          🛰️ {isTe ? 'లైవ్ GPS మ్యాప్' : 'Live GPS Map'}
+        </button>
+        <button
+          type="button"
+          onClick={() => setViewType('cadastral')}
+          className={`flex-1 py-1.5 rounded-lg transition-all cursor-pointer ${
+            viewType === 'cadastral' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          📐 {isTe ? 'ప్లాట్ల లేఅవుట్' : 'Plot Grid'}
+        </button>
+      </div>
+
       {/* ======================================================== */}
-      {/* 2. INTERACTIVE MAP CANVAS (SVG MULTI-PLOT VECTOR MAP)     */}
+      {/* 2. MAP CONTENT: LIVE LEAFLET OR SVG MULTI-PLOT CANVAS    */}
       {/* ======================================================== */}
-      <div 
-        ref={mapContainerRef}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-        className="flex-1 w-full h-full relative cursor-grab active:cursor-grabbing overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-emerald-950"
-      >
+      {viewType === 'leaflet' ? (
+        <div className="pt-24 px-3 pb-3 h-full w-full overflow-hidden flex flex-col z-10">
+          <LiveFarmLeafletMap onSelectZone={(id) => { setSelectedZoneId(id); setShowDetailModal(true); }} />
+        </div>
+      ) : (
+        <>
+          <div 
+            ref={mapContainerRef}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+            className="flex-1 w-full h-full relative cursor-grab active:cursor-grabbing overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-emerald-950"
+          >
         
         {/* Visual Map Canvas transformed via Zoom and Pan */}
         <div 
@@ -350,6 +380,8 @@ export default function MobileFarmMap() {
         </button>
 
       </div>
+      </>
+      )}
 
       {/* ======================================================== */}
       {/* 4. EXPANDABLE BOTTOM SHEET FOR SELECTED ZONE             */}

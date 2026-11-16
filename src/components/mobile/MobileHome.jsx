@@ -17,7 +17,9 @@ import {
   AlertOctagon, 
   ChevronRight, 
   RefreshCw,
-  X
+  X,
+  Navigation,
+  MapPinOff
 } from 'lucide-react';
 import { useFarmData } from '../../context/FarmContext';
 import { generateFarmHealthScore } from '../../ai/farmDecisionEngine';
@@ -39,7 +41,12 @@ export default function MobileHome() {
     disconnectWebBluetooth,
     isWebSerialSupported,
     isWebBluetoothSupported,
-    usbPort
+    usbPort,
+    gpsStatus,
+    gpsData,
+    gpsError,
+    startLiveGPS,
+    stopLiveGPS
   } = useFarmData();
 
   const isTe = language === 'te';
@@ -205,6 +212,72 @@ export default function MobileHome() {
     <div className="space-y-4 pb-6 max-w-lg mx-auto">
       
       {/* ======================================================== */}
+      {/* 0. MOBILE LIVE GPS TELEMETRY & CONTROLS                  */}
+      {/* ======================================================== */}
+      <section className="bg-white rounded-2xl p-3.5 border border-slate-200/90 shadow-2xs space-y-2.5">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-[10px] font-black uppercase tracking-wider text-emerald-900 bg-emerald-100/80 px-2 py-0.5 rounded border border-emerald-300 flex items-center gap-1">
+              <Navigation className="w-3 h-3 text-emerald-700" />
+              AGRINEX GPS
+            </span>
+            <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full border ${
+              gpsStatus === 'GPS ACTIVE' 
+                ? 'bg-emerald-50 text-emerald-800 border-emerald-300' 
+                : gpsStatus === 'REQUESTING PERMISSION'
+                ? 'bg-amber-50 text-amber-800 border-amber-300'
+                : 'bg-slate-100 text-slate-600 border-slate-200'
+            }`}>
+              {gpsStatus}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            {gpsStatus !== 'GPS ACTIVE' ? (
+              <button
+                type="button"
+                onClick={startLiveGPS}
+                className="px-3 py-1.5 rounded-xl text-xs font-black text-white bg-emerald-600 hover:bg-emerald-700 transition-all flex items-center gap-1 shadow-xs cursor-pointer active:scale-95"
+              >
+                <Navigation className={`w-3.5 h-3.5 ${gpsStatus === 'REQUESTING PERMISSION' ? 'animate-spin' : ''}`} />
+                <span>{isTe ? 'ప్రారంభించు' : 'Enable GPS'}</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={stopLiveGPS}
+                className="px-3 py-1.5 rounded-xl text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 transition-all flex items-center gap-1 cursor-pointer active:scale-95"
+              >
+                <MapPinOff className="w-3.5 h-3.5" />
+                <span>{isTe ? 'ఆపివేయి' : 'Stop GPS'}</span>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {gpsData?.isLive ? (
+          <div className="pt-2 border-t border-slate-100 text-xs space-y-1">
+            <div className="flex items-center justify-between font-mono">
+              <span className="text-slate-500 font-sans">Coordinates:</span>
+              <span className="font-black text-slate-900">{gpsData.formattedLat}, {gpsData.formattedLon}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-slate-500">Location:</span>
+              <span className="font-bold text-slate-800 truncate max-w-[200px]" title={gpsData.locationName}>{gpsData.locationName}</span>
+            </div>
+            <div className="flex items-center justify-between text-[11px] text-slate-500 font-mono">
+              <span>Accuracy: ±{gpsData.accuracyLabel}</span>
+              <span>Updated: {gpsData.lastUpdated}</span>
+            </div>
+          </div>
+        ) : (
+          <div className="pt-1.5 border-t border-slate-100 text-[11px] text-slate-500">
+            {isTe ? 'ఖచ్చితమైన వ్యవసాయ స్థానాన్ని మరియు వాతావరణాన్ని గుర్తించడానికి లైవ్ GPS ప్రారంభించండి.' : 'Enable live GPS to detect your field coordinates and local weather.'}
+          </div>
+        )}
+      </section>
+
+      {/* ======================================================== */}
       {/* 1. WELCOME SECTION                                       */}
       {/* ======================================================== */}
       <section className="bg-white rounded-2xl p-4 border border-slate-200/90 shadow-2xs">
@@ -214,11 +287,11 @@ export default function MobileHome() {
               {greeting}, Farmer
             </span>
             <h1 className="text-xl font-black text-slate-900 tracking-tight mt-0.5">
-              {farmLocation?.name || 'Green Valley Farm'}
+              {gpsData?.city && gpsData.city !== 'N/A' ? `${gpsData.city} Precision Farm` : (gpsData?.isLive ? 'Live Precision Farm' : 'AgriNex Precision Farm')}
             </h1>
             <p className="text-[11px] font-medium text-slate-500 flex items-center gap-1 mt-1">
               <MapPin className="w-3 h-3 text-emerald-600" />
-              <span>{farmLocation?.displayLocation || 'Precision Agriculture Field'}</span>
+              <span>{gpsData?.isLive ? `${gpsData.formattedLat}, ${gpsData.formattedLon} • ${gpsData.locationName}` : (isTe ? 'GPS ఆఫ్‌లో ఉంది' : 'GPS Offline (Tap Enable GPS)')}</span>
             </p>
           </div>
 

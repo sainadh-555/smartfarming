@@ -4,6 +4,7 @@ import ZoneDetailModal from '../components/ZoneDetailModal';
 import AddPlotModal from '../components/AddPlotModal';
 import ErrorBoundary from '../components/ErrorBoundary';
 import MobileFarmMap from '../components/mobile/MobileFarmMap';
+import LiveFarmLeafletMap from '../components/LiveFarmLeafletMap';
 import { 
   Layers, 
   Droplets, 
@@ -17,7 +18,8 @@ import {
   AlertTriangle,
   AlertOctagon,
   Plus,
-  Trash2
+  Trash2,
+  Navigation
 } from 'lucide-react';
 
 export default function FarmMap() {
@@ -87,6 +89,33 @@ export default function FarmMap() {
             <span>{isTe ? '+ కొత్త ప్లాట్ జోడించండి' : '+ Add Field Plot'}</span>
           </button>
         </div>
+      </div>
+
+      {/* Interactive Real-Time Leaflet GPS Farm Map */}
+      <div className="bg-white p-4 sm:p-6 rounded-2xl border border-slate-200/90 shadow-sm space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-emerald-600 flex items-center justify-center text-white shadow-xs">
+              <Navigation className="w-4 h-4" />
+            </div>
+            <div>
+              <h2 className="text-sm sm:text-base font-black text-slate-900 tracking-tight">
+                {isTe ? 'ప్రత్యక్ష GPS ఉపగ్రహ పటం' : 'Interactive Live GPS & Satellite Map'}
+              </h2>
+              <p className="text-[11px] text-slate-500">
+                {isTe ? 'బ్రౌజర్ ఆధారిత స్థానం, ప్రత్యక్ష మార్కర్ మరియు ఫీల్డ్ క్వాడ్రంట్లు' : 'Browser-based positioning, dynamic field marker, and plot telemetry'}
+              </p>
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-mono font-bold text-slate-700 bg-slate-100 px-3 py-1 rounded-full border border-slate-200">
+              {farmLocation?.isLive ? `${farmLocation.displayLocation}` : (isTe ? 'GPS ఆఫ్‌లో ఉంది' : 'GPS Offline')}
+            </span>
+          </div>
+        </div>
+
+        <LiveFarmLeafletMap onSelectZone={(id) => setSelectedZoneId(id)} />
       </div>
 
       {/* Main Grid representing the Farm Plots */}

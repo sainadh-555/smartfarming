@@ -28,7 +28,12 @@ import {
   Settings,
   ChevronRight,
   TrendingUp,
-  Map as MapIcon
+  Map as MapIcon,
+  Navigation,
+  MapPinOff,
+  Radio,
+  Locate,
+  Compass
 } from 'lucide-react';
 
 // Weather Icon Resolver
@@ -66,13 +71,18 @@ export default function Dashboard() {
     connectWebBluetooth,
     disconnectWebBluetooth,
     isWebBluetoothSupported,
-    bleConnected
+    bleConnected,
+    gpsStatus,
+    gpsData,
+    gpsError,
+    startLiveGPS,
+    stopLiveGPS
   } = useFarmData();
 
   const isTe = language === 'te';
   const [currentTime, setCurrentTime] = useState(new Date());
   const [weatherData, setWeatherData] = useState(null);
-  const [weatherLoading, setWeatherLoading] = useState(true);
+  const [weatherLoading, setWeatherLoading] = useState(false);
   const [isSimulating, setIsSimulating] = useState(false);
   const [connectionFeedback, setConnectionFeedback] = useState(null);
   const [serialConnecting, setSerialConnecting] = useState(false);
@@ -84,13 +94,20 @@ export default function Dashboard() {
     return () => clearInterval(timer);
   }, []);
 
-  // Fetch external weather
+  // Fetch external weather based strictly on live detected GPS coordinates
   useEffect(() => {
     let mounted = true;
     const loadWeather = async () => {
+      const lat = farmLocation?.latitude;
+      const lon = farmLocation?.longitude;
+      if (typeof lat !== 'number' || typeof lon !== 'number') {
+        if (mounted) {
+          setWeatherData(null);
+          setWeatherLoading(false);
+        }
+        return;
+      }
       setWeatherLoading(true);
-      const lat = farmLocation?.latitude ?? DEFAULT_FARM_LOCATION.latitude;
-      const lon = farmLocation?.longitude ?? DEFAULT_FARM_LOCATION.longitude;
       const res = await fetchLiveWeather(lat, lon);
       if (mounted) {
         setWeatherData(res);
@@ -312,6 +329,122 @@ export default function Dashboard() {
       <div className="hidden lg:block space-y-6 max-w-7xl mx-auto pb-8">
 
         {/* ======================================================== */}
+        {/* 0. BROWSER-BASED LIVE GPS TELEMETRY BAR                  */}
+        {/* ======================================================== */}
+        <section aria-label="Live GPS Location" className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-5 transition-all">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            
+            {/* Left: Branding, Status Indicator, Coordinate Grid */}
+            <div className="flex-1 space-y-3">
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <span className="text-xs font-black uppercase tracking-wider text-emerald-900 bg-emerald-100/80 border border-emerald-300 px-3 py-1 rounded-full flex items-center gap-1.5">
+                  <Navigation className="w-3.5 h-3.5 text-emerald-700" />
+                  AGRINEX | LIVE LOCATION
+                </span>
+
+                {/* Professional Status Indicator */}
+                <span className={`inline-flex items-center gap-1.5 text-xs font-black px-3 py-1 rounded-full border transition-all ${
+                  gpsStatus === 'GPS ACTIVE'
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                    : gpsStatus === 'REQUESTING PERMISSION'
+                    ? 'bg-amber-50 text-amber-800 border-amber-300'
+                    : gpsStatus === 'PERMISSION DENIED'
+                    ? 'bg-rose-50 text-rose-800 border-rose-300'
+                    : gpsStatus === 'LOCATION UNAVAILABLE'
+                    ? 'bg-orange-50 text-orange-800 border-orange-300'
+                    : 'bg-slate-100 text-slate-600 border-slate-200'
+                }`}>
+                  <span className={`w-2 h-2 rounded-full ${
+                    gpsStatus === 'GPS ACTIVE'
+                      ? 'bg-emerald-500 animate-ping'
+                      : gpsStatus === 'REQUESTING PERMISSION'
+                      ? 'bg-amber-500 animate-pulse'
+                      : gpsStatus === 'PERMISSION DENIED'
+                      ? 'bg-rose-500'
+                      : gpsStatus === 'LOCATION UNAVAILABLE'
+                      ? 'bg-orange-500'
+                      : 'bg-slate-400'
+                  }`} />
+                  <span>{gpsStatus}</span>
+                </span>
+              </div>
+
+              {/* 5-Column Live Coordinates & Accuracy Dashboard */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 pt-0.5 text-xs">
+                <div className="bg-slate-50/80 p-2.5 rounded-xl border border-slate-200/70">
+                  <div className="text-[10px] uppercase font-bold text-slate-400">Latitude</div>
+                  <div className="text-sm font-black font-mono text-slate-900 mt-0.5">{gpsData.formattedLat}</div>
+                </div>
+
+                <div className="bg-slate-50/80 p-2.5 rounded-xl border border-slate-200/70">
+                  <div className="text-[10px] uppercase font-bold text-slate-400">Longitude</div>
+                  <div className="text-sm font-black font-mono text-slate-900 mt-0.5">{gpsData.formattedLon}</div>
+                </div>
+
+                <div className="bg-slate-50/80 p-2.5 rounded-xl border border-slate-200/70 col-span-2 sm:col-span-1">
+                  <div className="text-[10px] uppercase font-bold text-slate-400">Location</div>
+                  <div className="text-sm font-extrabold text-slate-900 mt-0.5 truncate" title={gpsData.locationName}>
+                    {gpsData.locationName}
+                  </div>
+                </div>
+
+                <div className="bg-slate-50/80 p-2.5 rounded-xl border border-slate-200/70">
+                  <div className="text-[10px] uppercase font-bold text-slate-400">GPS Accuracy</div>
+                  <div className="text-sm font-bold font-mono text-slate-900 mt-0.5">{gpsData.accuracyLabel}</div>
+                </div>
+
+                <div className="bg-slate-50/80 p-2.5 rounded-xl border border-slate-200/70">
+                  <div className="text-[10px] uppercase font-bold text-slate-400">Last Updated</div>
+                  <div className="text-sm font-bold font-mono text-slate-900 mt-0.5">{gpsData.lastUpdated}</div>
+                </div>
+              </div>
+
+              {/* Error Alert or Informative Notice */}
+              {gpsError && (
+                <div className="text-xs font-semibold text-rose-800 bg-rose-50 border border-rose-200 p-2.5 rounded-xl flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600" />
+                  <span>{gpsError}</span>
+                </div>
+              )}
+              {gpsStatus === 'GPS ACTIVE' && (
+                <div className="text-[11px] text-slate-500 font-medium flex items-center gap-1.5">
+                  <span className="text-emerald-600">●</span>
+                  <span>
+                    {gpsData.isApproximate 
+                      ? (isTe ? 'ల్యాప్‌టాప్ స్థానం వైఫై/నెట్‌వర్క్ ద్వారా అంచనా వేయబడింది. మొబైల్ పరికరాలు ఉపగ్రహ GPS ఖచ్చితత్వాన్ని అందిస్తాయి.' : 'Laptop location is estimated via Wi-Fi/network. Mobile devices provide high-precision satellite GPS.')
+                      : (isTe ? 'అధిక-ఖచ్చితత్వ ఉపగ్రహ GPS నిరంతరం పర్యవేక్షిస్తోంది.' : 'High-precision satellite GPS tracking active via device hardware.')}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Right: GPS Controls */}
+            <div className="flex sm:flex-col lg:flex-row items-stretch sm:items-center gap-2 shrink-0 self-start lg:self-center">
+              <button
+                type="button"
+                onClick={startLiveGPS}
+                disabled={gpsStatus === 'GPS ACTIVE' || gpsStatus === 'REQUESTING PERMISSION'}
+                className="px-4 py-2.5 rounded-xl text-xs font-black text-white bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-100 disabled:text-slate-400 border border-emerald-600 disabled:border-slate-200 transition-all flex items-center justify-center gap-2 shadow-xs cursor-pointer disabled:cursor-not-allowed active:scale-95"
+              >
+                <Navigation className={`w-3.5 h-3.5 ${gpsStatus === 'REQUESTING PERMISSION' ? 'animate-spin' : ''}`} />
+                <span>{isTe ? 'లైవ్ GPS ప్రారంభించండి' : 'Enable Live GPS'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={stopLiveGPS}
+                disabled={gpsStatus === 'GPS OFF'}
+                className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 disabled:bg-slate-50 disabled:text-slate-300 border border-slate-200 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:cursor-not-allowed active:scale-95"
+              >
+                <MapPinOff className="w-3.5 h-3.5" />
+                <span>{isTe ? 'GPS ఆపివేయండి' : 'Stop Live GPS'}</span>
+              </button>
+            </div>
+
+          </div>
+        </section>
+
+        {/* ======================================================== */}
         {/* 1. PROFESSIONAL SAAS HEADER                              */}
         {/* ======================================================== */}
         <header className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-5 md:p-6 transition-all">
@@ -326,7 +459,7 @@ export default function Dashboard() {
               <span className="text-slate-300">•</span>
               <span className="text-xs font-semibold text-slate-700 flex items-center gap-1">
                 <MapPin className="w-3.5 h-3.5 text-emerald-600" />
-                {farmLocation?.displayLocation || DEFAULT_FARM_LOCATION.displayLocation}
+                {gpsData?.isLive ? `${gpsData.formattedLat}, ${gpsData.formattedLon} • ${gpsData.locationName}` : (isTe ? 'GPS ఆఫ్‌లో ఉంది' : 'GPS Offline (Click "Enable Live GPS")')}
               </span>
               <span className="text-slate-300">•</span>
               <span className="text-xs font-mono text-slate-500 flex items-center gap-1">
@@ -337,7 +470,7 @@ export default function Dashboard() {
 
             <div className="flex items-baseline gap-3 mt-2 flex-wrap">
               <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
-                {farmLocation?.name || DEFAULT_FARM_LOCATION.name}
+                {gpsData?.city && gpsData.city !== 'N/A' ? `${gpsData.city} Precision Farm` : (gpsData?.isLive ? 'Live Precision Farm' : 'AgriNex Precision Farm')}
               </h1>
 
               {/* Weather Summary Pill in Header */}
@@ -698,7 +831,7 @@ export default function Dashboard() {
                 </div>
               </div>
               <span className="text-xs font-mono font-medium px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
-                {farmLocation?.city || 'Local Area'}
+                {gpsData?.city && gpsData.city !== 'N/A' ? gpsData.city : (gpsData?.isLive ? 'Live GPS' : (isTe ? 'GPS ఆఫ్‌లో ఉంది' : 'GPS Offline'))}
               </span>
             </div>
 
@@ -716,7 +849,7 @@ export default function Dashboard() {
                   </span>
                 </div>
                 <div className="text-xs font-bold text-slate-700 mt-1">
-                  {weatherData?.weatherCondition || 'Normal'}
+                  {weatherData?.weatherCondition || (gpsData?.isLive ? (isTe ? 'వాతావరణ డేటా సమకాలీకరిస్తోంది...' : 'Syncing local weather...') : (isTe ? 'వాతావరణం కోసం లైవ్ GPS ప్రారంభించండి' : 'Enable Live GPS to sync local weather'))}
                 </div>
               </div>
 

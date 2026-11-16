@@ -47,12 +47,12 @@ export function interpretWeatherCode(code, language = 'en') {
 }
 
 export const DEFAULT_FARM_LOCATION = {
-  name: 'Green Valley Precision Farm',
-  latitude: 17.3850,
-  longitude: 78.4867,
-  displayLocation: "17°23'N, 78°29'E • Hyderabad, IN",
-  city: 'Hyderabad',
-  country: 'India',
+  name: 'AgriNex Precision Farm',
+  latitude: null,
+  longitude: null,
+  displayLocation: "Location Unavailable (GPS Off)",
+  city: 'N/A',
+  country: 'N/A',
   isLive: false
 };
 
@@ -84,7 +84,12 @@ export function getStoredLocation() {
     const raw = localStorage.getItem(STORAGE_LOCATION_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (typeof parsed?.latitude === 'number' && typeof parsed?.longitude === 'number') {
+      // Clean up legacy hardcoded Hyderabad entry if present
+      if (parsed?.city === 'Hyderabad' && parsed?.latitude === 17.385 && !parsed?.isLive) {
+        localStorage.removeItem(STORAGE_LOCATION_KEY);
+        return DEFAULT_FARM_LOCATION;
+      }
+      if (parsed?.isLive && typeof parsed?.latitude === 'number' && typeof parsed?.longitude === 'number') {
         return parsed;
       }
     }
@@ -247,7 +252,10 @@ export async function getLiveBrowserLocation() {
   throw new Error('Unable to determine location. Please allow browser location access or verify your internet connection.');
 }
 
-export async function fetchLiveWeather(latitude = DEFAULT_FARM_LOCATION.latitude, longitude = DEFAULT_FARM_LOCATION.longitude) {
+export async function fetchLiveWeather(latitude, longitude) {
+  if (typeof latitude !== 'number' || typeof longitude !== 'number' || isNaN(latitude) || isNaN(longitude)) {
+    return null;
+  }
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,precipitation&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto`;
 
   try {

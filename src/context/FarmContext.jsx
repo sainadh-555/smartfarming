@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
+import React, { createContext, useContext, useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { apiService, CROPS_CATALOG } from '../services/apiService';
 import { 
   calculateFAO56_ET0, 
@@ -11,9 +11,16 @@ import { formatINR, formatIndianNumber } from '../services/currencyService';
 import {
   DEFAULT_FARM_LOCATION,
   getStoredLocation,
-  getLiveBrowserLocation,
+  saveStoredLocation,
   clearStoredLocation
 } from '../services/weatherService';
+import {
+  GPS_STATUS,
+  formatGpsCoordinates,
+  formatGpsAccuracy,
+  reverseGeocodeWithCache,
+  isLikelyMobileDevice
+} from '../services/gpsService';
 
 const FarmContext = createContext();
 
@@ -27,26 +34,221 @@ export const FarmProvider = ({ children }) => {
   const [isLocating, setIsLocating] = useState(false);
   const [locationError, setLocationError] = useState(null);
 
-  const requestLiveLocation = async () => {
-    setIsLocating(true);
-    setLocationError(null);
-    try {
-      const loc = await getLiveBrowserLocation();
-      setFarmLocation(loc);
-      return loc;
-    } catch (err) {
-      setLocationError(err.message);
-      throw err;
-    } finally {
-      setIsLocating(false);
+  // Live Browser-Based GPS Tracking State
+  const [gpsStatus, setGpsStatus] = useState(GPS_STATUS.OFF);
+  const [gpsError, setGpsError] = useState(null);
+  const watchIdRef = useRef(null);
+
+  const [gpsData, setGpsData] = useState(() => {
+    const stored = getStoredLocation();
+    if (stored?.isLive && typeof stored?.latitude === 'number' && typeof stored?.longitude === 'number') {
+      const coords = formatGpsCoordinates(stored.latitude, stored.longitude);
+      return {
+        latitude: stored.latitude,
+        longitude: stored.longitude,
+        accuracy: stored.accuracy || null,
+        altitude: null,
+        heading: null,
+        speed: null,
+        formattedLat: coords.latStr,
+        formattedLon: coords.lonStr,
+        locationName: stored.city ? `${stored.city}, ${stored.country || ''}` : coords.displayStr,
+        city: stored.city || 'Local Area',
+        state: stored.state || '',
+        country: stored.country || '',
+        lastUpdated: stored.detectedAt ? new Date(stored.detectedAt).toLocaleTimeString() : 'N/A',
+        lastUpdatedIso: stored.detectedAt || null,
+        accuracyLabel: formatGpsAccuracy(stored.accuracy),
+        isLive: true,
+        isApproximate: !isLikelyMobileDevice()
+      };
     }
+    return {
+      latitude: null,
+      longitude: null,
+      accuracy: null,
+      altitude: null,
+      heading: null,
+      speed: null,
+      formattedLat: 'N/A',
+      formattedLon: 'N/A',
+      locationName: 'GPS Off • Click to Enable',
+      city: 'N/A',
+      state: '',
+      country: '',
+      lastUpdated: 'N/A',
+      lastUpdatedIso: null,
+      accuracyLabel: 'N/A',
+      isLive: false,
+      isApproximate: !isLikelyMobileDevice()
+    };
+  });
+
+  const startLiveGPS = useCallback(() => {
+    if (typeof window === 'undefined' || !navigator.geolocation) {
+      setGpsStatus(GPS_STATUS.UNSUPPORTED);
+      setGpsError('Browser does not support the Geolocation API.');
+      return;
+    }
+
+    if (watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+
+    setGpsStatus(GPS_STATUS.REQUESTING);
+    setGpsError(null);
+    setIsLocating(true);
+
+    const isMobile = isLikelyMobileDevice();
+
+    const onPositionSuccess = async (pos) => {
+      const lat = Number(pos.coords.latitude.toFixed(6));
+      const lon = Number(pos.coords.longitude.toFixed(6));
+      const acc = pos.coords.accuracy ? Math.round(pos.coords.accuracy) : null;
+      const coords = formatGpsCoordinates(lat, lon);
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      const isoStr = now.toISOString();
+
+      let placeInfo = { city: 'Local Area', state: '', country: '', fullFormatted: coords.displayStr };
+      try {
+        const geo = await reverseGeocodeWithCache(lat, lon);
+        if (geo) placeInfo = geo;
+      } catch (err) {
+        console.warn('[GPS] Reverse geocode lookup error:', err);
+      }
+
+      const updatedGps = {
+        latitude: lat,
+        longitude: lon,
+        accuracy: acc,
+        altitude: pos.coords.altitude || null,
+        heading: pos.coords.heading || null,
+        speed: pos.coords.speed || null,
+        formattedLat: coords.latStr,
+        formattedLon: coords.lonStr,
+        locationName: placeInfo.fullFormatted || coords.displayStr,
+        city: placeInfo.city || 'Local Area',
+        state: placeInfo.state || '',
+        country: placeInfo.country || '',
+        lastUpdated: timeStr,
+        lastUpdatedIso: isoStr,
+        accuracyLabel: formatGpsAccuracy(acc),
+        isLive: true,
+        isApproximate: !isMobile
+      };
+
+      setGpsData(updatedGps);
+      setGpsStatus(GPS_STATUS.ACTIVE);
+      setGpsError(null);
+      setIsLocating(false);
+
+      const farmLoc = {
+        name: placeInfo.city ? `${placeInfo.city} Precision Farm` : 'Live Precision Farm',
+        latitude: lat,
+        longitude: lon,
+        displayLocation: `${coords.dmsStr} • ${placeInfo.city || 'Live GPS'}`,
+        city: placeInfo.city || 'Local Area',
+        country: placeInfo.country || '',
+        accuracy: acc,
+        isLive: true,
+        source: 'gps',
+        detectedAt: isoStr
+      };
+
+      setFarmLocation(farmLoc);
+      saveStoredLocation(farmLoc);
+    };
+
+    const onPositionError = (err) => {
+      setIsLocating(false);
+      let msg = 'Unable to determine location. Please verify device location settings.';
+      let status = GPS_STATUS.UNAVAILABLE;
+
+      if (err.code === 1) { // PERMISSION_DENIED
+        status = GPS_STATUS.DENIED;
+        msg = 'Location permission denied by user. Please allow location access in your browser address bar (lock icon) and click Enable Live GPS.';
+      } else if (err.code === 2) { // POSITION_UNAVAILABLE
+        status = GPS_STATUS.UNAVAILABLE;
+        msg = 'Location unavailable. The browser could not obtain a satellite or network location fix.';
+      } else if (err.code === 3) { // TIMEOUT
+        status = GPS_STATUS.UNAVAILABLE;
+        msg = 'Location request timed out. Please click Enable Live GPS again.';
+      }
+
+      setGpsStatus(status);
+      setGpsError(msg);
+    };
+
+    try {
+      const id = navigator.geolocation.watchPosition(
+        onPositionSuccess,
+        onPositionError,
+        {
+          enableHighAccuracy: true,
+          timeout: 15000,
+          maximumAge: 5000
+        }
+      );
+      watchIdRef.current = id;
+    } catch (e) {
+      setIsLocating(false);
+      setGpsStatus(GPS_STATUS.UNAVAILABLE);
+      setGpsError(e.message || 'Error initializing Geolocation watch.');
+    }
+  }, []);
+
+  const stopLiveGPS = useCallback(() => {
+    if (watchIdRef.current !== null && typeof navigator !== 'undefined' && navigator.geolocation) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+    setGpsStatus(GPS_STATUS.OFF);
+    setGpsError(null);
+    setIsLocating(false);
+    setGpsData(prev => ({ ...prev, isLive: false }));
+  }, []);
+
+  const requestLiveLocation = async () => {
+    startLiveGPS();
   };
 
   const resetLocation = () => {
+    stopLiveGPS();
     clearStoredLocation();
     setFarmLocation(DEFAULT_FARM_LOCATION);
     setLocationError(null);
+    setGpsStatus(GPS_STATUS.OFF);
+    setGpsError(null);
+    setGpsData({
+      latitude: null,
+      longitude: null,
+      accuracy: null,
+      altitude: null,
+      heading: null,
+      speed: null,
+      formattedLat: 'N/A',
+      formattedLon: 'N/A',
+      locationName: 'GPS Off • Click to Enable',
+      city: 'N/A',
+      state: '',
+      country: '',
+      lastUpdated: 'N/A',
+      lastUpdatedIso: null,
+      accuracyLabel: 'N/A',
+      isLive: false,
+      isApproximate: !isLikelyMobileDevice()
+    });
   };
+
+  useEffect(() => {
+    return () => {
+      if (watchIdRef.current !== null && typeof navigator !== 'undefined' && navigator.geolocation) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     localStorage.setItem('smartfarm_unit_system', unitSystem);
@@ -154,13 +356,18 @@ export const FarmProvider = ({ children }) => {
     formatVolume,
     formatArea,
     formatPressure,
-    // Live Farm Location Management
+    // Live Farm Location & Browser GPS Tracking
     farmLocation,
     setFarmLocation,
     requestLiveLocation,
     resetLocation,
     isLocating,
     locationError,
+    gpsStatus,
+    gpsData,
+    gpsError,
+    startLiveGPS,
+    stopLiveGPS,
     // Hybrid Mode Controls
     setOperatingMode: (mode) => apiService.setOperatingMode(mode),
     triggerSimulateData: () => apiService.triggerSimulateData(),

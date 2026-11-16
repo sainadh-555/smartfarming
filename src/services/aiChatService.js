@@ -155,8 +155,11 @@ export const buildFarmSystemPrompt = ({
   }
 
   const isMotorOn = motorStatus?.pumpActive || false;
+  const loc = getStoredLocation();
+  const locName = loc?.city && loc.city !== 'N/A' ? `${loc.city}, ${loc.country || 'India'}` : (loc?.isLive ? 'Live Precision Farm' : 'AgriNex Field');
+  const farmTitle = loc?.name || 'AgriNex Precision Farm';
 
-  return `You are AgriNex AI, an expert agricultural consultant and AI copilot for Green Valley Precision Farm (1.0 Acre, Hyderabad, India).
+  return `You are AgriNex AI, an expert agricultural consultant and AI copilot for ${farmTitle} (1.0 Acre, ${locName}).
 You understand crop cultivation (Tomato, Chili, Paddy, Groundnut), soil moisture, irrigation scheduling, weather forecasting, crop diseases, nutrient management, fertilizer plans, and smart IoT telemetry.
 Language to respond in: ${isTe ? 'Telugu (తెలుగు) - use authentic farming terminology' : 'English'}.
 

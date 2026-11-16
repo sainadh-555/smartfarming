@@ -31,7 +31,8 @@ export default function Layout() {
     setLanguage,
     t,
     downloadAuditCSV,
-    farmLocation
+    farmLocation,
+    gpsData
   } = useFarmData();
 
   const isTe = language === 'te';
@@ -153,7 +154,7 @@ export default function Layout() {
             <div className="flex flex-col min-w-0">
               <div className="flex items-center gap-2">
                 <h2 className="text-base font-extrabold text-slate-900 tracking-tight truncate">
-                  {farmLocation?.name || 'Green Valley Farm'}
+                  {gpsData?.city && gpsData.city !== 'N/A' ? `${gpsData.city} Precision Farm` : (gpsData?.isLive ? 'Live Precision Farm' : 'AgriNex Precision Farm')}
                 </h2>
                 {operatingMode === 'live_hardware' && (
                   <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-mono font-bold border shrink-0 ${
@@ -183,7 +184,7 @@ export default function Layout() {
                 )}
               </div>
               <span className="text-[11px] text-slate-500 font-medium truncate">
-                {farmLocation?.displayLocation || 'Precision Agriculture Field'} • 1.00 Acre (4 Quadrants)
+                {gpsData?.isLive ? `${gpsData.formattedLat}, ${gpsData.formattedLon} • ${gpsData.locationName}` : (isTe ? 'GPS ఆఫ్‌లో ఉంది' : 'GPS Offline')} • 1.00 Acre (4 Quadrants)
               </span>
             </div>
           </div>
